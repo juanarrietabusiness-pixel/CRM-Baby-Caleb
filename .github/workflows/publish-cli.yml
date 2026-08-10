@@ -17,6 +17,24 @@
 #          → New repository secret, con nombre NPM_TOKEN.
 #       3. Actions → "Publicar CLI en npm" → Run workflow.
 #
+#     ⚠ EL PASO QUE SE OLVIDA: si tu cuenta tiene 2FA (y debería), el token
+#     necesita ADEMÁS la casilla de saltarse el 2FA activada. Sin ella el
+#     workflow llega hasta el final —arma el tarball, firma la procedencia— y
+#     npm lo rechaza en el último segundo con:
+#
+#       403 Forbidden - PUT https://registry.npmjs.org/<paquete>
+#       Two-factor authentication or granular access token with bypass 2fa
+#       enabled is required to publish packages.
+#
+#     La alternativa, si prefieres no crear un token que se salte el 2FA (npm
+#     los está restringiendo), es publicar la PRIMERA versión desde tu propia
+#     máquina, escribiendo el código de 2FA a mano:
+#
+#       npm login && cd cli && npm publish --access public
+#
+#     Da igual cuál de las dos uses: en cuanto exista la v0.1.0 se pasa a OIDC
+#     y no vuelve a hacer falta ningún token.
+#
 # A · Trusted Publishing (OIDC) — a lo que hay que llegar en cuanto exista la
 #     v0.1.0: npm confía en este repositorio y NO hay ningún token guardado.
 #     Nada que robar, nada que rotar. Dos formas de configurarlo:

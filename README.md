@@ -147,8 +147,13 @@ node cli/bin/cli.js init
 **Para publicarlo**, el workflow [`publish-cli.yml`](./.github/workflows/publish-cli.yml)
 ya está listo; los detalles están en su cabecera. El resumen:
 
-1. Crea un **Granular Access Token** en npmjs.com con permiso de escritura y
-   guárdalo como secret `NPM_TOKEN` en este repo.
+1. Crea un **Granular Access Token** en npmjs.com con permiso de escritura —y,
+   si tu cuenta tiene 2FA, con la casilla de **saltarse el 2FA** activada, o el
+   publish muere con un 403 en el último paso— y guárdalo como secret
+   `NPM_TOKEN` en este repo.
+   *(Si prefieres no crear un token así: publica la primera versión desde tu
+   máquina con `npm login && cd cli && npm publish --access public`, escribiendo
+   el código de 2FA a mano. Es un solo comando y luego ya no hace falta.)*
 2. Actions → **Publicar CLI en npm** → *Run workflow*.
 3. Publicada la v0.1.0, conecta el paquete a este repo con
    `npm trust github juancitoads --repo juanarrietabusiness-pixel/CRM-JuancitoADS --file publish-cli.yml`
