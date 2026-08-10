@@ -739,9 +739,6 @@ export const businessConfig = {
   customFields: ${JSON.stringify(cf, null, 2)} as Record<string, string>,
 };
 
-import type { CommentFunnel } from "../src/channels/comment-funnel";
-export const commentFunnels: CommentFunnel[] = [];
-
 export const catalog: { name: string; price: number; description?: string; sku?: string }[] = [];
 `;
 }
