@@ -10,6 +10,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-1E90FF.svg)](./LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-f6821f.svg)](https://workers.cloudflare.com/)
+[![npm](https://img.shields.io/npm/v/juancitoads?color=1E90FF&label=npx%20juancitoads)](https://www.npmjs.com/package/juancitoads)
 
 [**Instalar**](#-instalar-en-5-minutos) · [**Cómo funciona**](#-cómo-funciona) · [**Roadmap**](#-roadmap) · [**Créditos**](#-créditos-y-origen)
 
@@ -52,7 +53,7 @@ Abre [Claude Code](https://claude.com/claude-code) en tu terminal y dile:
 Claude te explica cómo funciona y cuánto cuesta, verifica que tengas lo necesario, y monta todo por ti: crea tu Cloudflare, despliega el bot y te entrega tu panel vivo. Por debajo corre el instalador:
 
 ```bash
-node cli/bin/cli.js init     # (será `npx juancitoads init` al publicarlo en npm)
+npx juancitoads init
 ```
 
 ### Opción B — manual (si ya programas)
@@ -125,7 +126,6 @@ Lo que ya funciona está arriba. Lo que viene:
 
 - 🎯 **Giros verticales** — hoy el repo trae el giro `generico`, que sirve para cualquier negocio. Faltan los paneles a la medida (barbería, restaurante, inmobiliaria, clínica…) en `src/niches/`.
 - 📇 **CRM completo** — pipeline de ventas, etapas y seguimiento sobre los leads que el bot ya captura.
-- 📦 **Publicar el CLI en npm** — para que `npx juancitoads init` funcione sin clonar (ver abajo).
 
 ¿Ideas? Ábrelas en [Discussions](https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS/discussions).
 
@@ -137,30 +137,19 @@ El instalador (`cli/`) es **autónomo**: baja el código directo de este repo en
 No hay servidor de licencias, ni cuentas, ni llaves, ni límites de instalación —
 todo viene desbloqueado.
 
-Mientras el paquete no esté publicado en npm, `npx juancitoads` todavía no resuelve.
-Puedes correrlo desde el repo clonado:
+Está publicado en npm como [`juancitoads`](https://www.npmjs.com/package/juancitoads),
+con procedencia firmada: el badge de npm enlaza al commit exacto de este repo que
+lo construyó. También puedes correrlo desde el repo clonado, sin pasar por npm:
 
 ```bash
 node cli/bin/cli.js init
 ```
 
-**Para publicarlo**, el workflow [`publish-cli.yml`](./.github/workflows/publish-cli.yml)
-ya está listo; los detalles están en su cabecera. El resumen:
-
-1. Crea un **Granular Access Token** en npmjs.com con permiso de escritura —y,
-   si tu cuenta tiene 2FA, con la casilla de **saltarse el 2FA** activada, o el
-   publish muere con un 403 en el último paso— y guárdalo como secret
-   `NPM_TOKEN` en este repo.
-   *(Si prefieres no crear un token así: publica la primera versión desde tu
-   máquina con `npm login && cd cli && npm publish --access public`, escribiendo
-   el código de 2FA a mano. Es un solo comando y luego ya no hace falta.)*
-2. Actions → **Publicar CLI en npm** → *Run workflow*.
-3. Publicada la v0.1.0, conecta el paquete a este repo con
-   `npm trust github juancitoads --repo juanarrietabusiness-pixel/CRM-JuancitoADS --file publish-cli.yml`
-   y **borra el secret**: de ahí en adelante publica por OIDC, sin tokens.
-
-El token hace falta solo la primera vez: npm exige que el paquete ya exista en
-el registro antes de dejarte configurar Trusted Publishing.
+**Para sacar una versión nueva:** sube el `version` de `cli/package.json`, y luego
+Actions → **Publicar CLI en npm** → *Run workflow* (o publica un release). Los
+detalles de autenticación están en la cabecera de
+[`publish-cli.yml`](./.github/workflows/publish-cli.yml) — incluido el 403 por 2FA
+que se lleva por delante al primer intento si el token no trae esa casilla.
 
 Y si quieres probar un fork o una rama antes de publicar:
 
