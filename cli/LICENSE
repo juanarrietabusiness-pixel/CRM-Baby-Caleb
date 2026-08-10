@@ -1,11 +1,14 @@
 MIT License
 
+Copyright (c) 2026 Juancito Ads
 Copyright (c) 2026 PanaClaw
 Copyright (c) 2026 Horizontes IA
 
-This software is a derivative work of Forja (https://github.com/santmun/forja),
-originally created by Horizontes IA and released under the MIT License. The
-original copyright notice is retained above as required by that license.
+This software is a derivative work of CRM - PanaClaw
+(https://github.com/abrinay1997-stack/CRM-PANACLAW), which is itself a
+derivative of Forja (https://github.com/santmun/forja), created by Horizontes
+IA. Both were released under the MIT License and their copyright notices are
+retained above as that license requires.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

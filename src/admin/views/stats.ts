@@ -9,10 +9,10 @@ import { costOfUsage, type ModelId } from "../../pricing";
 import { channelLabel } from "../../channels/labels";
 import {layout, ico, emptyState} from "./layout";
 
-// Espejo de --accent (flash-orange de marca). Se escribe el hex porque va en
+// Espejo de --accent (azul neón de marca). Se escribe el hex porque va en
 // atributos de presentación de SVG (fill/stroke), no en CSS: si cambia el
 // token en layout.ts, este valor se cambia con él.
-const ACCENT = "#ff5100";
+const ACCENT = "#1E90FF";
 
 function esc(s: string): string {
   return s.replace(
@@ -61,7 +61,7 @@ function heatmap(cells: Map<string, number>): string {
     const tds = Array.from({ length: 24 }, (_, hour) => {
       const n = cells.get(`${dow}:${hour}`) ?? 0;
       const alpha = n === 0 ? 0 : 0.12 + 0.8 * (n / max);
-      const bg = n === 0 ? "var(--panel2)" : `rgba(255,81,0,${alpha.toFixed(2)})`;
+      const bg = n === 0 ? "var(--panel2)" : `rgba(30,144,255,${alpha.toFixed(2)})`;
       return `<td class="p-0"><div style="width:13px;height:13px;background:${bg}" title="${name} ${hour}:00 — ${n} ${n === 1 ? "mensaje" : "mensajes"}"></div></td>`;
     }).join("");
     return `<tr><td class="pr-2 text-[9px] text-dim font-mono text-right">${name}</td>${tds}</tr>`;

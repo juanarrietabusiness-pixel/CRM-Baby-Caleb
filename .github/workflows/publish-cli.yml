@@ -1,4 +1,4 @@
-# Publica el CLI `panaclaw` a npm, con PROCEDENCIA (provenance) cuando se puede.
+# Publica el CLI `juancitoads` a npm, con PROCEDENCIA (provenance) cuando se puede.
 #
 # Provenance = npm firma el paquete con Sigstore y deja constancia pública de
 # QUÉ commit de ESTE repo lo construyó. En npmjs.com aparece el badge
@@ -8,9 +8,9 @@
 #
 # A · Trusted Publishing (OIDC) — lo ideal: npm confía en este repositorio y NO
 #     hay ningún token guardado. Nada que robar, nada que rotar. Se configura
-#     en npmjs.com → paquete panaclaw → Settings → Trusted Publisher:
-#       Organization or user: abrinay1997-stack
-#       Repository:           CRM-PANACLAW
+#     en npmjs.com → paquete juancitoads → Settings → Trusted Publisher:
+#       Organization or user: juanarrietabusiness-pixel
+#       Repository:           CRM-JuancitoADS
 #       Workflow filename:    publish-cli.yml
 #
 # B · Token en GitHub Secrets — el plan de respaldo para el PRIMER publish.

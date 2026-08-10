@@ -1,6 +1,6 @@
-# 🐾 Empieza aquí — CRM PanaClaw
+# 📣 Empieza aquí — CRM Juancito Ads
 
-**Este documento es para el dueño de PanaClaw.** No hace falta que sepas programar.
+**Este documento es para el dueño de Juancito Ads.** No hace falta que sepas programar.
 Está escrito para que se lo pases a **Claude** y él haga el trabajo técnico por ti,
 paso a paso, preguntándote solo cosas de negocio.
 
@@ -177,7 +177,7 @@ este mensaje tal cual:
 ```
 Lee el archivo EMPIEZA-AQUI.md y el CLAUDE.md de este repo.
 
-Soy el dueño de PanaClaw y no programo. Quiero desplegar mi primer bot en
+Soy el dueño de Juancito Ads y no programo. Quiero desplegar mi primer bot en
 mi cuenta de Cloudflare. Ya tengo:
 - Cuenta de Cloudflare con plan Workers Paid
 - Una llave de IA
@@ -205,7 +205,7 @@ Son cuatro fases, más o menos 35 minutos:
 Al terminar, tu panel vive en una dirección así:
 
 ```
-https://panaclaw-generico-a1b2c3.workers.dev/admin
+https://juancitoads-generico-a1b2c3.workers.dev/admin
 ```
 
 Te recibe una pantalla de entrada con el logo de tu negocio. Solo pide **la contraseña**
@@ -249,7 +249,7 @@ escrito en tu contrato. El detalle legal está en [`PRIVACY.md`](./PRIVACY.md).
 
 ## 6. Que se vea como tu marca (dominio propio)
 
-La dirección `panaclaw-generico-a1b2c3.workers.dev` funciona perfecto, pero se ve técnica.
+La dirección `juancitoads-generico-a1b2c3.workers.dev` funciona perfecto, pero se ve técnica.
 Cloudflare te deja ponerle **tu propio dominio** a cada bot, gratis, y él se encarga solo del
 certificado de seguridad.
 
@@ -324,7 +324,7 @@ canales están bien conectados.
 | El bot contesta cosas raras o se salta pasos | Sube el cerebro a **Máximo** en el panel → Configuración |
 
 Si nada de eso lo arregla, abre un reporte en
-[GitHub Issues](https://github.com/abrinay1997-stack/CRM-PANACLAW/issues) con: qué hiciste, qué
+[GitHub Issues](https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS/issues) con: qué hiciste, qué
 esperabas, y lo que dijo el doctor.
 
 ---
@@ -343,13 +343,14 @@ esperabas, y lo que dijo el doctor.
 
 ### De dónde viene este código
 
-CRM PanaClaw es un derivado de **[Forja](https://github.com/santmun/forja)**, creado por
-**Horizontes IA** y publicado con licencia MIT. Esa licencia permite este uso —incluido el
-comercial— siempre que se conserve el aviso de copyright original, y así está en el archivo
-[`LICENSE`](./LICENSE).
+CRM Juancito Ads es un derivado de **[CRM - PanaClaw](https://github.com/abrinay1997-stack/CRM-PANACLAW)**,
+que a su vez deriva de **[Forja](https://github.com/santmun/forja)**, de **Horizontes IA**.
+Los dos se publicaron con licencia MIT. Esa licencia permite este uso —incluido el
+comercial— siempre que se conserven los avisos de copyright originales, y así están los
+tres en el archivo [`LICENSE`](./LICENSE).
 
-PanaClaw **no está afiliado a Horizontes IA ni respaldado por ellos**, y no usa nada de su
-infraestructura: este proyecto no llama a sus servidores ni usa sus licencias.
+Juancito Ads **no está afiliado a PanaClaw ni a Horizontes IA, ni respaldado por ellos**, y no
+usa nada de su infraestructura: este proyecto no llama a sus servidores ni usa sus licencias.
 
 ---
 

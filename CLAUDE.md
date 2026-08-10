@@ -1,6 +1,6 @@
-# PanaClaw — instrucciones para Claude Code
+# Juancito Ads — instrucciones para Claude Code
 
-Este repo es **PanaClaw**, un chatbot de soporte con IA open source: un Worker de
+Este repo es **Juancito Ads**, un chatbot de soporte con IA open source: un Worker de
 Cloudflare (Hono + Vercel AI SDK + D1 + Vectorize + R2) con panel de administración
 en `/admin`. Quien lo clona probablemente **no sabe programar** — tú corres todo por él.
 
@@ -48,11 +48,24 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 - `/actualizar-mi-bot` — trae la última versión conservando tu config.
 - `/contribuir` — abre issues o manda PRs al repo.
 
+## La marca del panel
+
+El panel `/admin` lleva la identidad de Juancito Ads: azul marino `#050D1F`, azul neón
+`#1E90FF`, naranja `#F5A623`, titulares en Inter y texto en Hanken Grotesk — los mismos
+valores del sitio (`PAGINA-JUANCITO-ADS/src/styles/global.css`). **`docs/design-system.md`
+es el contrato**: léelo antes de tocar cualquier archivo de `src/admin/views/`, y no
+inventes colores fuera de sus tokens.
+
+Los iconos de `public/` se regeneran del logo del sitio con
+`node scripts/brand-icons.mjs <ruta-al-logo.png>` — no los edites a mano.
+
 ## Estado del proyecto
 
 Todo viene desbloqueado: no hay tiers, licencias ni features de pago. El repo trae un solo
 giro (`generico`), que sirve para cualquier negocio; los giros verticales con panel a la
 medida están en el roadmap del README.
 
-Derivado de [Forja](https://github.com/santmun/forja) (MIT, © Horizontes IA) — el aviso de
-copyright original se conserva en `LICENSE`, como exige la licencia.
+Derivado de [CRM - PanaClaw](https://github.com/abrinay1997-stack/CRM-PANACLAW), que a su
+vez deriva de [Forja](https://github.com/santmun/forja) (ambos MIT) — los avisos de
+copyright originales se conservan en `LICENSE`, como exigen esas licencias. **No los
+quites al editar ese archivo.**

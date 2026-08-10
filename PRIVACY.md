@@ -1,12 +1,12 @@
-# Privacidad y datos — PanaClaw
+# Privacidad y datos — Juancito Ads
 
-PanaClaw es software **self-hosted**: se instala en **tu propia cuenta de Cloudflare**, con **tus propias llaves**. Ni PanaClaw ni ninguna otra persona recibe, ve o guarda las conversaciones de tus clientes.
+Juancito Ads es software **self-hosted**: se instala en **tu propia cuenta de Cloudflare**, con **tus propias llaves**. Ni Juancito Ads ni ninguna otra persona recibe, ve o guarda las conversaciones de tus clientes.
 
 Este documento explica **qué datos maneja el bot, dónde viven y qué te toca hacer a ti** como dueño del negocio que lo instala.
 
 ---
 
-## 1. PanaClaw no llama a casa
+## 1. Juancito Ads no llama a casa
 
 El bot **no envía telemetría, analíticas ni datos de uso a nadie**. No hay ping de activación, ni contador de instalaciones, ni reporte de errores remoto. Puedes verificarlo tú mismo: busca en `src/` cualquier `fetch` a un dominio y verás que solo aparecen los servicios que **tú** conectas (Twilio, Meta, Telegram, ManyChat, Cal.com) y el proveedor de IA que elegiste.
 
@@ -38,7 +38,7 @@ Además, el mensaje pasa por el canal que conectaste (WhatsApp/Twilio, Instagram
 
 ## 4. Lo que te toca a ti (importante)
 
-Cuando instalas PanaClaw, **tú eres el responsable** de los datos personales de tus clientes; PanaClaw es solo la herramienta. Con eso en mente:
+Cuando instalas Juancito Ads, **tú eres el responsable** de los datos personales de tus clientes; Juancito Ads es solo la herramienta. Con eso en mente:
 
 - **Avisa que hay un bot.** Di en tu perfil, en tu web o en el primer mensaje que la atención es automatizada con IA. Si un cliente pregunta si habla con una máquina, el bot lo admite (así viene configurado) — no lo cambies para que lo niegue.
 - **Avisa que guardas la conversación.** Una línea en tu aviso de privacidad basta: qué guardas, para qué, y por cuánto tiempo.
@@ -52,10 +52,10 @@ Cuando instalas PanaClaw, **tú eres el responsable** de los datos personales de
 El bot expone `/api/*` con conteos agregados (cuántas conversaciones, cuántos leads):
 **números, nunca conversaciones**. Está **cerrada** salvo que tú configures el secreto
 `CONTROL_PLANE_TOKEN`, y sirve para que tú conectes tus propios tableros si algún día
-quieres. No hay ningún servicio externo al que se reporte: PanaClaw no opera servidores.
+quieres. No hay ningún servicio externo al que se reporte: Juancito Ads no opera servidores.
 
 ---
 
-PanaClaw se entrega **tal cual**, bajo licencia MIT y sin garantías (ver [LICENSE](./LICENSE)). El cumplimiento legal de tu operación es responsabilidad tuya.
+Juancito Ads se entrega **tal cual**, bajo licencia MIT y sin garantías (ver [LICENSE](./LICENSE)). El cumplimiento legal de tu operación es responsabilidad tuya.
 
 ¿Encontraste algo que en tu opinión maneja datos de forma indebida? Abre un issue — se toma en serio.

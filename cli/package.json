@@ -1,21 +1,21 @@
 {
-  "name": "panaclaw",
+  "name": "juancitoads",
   "version": "0.1.0",
-  "description": "CRM - PanaClaw — instala bots de IA con CRM en tu propia infraestructura, en un comando.",
+  "description": "CRM - Juancito Ads — instala bots de IA con CRM en tu propia infraestructura, en un comando.",
   "license": "MIT",
-  "author": "PanaClaw",
-  "homepage": "https://github.com/abrinay1997-stack/CRM-PANACLAW#readme",
+  "author": "Juancito Ads",
+  "homepage": "https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/abrinay1997-stack/CRM-PANACLAW.git",
+    "url": "git+https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS.git",
     "directory": "cli"
   },
   "bugs": {
-    "url": "https://github.com/abrinay1997-stack/CRM-PANACLAW/issues"
+    "url": "https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS/issues"
   },
   "type": "module",
   "bin": {
-    "panaclaw": "bin/cli.js"
+    "juancitoads": "bin/cli.js"
   },
   "engines": {
     "node": ">=18"
@@ -26,7 +26,7 @@
     "ai",
     "whatsapp",
     "cloudflare",
-    "panaclaw"
+    "juancitoads"
   ],
   "files": [
     "bin"

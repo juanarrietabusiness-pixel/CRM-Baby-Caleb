@@ -45,7 +45,7 @@ describe("dashboard tier gating (nav)", () => {
     expect(html).toContain("wrangler.toml");
     expect(html).toContain("ya es tuyo");
     // …y no manda a ningún lado a pagar ni a unirse a nada.
-    expect(html).not.toContain("panaclaw.com");
+    expect(html).not.toContain("juancitoads.com");
     expect(html).not.toContain("comunidad");
   });
 });

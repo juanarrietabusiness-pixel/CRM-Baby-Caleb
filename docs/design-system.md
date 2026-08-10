@@ -1,6 +1,6 @@
-# CRM - PanaClaw Admin — Design System
+# CRM Juancito Ads Admin — Design System
 
-Brand theme (PanaClaw deep-black + flash-orange) for the bot admin dashboard. This is the **contract**
+Brand theme (Juancito Ads deep-navy + neon-blue) for the bot admin dashboard. This is the **contract**
 for every view under `src/admin/views/`. The shell (`layout.ts`) already loads
 the fonts, Tailwind config, tokens, lucide, htmx, the scanline overlay and all
 the component classes below. Views only render the **body** — write it to match
@@ -19,42 +19,53 @@ color** (for `class="…"`). Use whichever fits; they resolve to the same hex.
 
 | CSS var | Tailwind | Hex | Use |
 |---|---|---|---|
-| `--bg` | `bg-bg` | `#100101` | page background (already on `<body>`) — brand deep-black |
-| `--panel` | `bg-panel` | `#190a0a` | card / panel surface |
-| `--panel2` | `bg-panel2` | `#221010` | nested surface, row hover, inputs-on-panel |
-| `--raise` | `bg-raise` | `#2c1818` | raised chips / avatars |
-| `--line` | `border-line` | `#2e1c1c` | default border / divider |
-| `--linelit` | `border-linelit` | `#4a3333` | lit border, hard-shadow color |
-| `--accent` | `text-accent` `bg-accent` `border-accent` | `#ff5100` | primary accent — brand flash-orange |
-| `--accent-soft` | `bg-accent-soft` | `rgba(255,81,0,.12)` | accent wash / active bg |
-| `--accent-2` | `text-accent2` | `#ff8a4c` | secondary accent (light orange): AI/insights |
-| `--on-accent` | `text-onaccent` | `#100101` | **text on an accent fill** — brand black on orange |
-| `--cream` | `text-cream` | `#fff7f7` | primary text — brand soft-white |
-| `--muted` | `text-muted` | `#bababa` | secondary text — brand studio-gray |
-| `--dim` | `text-dim` | `#857a7a` | tertiary text, labels, captions |
+| `--bg` | `bg-bg` | `#050D1F` | page background (already on `<body>`) — brand deep-navy |
+| `--panel` | `bg-panel` | `#0A1628` | card / panel surface — the site's `bg-alt` |
+| `--panel2` | `bg-panel2` | `#0F1E33` | nested surface, row hover, inputs-on-panel |
+| `--raise` | `bg-raise` | `#16294A` | raised chips / avatars |
+| `--line` | `border-line` | `#16294A` | default border / divider |
+| `--linelit` | `border-linelit` | `#1B3A6B` | lit border — the brand's `blue-dark` |
+| `--accent` | `text-accent` `bg-accent` `border-accent` | `#1E90FF` | primary accent — brand neon-blue |
+| `--accent-soft` | `bg-accent-soft` | `rgba(30,144,255,.12)` | accent wash / active bg |
+| `--accent-2` | `text-accent2` | `#F5A623` | secondary accent — brand orange: AI/insights |
+| `--on-accent` | `text-onaccent` | `#050D1F` | **text on an accent fill** — brand navy on neon-blue |
+| `--cream` | `text-cream` | `#F4F8FF` | primary text — cool white |
+| `--muted` | `text-muted` | `#A0B4CC` | secondary text — the site's `text-sec` |
+| `--dim` | `text-dim` | `#6B819B` | tertiary text, labels, captions |
 | `--ok` | `text-ok` `border-ok` | `#57c98a` | success / green (resolved, online) |
-| `--info` | `text-info` `border-info` | `#6e9be8` | info / blue (WhatsApp, escalated) |
-| `--warn` | `text-warn` `border-warn` | `#e8b430` | warning / amber (needs attention, not an error) |
+| `--info` | `text-info` `border-info` | `#35c4de` | info / cyan (WhatsApp, escalated) |
+| `--warn` | `text-warn` `border-warn` | `#f2cc3f` | warning / yellow (needs attention, not an error) |
 | `--bad` | `text-bad` `border-bad` | `#f4364c` | danger / red (angry, handoff, errors) |
 | `--violet` | `text-violet` | `#b49bf0` | model/memory accents in the flow canvas |
 
-Buttons on `--accent` use `var(--on-accent)` — the brand's deep-black on
-orange. It **is** a token now; never write the hex.
+Buttons on `--accent` use `var(--on-accent)` — the brand's navy on neon-blue.
+The neon blue is a *light* colour: navy on top clears 5.9:1, white only 3.2:1.
+It **is** a token now; never write the hex.
 
-**Where the palette comes from.** Identity colours (`--bg`, `--cream`,
-`--muted`, `--accent`, `--on-accent`) are the PanaClaw brand values, taken
-verbatim from the marketing site's `src/styles/global.css`. Surfaces
-(`--panel`, `--panel2`, `--raise`, `--line`, `--linelit`) are the **solid**
-equivalents of the translucent white the site layers over black — the panel
-stacks surfaces (sidebar → card → modal) and translucency muddies when stacked.
+**Where the palette comes from.** Identity colours (`--bg`, `--panel`,
+`--muted`, `--accent`, `--accent-2`, `--linelit`, `--on-accent`) are the
+Juancito Ads brand values, taken verbatim from the marketing site's
+`src/styles/global.css` — `bg-deep`, `bg-alt`, `text-sec`, `blue-neon`,
+`orange` and `blue-dark`. The remaining surfaces (`--panel2`, `--raise`,
+`--line`) are the **solid** equivalents of the translucent white the site
+layers over navy — the panel stacks surfaces (sidebar → card → modal) and
+translucency muddies when stacked.
 
-**Semantic colours are deliberately not brand colours.** The brand is four
+**Semantic colours are deliberately not brand colours.** The brand is three
 colours; a dashboard needs eight states. `--ok`, `--info`, `--warn`, `--bad`
-and `--violet` are tuned to sit on the warm black without competing with the
-orange. In particular `--bad` is a crimson (`#f4364c`), **not** the brand's
-`signal-red`: at badge size a brand-red would be indistinguishable from the
-accent, and "error" would stop reading as error. Do not "correct" these to
-brand values.
+and `--violet` are tuned to sit on the navy without competing with the accent.
+Two of them are deliberately *not* where you'd expect:
+
+- `--info` is a **cyan** (`#35c4de`), not the blue you'd reach for. Blue is the
+  accent now, and `--info` sits directly beside it — a "Lead nuevo" pill in
+  accent next to a "Contactado" pill in info, WhatsApp in info next to the
+  other channels in `--accent-2`. A second blue would read as the same state.
+- `--warn` is a **yellow** (`#f2cc3f`), pushed off the brand orange on purpose.
+  `--accent-2` already owns orange for AI/insights; at badge size an amber
+  warning would look like a dimmer version of it.
+
+`--bad` is a crimson for the same family of reasons: the brand has no red, so
+it stays a pure danger signal. Do not "correct" any of these to brand values.
 
 Legacy aliases (`--border`, `--border-lit`, `--green`, `--blue`, `--red`) are
 still defined so pasted mockup snippets don't break, but **prefer the names in
@@ -66,17 +77,17 @@ the table above** in new code.
 
 ## 1b. Whose brand is this?
 
-The panel is **PanaClaw's**, the way a Shopify store's admin carries Shopify's
+The panel is **Juancito Ads's**, the way a Shopify store's admin carries Shopify's
 logo even though the store belongs to someone else. Keep the split straight when
 adding anything to the shell:
 
 | Belongs to the business that installed | Belongs to the platform |
 |---|---|
-| The name — `BUSINESS_NAME`, shown on the login screen | The logo (`/logo.svg`) and the tab icons |
+| The name — `BUSINESS_NAME`, shown on the login screen | The logo (`/logo.png`) and the tab icons |
 | The bot, its tone, its knowledge base | The palette and the typefaces |
-| Conversations, leads, every row of data | The sidebar wordmark ("PanaClaw", hard-coded) |
+| Conversations, leads, every row of data | The sidebar wordmark ("Juancito Ads", hard-coded) |
 
-Practical consequence: `panaclaw update` deliberately overwrites `public/`,
+Practical consequence: `juancitoads update` deliberately overwrites `public/`,
 unlike `member/`, which is the business's and is never touched. Don't add
 `public/` to the installer's exclude list, and don't wire the logo to a setting
 — see `public/README.md` for how far that goes and where it stops.
@@ -85,12 +96,23 @@ unlike `member/`, which is the business's and is never touched. Don't add
 
 ## 2. Typography
 
-- Body / default: **Archivo** (already the `<body>` font, Tailwind `font-sans`
-  and `font-display`, or `style="font-family:var(--font-display)"`). It is the
-  brand typeface — use it for all prose, labels, headings and buttons.
+The brand runs on two typefaces, split the same way the marketing site splits
+them. Both are already loaded by the shell.
+
+- Body / default: **Hanken Grotesk** — already the `<body>` font, so running
+  text, labels and table cells need nothing. Tailwind `font-sans`, or
+  `style="font-family:var(--font-body)"`.
+- Headings and numbers: **Inter** — Tailwind `font-display`, or
+  `style="font-family:var(--font-display)"`. Use it for section headings, big
+  stat numbers and button labels. It is the site's `--font-display`, the one
+  every `h1`/`h2`/`h3` on juancitoads.netlify.app is set in.
 - **Monospace is for data only**: IDs, amounts, model names, code, counters.
   Opt in with Tailwind `font-mono` or `style="font-family:var(--font-mono)"`
   (JetBrains Mono). Do not set it on running text.
+
+A heading that forgets `font-display` doesn't break — it just falls back to
+Hanken Grotesk and stops looking like the site. The recipes below already
+carry it; keep them.
 
 Hierarchy:
 
@@ -129,7 +151,7 @@ raw hex background instead of `bg-panel` will **not** get the radius.
 Depth is diffuse, never offset. If you need a shadow, use the scale:
 `0 6px 18px rgba(0,0,0,.45)` (resting) → `0 10px 28px rgba(0,0,0,.5)` (hover) →
 `0 24px 64px rgba(0,0,0,.6)` (modal). Accent glow — `0 8px 24px
-rgba(255,81,0,.35)` — is for the primary button's hover only; it loses its
+rgba(30,144,255,.35)` — is for the primary button's hover only; it loses its
 meaning if everything glows.
 
 Focus is handled globally (`:focus-visible` → 2px accent outline). Don't

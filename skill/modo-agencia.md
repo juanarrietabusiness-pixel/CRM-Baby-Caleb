@@ -1,6 +1,6 @@
 ---
 name: modo-agencia
-description: Opera PanaClaw como agencia — un bot por cliente, todos en TU cuenta de Cloudflare, con el selector de proyectos del panel para brincar entre ellos. Cubre el alta de un cliente nuevo de punta a punta, el padrón de clientes (PEER_BOTS), los límites reales de la cuenta y la actualización masiva cuando sale versión nueva. Actívalo con "/modo-agencia", "dar de alta un cliente", "cliente nuevo", "agregar un bot de cliente", "cuántos clientes aguanta mi cuenta", "actualizar todos mis bots".
+description: Opera Juancito Ads como agencia — un bot por cliente, todos en TU cuenta de Cloudflare, con el selector de proyectos del panel para brincar entre ellos. Cubre el alta de un cliente nuevo de punta a punta, el padrón de clientes (PEER_BOTS), los límites reales de la cuenta y la actualización masiva cuando sale versión nueva. Actívalo con "/modo-agencia", "dar de alta un cliente", "cliente nuevo", "agregar un bot de cliente", "cuántos clientes aguanta mi cuenta", "actualizar todos mis bots".
 ---
 
 # Modo agencia — un bot por cliente en TU Cloudflare
@@ -21,16 +21,16 @@ El CLI ya hace esto solo. Al instalar estampa un `uid` único de 6 caracteres en
 `wrangler.toml`:
 
 ```
-name          = "panaclaw-<giro>-<uid>"
-database_name = "panaclaw_<giro>_<uid>_db"
-index_name    = "panaclaw_<giro>_<uid>_kb"
-bucket_name   = "panaclaw-catalog-<giro>-<uid>"
+name          = "juancitoads-<giro>-<uid>"
+database_name = "juancitoads_<giro>_<uid>_db"
+index_name    = "juancitoads_<giro>_<uid>_kb"
+bucket_name   = "juancitoads-catalog-<giro>-<uid>"
 ```
 
 **Verifica siempre ese `uid` antes de desplegar un cliente nuevo.** Si dos carpetas tienen
 el mismo, algo se copió a mano: párate y arregla el `wrangler.toml` antes de seguir.
 
-El `uid` sobrevive a `panaclaw update` (el update excluye `wrangler.toml`), así que una vez
+El `uid` sobrevive a `juancitoads update` (el update excluye `wrangler.toml`), así que una vez
 asignado es estable de por vida.
 
 ---
@@ -65,10 +65,10 @@ Lee los nombres del `wrangler.toml` de ESTE cliente y créalos tal cual — no u
 genéricos de la guía de instalación:
 
 ```bash
-wrangler d1 create panaclaw_<giro>_<uid>_db          # pega el database_id en wrangler.toml
-wrangler vectorize create panaclaw_<giro>_<uid>_kb --dimensions=1024 --metric=cosine
-wrangler r2 bucket create panaclaw-catalog-<giro>-<uid>
-wrangler d1 execute panaclaw_<giro>_<uid>_db --file=src/db/schema.sql --remote
+wrangler d1 create juancitoads_<giro>_<uid>_db          # pega el database_id en wrangler.toml
+wrangler vectorize create juancitoads_<giro>_<uid>_kb --dimensions=1024 --metric=cosine
+wrangler r2 bucket create juancitoads-catalog-<giro>-<uid>
+wrangler d1 execute juancitoads_<giro>_<uid>_db --file=src/db/schema.sql --remote
 ```
 
 ### Paso 4 · Secretos — contraseña DISTINTA por cliente
@@ -123,7 +123,7 @@ El panel trae un selector de proyectos en el header: un dropdown para brincar en
 de la agencia. Se alimenta de la var `PEER_BOTS` en el `[vars]` del `wrangler.toml`:
 
 ```toml
-PEER_BOTS = '[{"name":"Tacos Ana","url":"https://panaclaw-generico-df5952.workers.dev/admin"},{"name":"Barbería Luis","url":"https://panaclaw-generico-a31c07.workers.dev/admin"}]'
+PEER_BOTS = '[{"name":"Tacos Ana","url":"https://juancitoads-generico-df5952.workers.dev/admin"},{"name":"Barbería Luis","url":"https://juancitoads-generico-a31c07.workers.dev/admin"}]'
 ```
 
 Reglas del formato (las impone `src/admin/projects.ts`):
@@ -185,7 +185,7 @@ quién.
 
 ## Actualizar todos los bots cuando sale versión nueva
 
-`panaclaw update` conserva `member/` y `wrangler.toml`, así que es seguro correrlo por
+`juancitoads update` conserva `member/` y `wrangler.toml`, así que es seguro correrlo por
 cliente. Desde la carpeta que contiene todas las carpetas de clientes:
 
 ```bash

@@ -1,4 +1,4 @@
-# Troubleshooting — PanaClaw Bot (Pro)
+# Troubleshooting — Juancito Ads Bot (Pro)
 
 Guía de problemas comunes y cómo resolverlos. Está ordenada por etapa:
 **Setup** (preparación e instalación), **Deploy** (subir el bot a producción),
@@ -29,15 +29,15 @@ Si algo falta, el comando te lo dice por nombre antes de intentar subir nada.
 | `wrangler: command not found` | wrangler no está en el PATH | usa `pnpm wrangler ...`, o instala global con `npm install -g wrangler` |
 | `wrangler login` no abre el navegador | terminal sin entorno gráfico | corre `WRANGLER_LOG=debug pnpm wrangler login` y copia/pega el URL en tu navegador a mano |
 | Dependencias no instalan / `node_modules` corrupto | instalación a medias | borra `node_modules` y corre `pnpm install` de nuevo |
-| `D1 create ... already exists` | la base de datos ya existía | corre `pnpm wrangler d1 list`, copia el `database_id` real y pégalo en `wrangler.toml` (binding **DB**, `panaclaw_db`) |
-| `Vectorize ... already exists` | el índice ya existía | corre `pnpm wrangler vectorize list` y reutiliza `panaclaw_kb` (no lo vuelvas a crear) |
+| `D1 create ... already exists` | la base de datos ya existía | corre `pnpm wrangler d1 list`, copia el `database_id` real y pégalo en `wrangler.toml` (binding **DB**, `juancitoads_db`) |
+| `Vectorize ... already exists` | el índice ya existía | corre `pnpm wrangler vectorize list` y reutiliza `juancitoads_kb` (no lo vuelvas a crear) |
 | `pnpm typecheck` marca errores tras editar `member/config.local.ts` | falta un campo o hay una coma/llave mal | revisa que `businessConfig` tenga `hours`, `services`, `location`, `paymentMethods`, `contactPhone` y `customFields`, y que `memberConfig` esté completo |
 
 **Crear la base de datos y el índice (primera vez):**
 
 ```bash
-pnpm wrangler d1 create panaclaw_db
-pnpm wrangler vectorize create panaclaw_kb --dimensions=1024 --metric=cosine
+pnpm wrangler d1 create juancitoads_db
+pnpm wrangler vectorize create juancitoads_kb --dimensions=1024 --metric=cosine
 ```
 
 Después aplica el esquema de la base de datos:
@@ -63,7 +63,7 @@ bindings creados. Si falta algo, se detiene y te dice qué.
 | `Authentication error` al desplegar | wrangler perdió la sesión | corre `pnpm wrangler login` otra vez |
 | deploy-check: `Missing secret ANTHROPIC_API_KEY` | falta la llave de Claude (obligatoria) | `pnpm wrangler secret put ANTHROPIC_API_KEY` |
 | deploy-check: `Missing secret DASHBOARD_PASSWORD` | falta la contraseña del dashboard (obligatoria en Pro) | `pnpm wrangler secret put DASHBOARD_PASSWORD` |
-| deploy-check: `Missing binding DB / KB / CATALOG` | la base de datos, el índice o el bucket no existen | crea el faltante: `wrangler d1 create panaclaw_db`, `wrangler vectorize create panaclaw_kb --dimensions=1024 --metric=cosine`, o `wrangler r2 bucket create <nombre>` y verifica el binding en `wrangler.toml` |
+| deploy-check: `Missing binding DB / KB / CATALOG` | la base de datos, el índice o el bucket no existen | crea el faltante: `wrangler d1 create juancitoads_db`, `wrangler vectorize create juancitoads_kb --dimensions=1024 --metric=cosine`, o `wrangler r2 bucket create <nombre>` y verifica el binding en `wrangler.toml` |
 | `binding AGENT not found` / Durable Object error | el Durable Object `SupportAgent` no está declarado | revisa el bloque `[[durable_objects.bindings]]` en `wrangler.toml` (binding **AGENT**) y la migración; corre `pnpm typecheck` |
 | Despliega pero `/health` da 404 | router mal montado | revisa `src/index.ts` y corre `pnpm typecheck` antes de volver a desplegar |
 | Despliega pero `/admin` da 500 | falta `ANTHROPIC_API_KEY` u otro secret en runtime | corre `pnpm wrangler secret list` y agrega el que falte con `secret put` |
@@ -153,7 +153,7 @@ indexarlos en Vectorize para que el bot use la info nueva.
 |---|---|---|
 | El bot no conoce info del negocio (horarios, servicios, precios) | la KB no está indexada o cambió y no se reindexó | vuelve a indexar (ver abajo) |
 | El bot responde con info vieja | editaste `member/kb/*.md` pero no reindexaste | reindexa después de cada cambio en la KB |
-| `Vectorize: index not found` | el índice no existe | `pnpm wrangler vectorize create panaclaw_kb --dimensions=1024 --metric=cosine` |
+| `Vectorize: index not found` | el índice no existe | `pnpm wrangler vectorize create juancitoads_kb --dimensions=1024 --metric=cosine` |
 | `dimension mismatch` al indexar | el índice se creó con dimensiones distintas | borra y recrea el índice con `--dimensions=1024` (embeddings BGE) |
 | La búsqueda (`searchKb`) devuelve resultados raros o vacíos | poca info o documentos muy largos | divide los `.md` en secciones claras por tema y reindexa |
 | `member/config.local.ts` cambió pero el bot no lo refleja | esa config se lee en runtime, no es KB | no requiere reindex; basta redeploy con `pnpm run deploy` (no toca tu carpeta `member/`) |

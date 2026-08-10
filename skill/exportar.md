@@ -11,7 +11,7 @@ Eres el encargado de la **portabilidad de datos** del chatbot del miembro. Él N
 del miembro y él tiene todo el derecho a sacarlos cuando quiera.** El protagonista es el
 **archivo entregado** (sus leads, sus conversaciones), nunca el código ni el SQL.
 
-El bot guarda todo en una base de datos en Cloudflare (`panaclaw_db`). Tú la consultas,
+El bot guarda todo en una base de datos en Cloudflare (`juancitoads_db`). Tú la consultas,
 armas los archivos y se los entregas. **Solo lectura: este skill NUNCA borra ni modifica nada.**
 Esta función vive **en el nivel gratis y en el de pago** — es sobre propiedad de datos, así que
 **no hay candado de nivel**. Solo te adaptas a lo que EXISTA: si es un bot Starter no habrá
@@ -33,7 +33,7 @@ SIGUE ESTAS REGLAS AL PIE DE LA LETRA.
    ajusta lo que le ofreces, **no impide exportar**.
 3. Descubre **qué tablas existen de verdad** (no asumas). Corre:
    ```
-   wrangler d1 execute panaclaw_db --remote --command "SELECT name FROM sqlite_master WHERE type='table';"
+   wrangler d1 execute juancitoads_db --remote --command "SELECT name FROM sqlite_master WHERE type='table';"
    ```
    En todo bot habrá `conversations`, `messages`, `tickets`. La tabla `leads` existe siempre
    pero puede estar **vacía**.
@@ -65,8 +65,8 @@ completo** si eligió "todo el historial". **Cuenta primero** para saber si hay 
 
 **Leads / prospectos** (Pro y solo si hay filas):
 ```
-wrangler d1 execute panaclaw_db --remote --command "SELECT COUNT(*) AS total FROM leads;"
-wrangler d1 execute panaclaw_db --remote --json --command "SELECT id, name, contact, channel_user_id, intent, status, notes, exported_to, external_id, metadata, datetime(created_at/1000,'unixepoch') AS creado, datetime(updated_at/1000,'unixepoch') AS actualizado FROM leads WHERE created_at >= <DESDE> ORDER BY created_at DESC;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT COUNT(*) AS total FROM leads;"
+wrangler d1 execute juancitoads_db --remote --json --command "SELECT id, name, contact, channel_user_id, intent, status, notes, exported_to, external_id, metadata, datetime(created_at/1000,'unixepoch') AS creado, datetime(updated_at/1000,'unixepoch') AS actualizado FROM leads WHERE created_at >= <DESDE> ORDER BY created_at DESC;"
 ```
 La columna `metadata` trae los campos propios del giro en formato JSON (ej. reservación
 `{fecha,hora,personas}`, inmobiliaria `{presupuesto,zona,operacion}`). Déjala tal cual como una
@@ -75,14 +75,14 @@ columna; si el miembro quiere esos campos en columnas separadas, puedes sacarlos
 
 **Conversaciones** (lista de clientes; existe en todo bot):
 ```
-wrangler d1 execute panaclaw_db --remote --command "SELECT COUNT(*) AS total FROM conversations;"
-wrangler d1 execute panaclaw_db --remote --json --command "SELECT id, channel, channel_user_id, display_name, datetime(started_at/1000,'unixepoch') AS primer_contacto, datetime(last_message_at/1000,'unixepoch') AS ultima_actividad FROM conversations WHERE last_message_at >= <DESDE> ORDER BY last_message_at DESC;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT COUNT(*) AS total FROM conversations;"
+wrangler d1 execute juancitoads_db --remote --json --command "SELECT id, channel, channel_user_id, display_name, datetime(started_at/1000,'unixepoch') AS primer_contacto, datetime(last_message_at/1000,'unixepoch') AS ultima_actividad FROM conversations WHERE last_message_at >= <DESDE> ORDER BY last_message_at DESC;"
 ```
 
 **Mensajes / transcripciones** (historial de chat; puede ser grande — avísale):
 ```
-wrangler d1 execute panaclaw_db --remote --command "SELECT COUNT(*) AS total FROM messages;"
-wrangler d1 execute panaclaw_db --remote --json --command "SELECT m.conversation_id, c.channel, c.display_name, m.role, m.content, datetime(m.created_at/1000,'unixepoch') AS fecha FROM messages m LEFT JOIN conversations c ON c.id = m.conversation_id WHERE m.created_at >= <DESDE> ORDER BY m.conversation_id, m.created_at;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT COUNT(*) AS total FROM messages;"
+wrangler d1 execute juancitoads_db --remote --json --command "SELECT m.conversation_id, c.channel, c.display_name, m.role, m.content, datetime(m.created_at/1000,'unixepoch') AS fecha FROM messages m LEFT JOIN conversations c ON c.id = m.conversation_id WHERE m.created_at >= <DESDE> ORDER BY m.conversation_id, m.created_at;"
 ```
 El campo `role` viene en clave: **tradúcelo en el archivo** — `user`→cliente, `assistant`→bot,
 `owner`→dueño, `tool`→sistema. Si son muchísimos mensajes, ofrécele acotar por periodo o exportar

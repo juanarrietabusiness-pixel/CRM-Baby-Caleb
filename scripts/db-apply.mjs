@@ -2,7 +2,7 @@
 // Aplica el esquema a la D1 de ESTE bot.
 //
 // El nombre de la base NO puede ir fijo en package.json: el instalador estampa
-// uno único por bot en wrangler.toml (panaclaw_<giro>_<uid>_db) para que dos
+// uno único por bot en wrangler.toml (juancitoads_<giro>_<uid>_db) para que dos
 // bots en la misma cuenta de Cloudflare nunca compartan datos. Un nombre fijo
 // aquí apuntaría a una base que no existe — o peor, a la de otro cliente.
 //

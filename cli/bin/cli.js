@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-// panaclaw — instala y actualiza bots de IA con CRM en TU propia infra, en un
+// juancitoads — instala y actualiza bots de IA con CRM en TU propia infra, en un
 // comando. Baja el código desde el repo público en GitHub y lo deja listo para
 // que tu agente lo despliegue. Bilingüe (ES/EN).
 //
 // No hay servidor de licencias ni cuentas: todo el catálogo es abierto y el
 // código sale de GitHub. Nada que activar, nada que pagar, nada que caducar.
 //
-//   npx panaclaw init                 → asistente interactivo
-//   npx panaclaw list                 → ver los giros disponibles
-//   npx panaclaw install <slug>       → instala un giro directo
-//   npx panaclaw update [dir]         → jala la versión nueva conservando member/
-//   npx panaclaw doctor [dir]         → diagnostica un bot instalado
+//   npx juancitoads init                 → asistente interactivo
+//   npx juancitoads list                 → ver los giros disponibles
+//   npx juancitoads install <slug>       → instala un giro directo
+//   npx juancitoads update [dir]         → jala la versión nueva conservando member/
+//   npx juancitoads doctor [dir]         → diagnostica un bot instalado
 //
 // Modo no-interactivo (para agentes/CI): pasa --yes y los datos por flags para que no
 // se cuelgue esperando un menú. Ej:
-//   npx panaclaw init --yes --negocio "Tacos Ana" --que "taquería" --cerebro claude
+//   npx juancitoads init --yes --negocio "Tacos Ana" --que "taquería" --cerebro claude
 // Flags de init: --giro --name/--negocio --que --ofrece --horario
 //   --ubicacion --telefono --web --pagos --faq --reglas --tono --cerebro
 //   --region es-419|es-ES|en|pt-BR --lang es|en --yes --no-agent-skill
@@ -29,17 +29,19 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 // De dónde sale el código del bot: el repo público. Sobreescribible para probar
-// un fork o una rama (PANACLAW_REPO="miusuario/mi-fork", PANACLAW_REF=develop).
-const REPO = process.env.PANACLAW_REPO || "abrinay1997-stack/CRM-PANACLAW";
-const REF = process.env.PANACLAW_REF || "main";
+// un fork o una rama (JUANCITOADS_REPO="miusuario/mi-fork", JUANCITOADS_REF=develop).
+const REPO = process.env.JUANCITOADS_REPO || "juanarrietabusiness-pixel/CRM-JuancitoADS";
+const REF = process.env.JUANCITOADS_REF || "main";
 const TARBALL = (ref = REF) => `https://codeload.github.com/${REPO}/tar.gz/refs/heads/${ref}`;
 const REPO_URL = `https://github.com/${REPO}`;
-const CFG_DIR = join(homedir(), ".panaclaw");
+const CFG_DIR = join(homedir(), ".juancitoads");
 const CFG_FILE = join(CFG_DIR, "config.json");
-const MARKER = ".panaclaw-bot.json";
+const MARKER = ".juancitoads-bot.json";
 
+// `azul` es el acento de la marca (#1E90FF) en 256 colores; cae a cian básico
+// en terminales que no los soporten. El resto son estados, no marca.
 const C = {
-  cyan: (s) => `\x1b[36m${s}\x1b[0m`, dim: (s) => `\x1b[2m${s}\x1b[0m`, b: (s) => `\x1b[1m${s}\x1b[0m`,
+  azul: (s) => `\x1b[38;5;33m${s}\x1b[0m`, dim: (s) => `\x1b[2m${s}\x1b[0m`, b: (s) => `\x1b[1m${s}\x1b[0m`,
   green: (s) => `\x1b[32m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yellow: (s) => `\x1b[33m${s}\x1b[0m`,
 };
 
@@ -59,14 +61,14 @@ const DICT = {
     step2note: "(skill /configurar-mi-chatbot)",
     step3: "conecta tu Cloudflare y tus canales — el agente te guía.",
     step4: "al final: tu panel queda en  →  https://<tu-worker>.workers.dev/admin",
-    welcomeTitle: "Bienvenido a PanaClaw",
+    welcomeTitle: "Bienvenido a Juancito Ads",
     welcomeBody: [
       "Tu bot de IA vivirá en TU Cloudflare, con tus llaves — es tuyo.",
       "El plan: 1) me cuentas de tu negocio aquí · 2) tu agente lo despliega ·",
       "3) lo ves atender clientes desde tu propio panel /admin",
     ],
-    updateHint: "Actualiza cuando saquemos mejoras:  npx panaclaw update",
-    noInstallable: "No hay ningún giro instalable todavía. Revisa `npx panaclaw list`.",
+    updateHint: "Actualiza cuando saquemos mejoras:  npx juancitoads update",
+    noInstallable: "No hay ningún giro instalable todavía. Revisa `npx juancitoads list`.",
     installRetry: "Puede ser algo temporal (la red, o el bot publicándose). Espera unos segundos y reintenta el mismo comando.",
     available: "disponible", soon: "próximamente",
     updStillRuns: "Tu bot sigue corriendo en la versión actual; solo no puede actualizar.",
@@ -92,14 +94,14 @@ const DICT = {
     step2note: "(skill /configurar-mi-chatbot)",
     step3: "connect your Cloudflare and channels — the agent guides you.",
     step4: "at the end: your panel lives at  →  https://<your-worker>.workers.dev/admin",
-    welcomeTitle: "Welcome to PanaClaw",
+    welcomeTitle: "Welcome to Juancito Ads",
     welcomeBody: [
       "Your AI bot will live in YOUR Cloudflare, with your keys — it's yours.",
       "The plan: 1) tell me about your business here · 2) your agent deploys it ·",
       "3) watch it serve customers from your own /admin panel",
     ],
-    updateHint: "Update whenever we ship improvements:  npx panaclaw update",
-    noInstallable: "No installable niche yet. Check `npx panaclaw list`.",
+    updateHint: "Update whenever we ship improvements:  npx juancitoads update",
+    noInstallable: "No installable niche yet. Check `npx juancitoads list`.",
     installRetry: "This may be temporary (network, or the bot is publishing). Wait a few seconds and retry the same command.",
     available: "available", soon: "coming soon",
     updStillRuns: "Your bot keeps running on the current version; it just can't update.",
@@ -138,7 +140,7 @@ function normRegion(v) {
 let REGION = "es-419";
 
 // Modo no-interactivo: cuando el CLI lo corre un AGENTE (Claude Code/Codex) o CI, no hay
-// terminal interactiva. `interactive()` es false si no hay TTY o si se pasó --yes/PANACLAW_YES.
+// terminal interactiva. `interactive()` es false si no hay TTY o si se pasó --yes/JUANCITOADS_YES.
 // En ese modo los menús/preguntas usan el valor de la flag o el default — NUNCA se cuelgan.
 let ASSUME_YES = false;
 const interactive = () => !!(input.isTTY && output.isTTY) && !ASSUME_YES;
@@ -152,7 +154,7 @@ function agentBriefing(asks, retry) {
   console.log("  espera su respuesta antes de la siguiente:");
   asks.forEach((a, i) => console.log(`   ${i + 1}. ${a}`));
   console.log("  Con sus respuestas, reintenta exactamente así:");
-  console.log("  " + C.cyan(retry));
+  console.log("  " + C.azul(retry));
   console.log(C.yellow("  ──────────────────────────────────────────────\n"));
 }
 
@@ -180,28 +182,31 @@ const supportLine = () =>
 
 function loadCfg() { try { return JSON.parse(readFileSync(CFG_FILE, "utf8")); } catch { return {}; } }
 function saveCfg(o) { mkdirSync(CFG_DIR, { recursive: true }); writeFileSync(CFG_FILE, JSON.stringify(o, null, 2)); }
-// ── banner: ilustración de panaclaw (metal caliente) ───────────────────────────
+// ── banner: la marca en bloques, con las estrellas del logo arriba ───────────
 const c256 = (n, s) => `\x1b[38;5;${n}m${s}\x1b[0m`;
-const CLAW_ART = [
-  "██████╗  █████╗ ███╗   ██╗ █████╗  ██████╗██╗      █████╗ ██╗    ██╗",
-  "██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔════╝██║     ██╔══██╗██║    ██║",
-  "██████╔╝███████║██╔██╗ ██║███████║██║     ██║     ███████║██║ █╗ ██║",
-  "██╔═══╝ ██╔══██║██║╚██╗██║██╔══██║██║     ██║     ██╔══██║██║███╗██║",
-  "██║     ██║  ██║██║ ╚████║██║  ██║╚██████╗███████╗██║  ██║╚███╔███╔╝",
-  "╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝ ",
+const WORDMARK_ART = [
+  "     ██╗██╗   ██╗ █████╗ ███╗   ██╗ ██████╗ ██╗████████╗ ██████╗ ",
+  "     ██║██║   ██║██╔══██╗████╗  ██║██╔════╝ ██║╚══██╔══╝██╔═══██╗",
+  "     ██║██║   ██║███████║██╔██╗ ██║██║      ██║   ██║   ██║   ██║",
+  "██   ██║██║   ██║██╔══██║██║╚██╗██║██║      ██║   ██║   ██║   ██║",
+  "╚█████╔╝╚██████╔╝██║  ██║██║ ╚████║╚██████╗ ██║   ██║   ╚██████╔╝",
+  " ╚════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝   ╚═╝    ╚═════╝ ",
 ];
-// Degradado cian → el acento de la marca, de brillante a profundo.
-const CLAW_GRAD = [51, 45, 44, 38, 37, 30];
+// Degradado del azul neón de la marca (#1E90FF), de brillante a profundo.
+const WORDMARK_GRAD = [45, 39, 33, 32, 26, 25];
+// El naranja de la marca, para el "ADS" y las estrellas del logo.
+const BRAND_ORANGE = 214;
 function forgeSplash() {
-  const noColor = process.env.NO_COLOR || process.env.PANACLAW_NO_ART;
-  if (noColor) { console.log("\n  " + C.b("◇ PANACLAW") + "\n"); return; }
-  const out = ["", c256(87, "   · ˚ ✦ ˖ ✧")];
-  CLAW_ART.forEach((l, i) => out.push("  " + c256(CLAW_GRAD[i], l)));
-  out.push(c256(30, "   ▂▃▄▅▆▇█ afilado en tu terminal █▇▆▅▄▃▂"), "");
+  const noColor = process.env.NO_COLOR || process.env.JUANCITOADS_NO_ART;
+  if (noColor) { console.log("\n  " + C.b("◇ JUANCITO ADS") + "\n"); return; }
+  const out = ["", c256(BRAND_ORANGE, "   · ˚ ✦ ˖ ✧")];
+  WORDMARK_ART.forEach((l, i) => out.push("  " + c256(WORDMARK_GRAD[i], l)));
+  out.push(c256(25, "   ▂▃▄▅▆▇█ ") + c256(BRAND_ORANGE, "A D S") +
+    c256(25, "  ·  tu bot vive en tu nube █▇▆▅▄▃▂"), "");
   console.log(out.join("\n"));
 }
 
-function banner() { console.log(C.cyan("\n  ◇ PanaClaw") + C.dim("  ·  " + t().tagline + "\n")); }
+function banner() { console.log(C.azul("\n  ◇ Juancito Ads") + C.dim("  ·  " + t().tagline + "\n")); }
 
 // Selector con flechas ↑↓ (estilo Claude CLI). Si no hay TTY (input redirigido,
 // CI, pruebas), cae limpio a una lista numerada leída con readline.
@@ -297,7 +302,7 @@ async function repoVersion(ref = REF) {
   } catch { /* sin git, o repo inalcanzable → probamos la API */ }
   try {
     const res = await fetchRetry(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`, {
-      headers: { Accept: "application/vnd.github.sha", "User-Agent": "panaclaw-cli" },
+      headers: { Accept: "application/vnd.github.sha", "User-Agent": "juancitoads-cli" },
     }, { ms: 10000, tries: 2 });
     if (!res.ok) return null;   // 403 = rate limit; se degrada a "unknown", no rompe
     const sha = (await res.text()).trim();
@@ -309,7 +314,7 @@ async function repoVersion(ref = REF) {
 // público, esto funciona. Retry porque un blip de red o un 5xx transitorio no
 // debe verse como fallo duro.
 async function download() {
-  const res = await fetchRetry(TARBALL(), { headers: { "User-Agent": "panaclaw-cli" } }, { ms: 25000, tries: 3 });
+  const res = await fetchRetry(TARBALL(), { headers: { "User-Agent": "juancitoads-cli" } }, { ms: 25000, tries: 3 });
   if (!res.ok) {
     const err = new Error(res.status === 404
       ? `No encontré ${REPO}@${REF} en GitHub. ¿El repo es público y la rama existe?`
@@ -367,10 +372,10 @@ function stampBotConfig(dir, plan, slug) {
   // Sufijo ÚNICO por bot (estable): sin él, dos bots del MISMO giro (o dos
   // "starter" gratis) tomarían el MISMO worker/D1/Vectorize y compartirían/
   // secuestrarían datos y persona — el slug (giro) NO basta. Si el toml ya trae
-  // un panaclaw-…-<uid> stampeado (reinstalación en la misma carpeta), se REUSA ese
+  // un juancitoads-…-<uid> stampeado (reinstalación en la misma carpeta), se REUSA ese
   // uid; si es el nombre del demo/placeholder, se genera uno nuevo. `update`
   // excluye wrangler.toml, así que el uid persiste entre actualizaciones.
-  const existingUid = (s.match(/name\s*=\s*"panaclaw-.+-([a-f0-9]{6})"/) || [])[1];
+  const existingUid = (s.match(/name\s*=\s*"juancitoads-.+-([a-f0-9]{6})"/) || [])[1];
   const botUid = existingUid || randomUUID().replace(/-/g, "").slice(0, 6);
   s = s.replace(/\{\{BOT_SLUG\}\}/g, safeSlug);
   s = s.replace(/BOT_TIER\s*=\s*"[^"]*"/g, `BOT_TIER = "${tier}"`);
@@ -384,10 +389,10 @@ function stampBotConfig(dir, plan, slug) {
     s = s.replace(/^\[vars\][^\n]*\n/m, (m) => `${m}BOT_NICHE = "${niche}"\n`);
   }
   // Sanea lo que venga del template demo: el worker del miembro necesita SU propio
-  // nombre (no el del demo de PanaClaw). La URL del panel se conoce hasta desplegar,
+  // nombre (no el del demo de Juancito Ads). La URL del panel se conoce hasta desplegar,
   // así que va vacía: el runtime cae a su propio origin cuando está vacía (ver
   // selfOrigin en el template), y el skill la escribe tras el primer deploy.
-  s = s.replace(/^name\s*=\s*"[^"]+"/m, `name = "panaclaw-${safeSlug}-${botUid}"`);
+  s = s.replace(/^name\s*=\s*"[^"]+"/m, `name = "juancitoads-${safeSlug}-${botUid}"`);
   s = s.replace(/DASHBOARD_BASE_URL\s*=\s*"[^"]*"/g, `DASHBOARD_BASE_URL = ""`);
   // La MARCA del demo tampoco es del miembro. stampBrandAndBrain la escribe con
   // el negocio real, pero solo cuando hay datos: en un `install <slug>` sin flags
@@ -402,18 +407,18 @@ function stampBotConfig(dir, plan, slug) {
   // persona (el settings de D1 manda sobre config.local). Namespaceo por-giro NO
   // basta: dos bots del mismo giro colisionaban y la KB del 2º se mezclaba con la
   // del 1º.
-  const dbName = `panaclaw_${resId}_${botUid}_db`;
-  const kbName = `panaclaw_${resId}_${botUid}_kb`;
+  const dbName = `juancitoads_${resId}_${botUid}_db`;
+  const kbName = `juancitoads_${resId}_${botUid}_kb`;
   s = s.replace(/database_name\s*=\s*"[^"]*"/, `database_name = "${dbName}"`);
   s = s.replace(/index_name\s*=\s*"[^"]*"/, `index_name = "${kbName}"`);
   // El database_id del demo NO sirve en la cuenta del miembro: se vuelve placeholder
   // (el skill lo crea con el nombre namespaceado y reemplaza). Solo el primero (main).
   s = s.replace(/database_id\s*=\s*"[^"]*"[^\n]*/, `database_id = "{{D1_DATABASE_ID}}"  # crea tu D1 (wrangler d1 create ${dbName}) y pega aquí su id`);
   // R2 va namespaceado por bot igual que D1 y Vectorize. Antes se normalizaba a un
-  // "panaclaw-catalog" compartido: con el bloque [[r2_buckets]] activo (lo está en
+  // "juancitoads-catalog" compartido: con el bloque [[r2_buckets]] activo (lo está en
   // este repo), dos bots en la misma cuenta de Cloudflare acababan escribiendo su
   // catálogo en el MISMO bucket y mezclando los productos de negocios distintos.
-  s = s.replace(/bucket_name\s*=\s*"[^"]*"/, `bucket_name = "panaclaw-catalog-${safeSlug}-${botUid}"`);
+  s = s.replace(/bucket_name\s*=\s*"[^"]*"/, `bucket_name = "juancitoads-catalog-${safeSlug}-${botUid}"`);
   writeFileSync(wt, s);
 }
 // El tarball de GitHub trae todo bajo una carpeta raíz (<repo>-<ref>/), así que
@@ -437,7 +442,7 @@ function extractFresh(buf, slug, version) {
 //
 // OJO con la lista de --exclude: `public/` NO está, y NO debe añadirse. Ahí vive
 // la marca de la PLATAFORMA (logo y favicons), y que la actualización la pise es
-// justo lo que se quiere: el panel es PanaClaw igual que la administración de una
+// justo lo que se quiere: el panel es Juancito Ads igual que la administración de una
 // tienda Shopify lleva el logo de Shopify. Lo del miembro es su negocio —nombre,
 // bot, conversaciones, datos— y eso sí se preserva, vía member/ y wrangler.toml.
 // Ver public/README.md.
@@ -476,7 +481,7 @@ function ensureMemberDefaults(buf, dir) {
   rmSync(tgz, { force: true });
 }
 
-// PanaClaw no tiene planes: todo viene desbloqueado. BOT_TIER sigue existiendo en
+// Juancito Ads no tiene planes: todo viene desbloqueado. BOT_TIER sigue existiendo en
 // el wrangler.toml porque src/config.ts lo lee, pero aquí siempre se estampa en
 // "pro" — no hay licencia que lo degrade ni servidor que lo decida.
 function ensureProTier(dir) {
@@ -491,8 +496,8 @@ function ensureProTier(dir) {
 function nextSteps(slug, dir, secretName) {
   console.log(C.green(`\n  ✓ ${t().installedOk}`) + C.dim(`  →  ${dir}\n`));
   console.log("  " + t().nextTitle);
-  console.log(C.dim("    1.") + `  ${C.cyan(t().step1(slug))}`);
-  console.log(C.dim("    2.") + `  ${C.cyan(t().step2)}  ${C.dim(t().step2note)}`);
+  console.log(C.dim("    1.") + `  ${C.azul(t().step1(slug))}`);
+  console.log(C.dim("    2.") + `  ${C.azul(t().step2)}  ${C.dim(t().step2note)}`);
   console.log(C.dim("    3.") + `  ${t().step3}`);
   console.log(C.dim("    4.") + `  ${t().step4}`);
   // La API key NUNCA se teclea aquí: va como secreto de Cloudflare al desplegar.
@@ -552,7 +557,7 @@ async function pickBot(bots, userPlan, rl, wantSlug) {
     const slugs = installable.map((b) => `${b.slug} (${b.name})`).join(" · ");
     agentBriefing(
       [`¿Qué giro de negocio quiere para su bot? Disponibles con su plan: ${slugs}`],
-      "npx panaclaw init --yes --giro <slug>",
+      "npx juancitoads init --yes --giro <slug>",
     );
     process.exit(1);
   }
@@ -639,7 +644,7 @@ async function chooseBrain(rl, flags = {}) {
 async function ask(rl, q, val) {
   if (val != null && val !== true) return String(val).trim();
   if (!interactive()) return "";   // no-interactivo: salta (enter = saltar); no se cuelga
-  return (await rl.question("\n  " + C.b(q) + "\n  " + C.cyan("› "))).trim();
+  return (await rl.question("\n  " + C.b(q) + "\n  " + C.azul("› "))).trim();
 }
 
 async function starterOnboarding(rl, licenseEmail, flags = {}) {
@@ -689,7 +694,7 @@ function renderMemberConfig({ businessName, botName, lang, tier, email, what, of
   if (faq) cf.preguntasFrecuentes = faq;
   if (reglas) cf.reglasYEscalacion = reglas;
   const j = (v) => JSON.stringify(v ?? "");
-  return `// member/config.local.ts — generado por \`panaclaw init\`. Edítalo cuando quieras.
+  return `// member/config.local.ts — generado por \`juancitoads init\`. Edítalo cuando quieras.
 // NUNCA se sobrescribe al actualizar el bot.
 
 export const memberConfig = {
@@ -797,26 +802,26 @@ function warnIfPlaceholders(dir) {
 }
 
 // ── comandos ─────────────────────────────────────────────────────────────────
-const AGENT_SKILL = "---\nname: panaclaw\ndescription: Guía para usar CRM - PanaClaw con el CLI `panaclaw` — instalar, configurar, desplegar y operar chatbots de IA con CRM en la Cloudflare del usuario. Actívala cuando el usuario quiera \"instalar PanaClaw\", \"montar/crear un chatbot\", \"actualizar mi bot\", \"diagnosticar mi bot\", \"cambiar el idioma o la moneda de mi bot\", \"pausar un chat\", o mencione panaclaw.\n---\n\n# PanaClaw — instalar y operar chatbots con el CLI `panaclaw`\n\nEres el asistente que maneja PanaClaw POR el usuario. La persona probablemente **no programa**\ny casi nunca verá la terminal: **tú corres los comandos y tú haces las preguntas en el chat**.\nREGLA DE ORO: **una pregunta por mensaje** — espera la respuesta antes de la siguiente.\n\n## Qué es PanaClaw\nUn chatbot de IA con CRM que vive en la **cuenta de Cloudflare del usuario**, con **sus llaves**.\nEl bot y sus datos son del usuario. Es **gratis y open source**: no hay licencias, cuentas,\nplanes ni servidor central — el código sale de GitHub y todo viene desbloqueado.\nTú NO eres el chatbot: tú eres quien lo construye.\n\n## El CLI (córrelo tú, siempre con flags)\n- `npx panaclaw init` — instala un bot. **Punto de partida.**\n- `npx panaclaw list` — giros disponibles.\n- `npx panaclaw install <slug>` — instala un giro directo.\n- `npx panaclaw update` — actualiza conservando la config del usuario (`member/`).\n- `npx panaclaw doctor` — diagnostica un bot instalado.\n- `npx panaclaw ayuda` — dónde pedir ayuda.\n\n## Guion de instalación (en ORDEN, una pregunta por mensaje)\nEl asistente interactivo del CLI es para humanos en terminal; tú NO puedes navegar sus\nmenús. Tu flujo: **entrevistar por pasos → correr UN comando con todo por flags**.\n\n**Paso 0 · Explica ANTES de correr un solo comando (y espera su \"sí\").** La persona casi\nnunca \"ve\" lo que haces; dale el mapa primero, corto y sin tecnicismos:\n> \"Antes de empezar te explico rápido: te voy a **armar un chatbot de IA** para tu negocio,\n> gratis. Va a **vivir en TU propia cuenta de Cloudflare** (la casa del bot, a tu nombre —\n> gratis para empezar, ~$5 USD/mes cuando ya tengas clientes escribiéndole). El **cerebro**\n> lo pone tu proveedor de IA favorito (Claude, ChatGPT o Grok) con tu llave — ahí pagas solo\n> lo que piensa, ~$1–2 USD/mes; tu llave se guarda cifrada en TU Cloudflare, yo nunca la veo.\n> **Yo corro todos los comandos por ti** — tú solo vas a crear **dos cuentas** (Cloudflare y\n> tu proveedor de IA, te llevo pasito a pasito) y, al final, conectar tu canal\n> (WhatsApp, Telegram o el chat en tu propia página web). En menos de un día está\n> listo. ¿Le entramos?\"\n\nEspera su \"sí\" ANTES de correr `panaclaw init`. Si pregunta por costos, dónde vive el bot o\nqué necesita, respóndele desde aquí — no avances hasta que esté tranquilo. (El `init` solo\nBAJA el código, no toca Cloudflare; las cuentas y el deploy entran después, en la Fase 1.)\n\n**Paso 0.5 · Verifica que tenga las herramientas (y si falta, instálalo TÚ).** Antes de correr\n`panaclaw init`, revisa que existan las dos herramientas base. Si algo falta, díselo en corto\n(\"te falta X, te lo instalo, ~1 min ¿va?\") e **instálalo tú** — no lo mandes a pelearse con\ninstaladores. Detecta el sistema con `uname` (Darwin=macOS, Linux) o asume Windows.\n\n- **Node.js ≥18** (lo necesita `npx`): corre `node -v`. Si falta o es viejo:\n  - macOS con Homebrew: `brew install node`. Sin Homebrew → instala nvm y Node:\n    `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash`, reinicia\n    la terminal y `nvm install --lts`.\n  - Linux: mismo nvm (no pide sudo) → `nvm install --lts`.\n  - Windows: `winget install OpenJS.NodeJS.LTS`.\n- **pnpm** (lo necesita el deploy en la Fase 1): corre `pnpm -v`. Si falta, lo más limpio es\n  `corepack enable pnpm` (viene con Node); si no jala, `npm i -g pnpm`.\n- `tar` y `git` ya vienen en macOS/Linux/Windows moderno — normalmente no hay que tocar nada.\n\nInstala lo que falte, **verifica de nuevo** (`node -v`, `pnpm -v`) y solo entonces sigue al Paso 1.\nSi de plano no hay forma de instalar Node por terminal, mándalo a nodejs.org a bajar el\ninstalador y espera a que confirme.\n\n**Paso 1 · Corre el init.** Ya con su \"sí\": no hay licencias ni cuentas que crear, así que\ndi \"te armo tu bot ahorita mismo\" y corre `init` directo.\n\n**Paso 1.5 · País/idioma**: si el negocio NO es de México/LATAM, pregúntale de qué país es y pásalo con `--region` (España→`es-ES` €, Brasil→`pt-BR` R$, inglés→`en`). Así arranca con su idioma, moneda y zona horaria. Por defecto (LATAM) es `es-419`.\n\n**Paso 2 · El negocio** — una por una:\nnombre del negocio → a qué se dedica → qué ofrece (servicios/productos CON precios) →\nhorario → ubicación → teléfono/WhatsApp → sitio web o redes (si tiene — **anota bien la\ndirección de su página: con ella le pones el chat en su propio sitio**) → métodos de pago →\n\"¿qué es lo que MÁS te pregunta la gente?\" (2-3 típicas) → \"¿algo que el bot NO deba hacer\no decir? ¿cuándo debe pasarte la conversación a ti?\" → tono (cercano/formal/divertido) →\ncerebro (claude/chatgpt/grok).\n\nCon todo, corre UN solo comando. Ejemplo:\n`npx panaclaw init --yes --negocio \"Tacos Ana\" --que \"taquería\" --ofrece \"tacos $25, aguas $20\" --horario \"L-S 9-20\" --ubicacion \"Centro\" --telefono \"555…\" --web \"instagram.com/tacosana\" --pagos \"efectivo, tarjeta\" --faq \"¿hacen envíos?, ¿hay vegetariano?\" --reglas \"no prometer descuentos; pasar a humano si piden factura\" --tono cercano --cerebro claude`\n\nFlags de `init`: `--giro` `--email` `--name`/`--negocio` `--que` `--ofrece`\n`--horario` `--ubicacion` `--telefono` `--web` `--pagos` `--faq` `--reglas`\n`--tono cercano|formal|divertido` `--cerebro claude|chatgpt|grok` `--region es-419|es-ES|en|pt-BR` (idioma+moneda+zona horaria; alias viejo `--lang es|en`) `--yes` `--no-agent-skill`.\n\nSi el CLI imprime un bloque **\"PARA EL AGENTE\"**, síguelo tal cual: haz las preguntas en el\norden que lista (una por mensaje) y reintenta con las flags que indica. Nunca dejes el comando\ncolgado. (La primera corrida instala/actualiza esta guía en ~/.claude/skills/panaclaw/.)\n\n## Después de descargar el bot (síguelo EN ORDEN)\n1. `cd <slug>` (la carpeta creada).\n1.5 **Reconfirma en corto ANTES de crear cuentas / desplegar.** Ya diste el mapa en el Paso 0;\n   aquí solo recuérdalo brevemente: \"ahora sí voy a crear tu Cloudflare y a desplegar tu bot —\n   ¿listo?\". Dato útil que puedes agregar: una vez construido, tu bot **NO consume tokens de\n   Claude Code jamás** — atiende solo con tu llave de IA (~$1–2/mes); Claude Code solo gasta\n   cuando le pidas cambios. Si quiere verlo en imagen, ábrele el diagrama:\n   `open como-funciona.html` — NO generes uno nuevo.\n2. **LEE el `CLAUDE.md` de esa carpeta** y sigue `/configurar-mi-chatbot` (en `skill/`; si no está\n   registrado, abre `skill/configurar-mi-chatbot.md`). Sus 4 fases: (1) plataforma — Cloudflare +\n   API key como secreto + deploy, (2) negocio — entrevista y base de conocimiento; **si\n   `member/config.local.ts` ya trae datos del init, NO los vuelvas a preguntar: confírmalos y\n   completa solo los huecos**, (3) conexiones — canales uno por uno (se ponen VERDES en el panel); **si tiene página web,\n   ofrécele ese canal: es el más fácil de todos — sin tokens, sin verificación, solo pegar un\n   `<script>` en su sitio**. (4) prueba final con mensaje real.\n3. Cuando el deploy salga bien, dale la URL de su panel: `https://<worker>.workers.dev/admin`.\n\n## Después de instalar: los comandos del bot\nEl bot trae sus propios skills en `skill/` (su `CLAUDE.md` los lista):\n`/configurar-mi-chatbot`, `/actualizar-mi-bot`, `/reporte`, `/exportar` y `/contribuir`.\nTodo viene desbloqueado: no hay features de pago ni tiers que activar.\n\n## Cambiar idioma o moneda de un bot (ya instalado)\nEl bot maneja 4 idiomas de panel/sistema: **es-419** (LATAM), **es-ES** (España), **en**, **pt-BR** (Brasil), más **espejo** (contesta en el idioma de cada cliente). Se cambian SIN redesplegar, por settings en su D1 — igual que el panel, efecto inmediato:\n- **Idioma**: `wrangler d1 execute <DB> --remote --command \"INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('bot_language','<valor>',<ahora_ms>)\"` — valor: `es-419|es-ES|en|pt-BR|espejo`.\n- **Moneda** (símbolo de precios): el mismo comando con `('bot_currency','<símbolo>',…)` — `$` | `€` | `R$`.\n- **Volver al default** del wrangler.toml: usa valor vacío `''`.\n\n`<DB>` = la D1 del bot (está en su `wrangler.toml`). `<ahora_ms>` = `$(( $(date +%s) * 1000 ))`. El dueño también puede hacerlo en el panel → **Configuración**. **Si no te dice a qué idioma o moneda, PREGÚNTASELO** — no lo adivines por el país. Tras cambiarlo, confírmale que el bot y el panel ya están en el nuevo idioma. Si te pide un idioma que NO está en la lista (p. ej. francés), dile con claridad cuáles hay disponibles y ofrécele **espejo** si lo que quiere es que el bot se adapte a cada cliente.\n\n## El cerebro del bot (modelo) — súbelo si toma pedidos\nEl bot elige el modelo por turno (**Equilibrado** por default: barato para lo simple, sube solo al inteligente en lo difícil). Un bot que **toma pedidos, agenda citas o reserva mesas** hace un flujo de varios pasos (\"un dato a la vez\"); con esas tools activas ya arranca en el inteligente. Pero si el dueño reporta que el bot **junta todo en un mensaje** o **no respeta los pasos** de su prompt, el fix es fijar el cerebro en **Máximo**:\n- Panel → **Configuración** → \"Cerebro del bot\" → **Máximo**. O por D1: `wrangler d1 execute <DB> --remote --command \"INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('model_override','sonnet',<ahora_ms>)\"` — valor: `sonnet` (Máximo) | `auto` (Equilibrado) | `haiku` (Económico).\n\nDiagnóstico clave para no confundir al dueño: **NO es que \"no se aplicaron sus cambios\"** — su prompt SÍ llegó al bot (lo ves en que ya usa su tono, su menú, sus reglas). Lo que falla es que el modelo barato no aguanta un flujo de tantos pasos y lo aplasta. Máximo lo respeta (cuesta un poco más por mensaje). Sugiere también borrar el historial del chat de prueba.\n\n## Reglas de seguridad (NO las rompas)\n- **API keys/tokens (claro pero flexible):** lo ideal es que el usuario las pegue en SU terminal (`wrangler secret put`), no en el chat — avísale de ese flujo antes. Pero si de todos modos te la pega en el chat, NO la rechaces: dale una advertencia corta (mejor en la terminal, en el chat queda en el historial) y tú mismo la guardas como secreto de Cloudflare (`wrangler secret put`, pásala por stdin). Nunca la imprimas de vuelta ni la dejes en archivos del repo.\n- **NO** hagas `git push`, commit ni `deploy` sin que el usuario confirme.\n- `member/` es del usuario; no la borres — se conserva en cada actualización.\n- **Un bot = sus propios recursos.** Cada bot tiene su PROPIO D1 y su PROPIO índice Vectorize, con un nombre ÚNICO por bot en wrangler.toml (panaclaw_<slug>_<uid>_db / _kb — el <uid> evita que dos bots choquen y mezclen datos). NUNCA reuses el D1 ni el índice de otro bot: heredaría su persona y sus datos. Un 2º bot en la misma cuenta SIEMPRE crea recursos NUEVOS (nueva D1, nuevo Vectorize, nuevo worker); el skill `/configurar-mi-chatbot` crea el recurso con el nombre que trae el wrangler.toml (ya único) y verifica que no exista antes.\n- Si algo falla: `npx panaclaw doctor` y reporta claro y en simple.\n\n## Soporte (cuando tú no puedas resolverlo)\nSi `doctor` no lo arregla, abre un issue en https://github.com/abrinay1997-stack/CRM-PANACLAW/issues\ncon (1) qué falló, (2) la salida de `npx panaclaw doctor` y (3) el sistema operativo y `node -v`.\nTambién puedes correr `npx panaclaw ayuda`.\n\nDocumentación completa: https://github.com/abrinay1997-stack/CRM-PANACLAW#readme";
+const AGENT_SKILL = "---\nname: juancitoads\ndescription: Guía para usar CRM - Juancito Ads con el CLI `juancitoads` — instalar, configurar, desplegar y operar chatbots de IA con CRM en la Cloudflare del usuario. Actívala cuando el usuario quiera \"instalar Juancito Ads\", \"montar/crear un chatbot\", \"actualizar mi bot\", \"diagnosticar mi bot\", \"cambiar el idioma o la moneda de mi bot\", \"pausar un chat\", o mencione juancitoads.\n---\n\n# Juancito Ads — instalar y operar chatbots con el CLI `juancitoads`\n\nEres el asistente que maneja Juancito Ads POR el usuario. La persona probablemente **no programa**\ny casi nunca verá la terminal: **tú corres los comandos y tú haces las preguntas en el chat**.\nREGLA DE ORO: **una pregunta por mensaje** — espera la respuesta antes de la siguiente.\n\n## Qué es Juancito Ads\nUn chatbot de IA con CRM que vive en la **cuenta de Cloudflare del usuario**, con **sus llaves**.\nEl bot y sus datos son del usuario. Es **gratis y open source**: no hay licencias, cuentas,\nplanes ni servidor central — el código sale de GitHub y todo viene desbloqueado.\nTú NO eres el chatbot: tú eres quien lo construye.\n\n## El CLI (córrelo tú, siempre con flags)\n- `npx juancitoads init` — instala un bot. **Punto de partida.**\n- `npx juancitoads list` — giros disponibles.\n- `npx juancitoads install <slug>` — instala un giro directo.\n- `npx juancitoads update` — actualiza conservando la config del usuario (`member/`).\n- `npx juancitoads doctor` — diagnostica un bot instalado.\n- `npx juancitoads ayuda` — dónde pedir ayuda.\n\n## Guion de instalación (en ORDEN, una pregunta por mensaje)\nEl asistente interactivo del CLI es para humanos en terminal; tú NO puedes navegar sus\nmenús. Tu flujo: **entrevistar por pasos → correr UN comando con todo por flags**.\n\n**Paso 0 · Explica ANTES de correr un solo comando (y espera su \"sí\").** La persona casi\nnunca \"ve\" lo que haces; dale el mapa primero, corto y sin tecnicismos:\n> \"Antes de empezar te explico rápido: te voy a **armar un chatbot de IA** para tu negocio,\n> gratis. Va a **vivir en TU propia cuenta de Cloudflare** (la casa del bot, a tu nombre —\n> gratis para empezar, ~$5 USD/mes cuando ya tengas clientes escribiéndole). El **cerebro**\n> lo pone tu proveedor de IA favorito (Claude, ChatGPT o Grok) con tu llave — ahí pagas solo\n> lo que piensa, ~$1–2 USD/mes; tu llave se guarda cifrada en TU Cloudflare, yo nunca la veo.\n> **Yo corro todos los comandos por ti** — tú solo vas a crear **dos cuentas** (Cloudflare y\n> tu proveedor de IA, te llevo pasito a pasito) y, al final, conectar tu canal\n> (WhatsApp, Telegram o el chat en tu propia página web). En menos de un día está\n> listo. ¿Le entramos?\"\n\nEspera su \"sí\" ANTES de correr `juancitoads init`. Si pregunta por costos, dónde vive el bot o\nqué necesita, respóndele desde aquí — no avances hasta que esté tranquilo. (El `init` solo\nBAJA el código, no toca Cloudflare; las cuentas y el deploy entran después, en la Fase 1.)\n\n**Paso 0.5 · Verifica que tenga las herramientas (y si falta, instálalo TÚ).** Antes de correr\n`juancitoads init`, revisa que existan las dos herramientas base. Si algo falta, díselo en corto\n(\"te falta X, te lo instalo, ~1 min ¿va?\") e **instálalo tú** — no lo mandes a pelearse con\ninstaladores. Detecta el sistema con `uname` (Darwin=macOS, Linux) o asume Windows.\n\n- **Node.js ≥18** (lo necesita `npx`): corre `node -v`. Si falta o es viejo:\n  - macOS con Homebrew: `brew install node`. Sin Homebrew → instala nvm y Node:\n    `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash`, reinicia\n    la terminal y `nvm install --lts`.\n  - Linux: mismo nvm (no pide sudo) → `nvm install --lts`.\n  - Windows: `winget install OpenJS.NodeJS.LTS`.\n- **pnpm** (lo necesita el deploy en la Fase 1): corre `pnpm -v`. Si falta, lo más limpio es\n  `corepack enable pnpm` (viene con Node); si no jala, `npm i -g pnpm`.\n- `tar` y `git` ya vienen en macOS/Linux/Windows moderno — normalmente no hay que tocar nada.\n\nInstala lo que falte, **verifica de nuevo** (`node -v`, `pnpm -v`) y solo entonces sigue al Paso 1.\nSi de plano no hay forma de instalar Node por terminal, mándalo a nodejs.org a bajar el\ninstalador y espera a que confirme.\n\n**Paso 1 · Corre el init.** Ya con su \"sí\": no hay licencias ni cuentas que crear, así que\ndi \"te armo tu bot ahorita mismo\" y corre `init` directo.\n\n**Paso 1.5 · País/idioma**: si el negocio NO es de México/LATAM, pregúntale de qué país es y pásalo con `--region` (España→`es-ES` €, Brasil→`pt-BR` R$, inglés→`en`). Así arranca con su idioma, moneda y zona horaria. Por defecto (LATAM) es `es-419`.\n\n**Paso 2 · El negocio** — una por una:\nnombre del negocio → a qué se dedica → qué ofrece (servicios/productos CON precios) →\nhorario → ubicación → teléfono/WhatsApp → sitio web o redes (si tiene — **anota bien la\ndirección de su página: con ella le pones el chat en su propio sitio**) → métodos de pago →\n\"¿qué es lo que MÁS te pregunta la gente?\" (2-3 típicas) → \"¿algo que el bot NO deba hacer\no decir? ¿cuándo debe pasarte la conversación a ti?\" → tono (cercano/formal/divertido) →\ncerebro (claude/chatgpt/grok).\n\nCon todo, corre UN solo comando. Ejemplo:\n`npx juancitoads init --yes --negocio \"Tacos Ana\" --que \"taquería\" --ofrece \"tacos $25, aguas $20\" --horario \"L-S 9-20\" --ubicacion \"Centro\" --telefono \"555…\" --web \"instagram.com/tacosana\" --pagos \"efectivo, tarjeta\" --faq \"¿hacen envíos?, ¿hay vegetariano?\" --reglas \"no prometer descuentos; pasar a humano si piden factura\" --tono cercano --cerebro claude`\n\nFlags de `init`: `--giro` `--email` `--name`/`--negocio` `--que` `--ofrece`\n`--horario` `--ubicacion` `--telefono` `--web` `--pagos` `--faq` `--reglas`\n`--tono cercano|formal|divertido` `--cerebro claude|chatgpt|grok` `--region es-419|es-ES|en|pt-BR` (idioma+moneda+zona horaria; alias viejo `--lang es|en`) `--yes` `--no-agent-skill`.\n\nSi el CLI imprime un bloque **\"PARA EL AGENTE\"**, síguelo tal cual: haz las preguntas en el\norden que lista (una por mensaje) y reintenta con las flags que indica. Nunca dejes el comando\ncolgado. (La primera corrida instala/actualiza esta guía en ~/.claude/skills/juancitoads/.)\n\n## Después de descargar el bot (síguelo EN ORDEN)\n1. `cd <slug>` (la carpeta creada).\n1.5 **Reconfirma en corto ANTES de crear cuentas / desplegar.** Ya diste el mapa en el Paso 0;\n   aquí solo recuérdalo brevemente: \"ahora sí voy a crear tu Cloudflare y a desplegar tu bot —\n   ¿listo?\". Dato útil que puedes agregar: una vez construido, tu bot **NO consume tokens de\n   Claude Code jamás** — atiende solo con tu llave de IA (~$1–2/mes); Claude Code solo gasta\n   cuando le pidas cambios. Si quiere verlo en imagen, ábrele el diagrama:\n   `open como-funciona.html` — NO generes uno nuevo.\n2. **LEE el `CLAUDE.md` de esa carpeta** y sigue `/configurar-mi-chatbot` (en `skill/`; si no está\n   registrado, abre `skill/configurar-mi-chatbot.md`). Sus 4 fases: (1) plataforma — Cloudflare +\n   API key como secreto + deploy, (2) negocio — entrevista y base de conocimiento; **si\n   `member/config.local.ts` ya trae datos del init, NO los vuelvas a preguntar: confírmalos y\n   completa solo los huecos**, (3) conexiones — canales uno por uno (se ponen VERDES en el panel); **si tiene página web,\n   ofrécele ese canal: es el más fácil de todos — sin tokens, sin verificación, solo pegar un\n   `<script>` en su sitio**. (4) prueba final con mensaje real.\n3. Cuando el deploy salga bien, dale la URL de su panel: `https://<worker>.workers.dev/admin`.\n\n## Después de instalar: los comandos del bot\nEl bot trae sus propios skills en `skill/` (su `CLAUDE.md` los lista):\n`/configurar-mi-chatbot`, `/actualizar-mi-bot`, `/reporte`, `/exportar` y `/contribuir`.\nTodo viene desbloqueado: no hay features de pago ni tiers que activar.\n\n## Cambiar idioma o moneda de un bot (ya instalado)\nEl bot maneja 4 idiomas de panel/sistema: **es-419** (LATAM), **es-ES** (España), **en**, **pt-BR** (Brasil), más **espejo** (contesta en el idioma de cada cliente). Se cambian SIN redesplegar, por settings en su D1 — igual que el panel, efecto inmediato:\n- **Idioma**: `wrangler d1 execute <DB> --remote --command \"INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('bot_language','<valor>',<ahora_ms>)\"` — valor: `es-419|es-ES|en|pt-BR|espejo`.\n- **Moneda** (símbolo de precios): el mismo comando con `('bot_currency','<símbolo>',…)` — `$` | `€` | `R$`.\n- **Volver al default** del wrangler.toml: usa valor vacío `''`.\n\n`<DB>` = la D1 del bot (está en su `wrangler.toml`). `<ahora_ms>` = `$(( $(date +%s) * 1000 ))`. El dueño también puede hacerlo en el panel → **Configuración**. **Si no te dice a qué idioma o moneda, PREGÚNTASELO** — no lo adivines por el país. Tras cambiarlo, confírmale que el bot y el panel ya están en el nuevo idioma. Si te pide un idioma que NO está en la lista (p. ej. francés), dile con claridad cuáles hay disponibles y ofrécele **espejo** si lo que quiere es que el bot se adapte a cada cliente.\n\n## El cerebro del bot (modelo) — súbelo si toma pedidos\nEl bot elige el modelo por turno (**Equilibrado** por default: barato para lo simple, sube solo al inteligente en lo difícil). Un bot que **toma pedidos, agenda citas o reserva mesas** hace un flujo de varios pasos (\"un dato a la vez\"); con esas tools activas ya arranca en el inteligente. Pero si el dueño reporta que el bot **junta todo en un mensaje** o **no respeta los pasos** de su prompt, el fix es fijar el cerebro en **Máximo**:\n- Panel → **Configuración** → \"Cerebro del bot\" → **Máximo**. O por D1: `wrangler d1 execute <DB> --remote --command \"INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('model_override','sonnet',<ahora_ms>)\"` — valor: `sonnet` (Máximo) | `auto` (Equilibrado) | `haiku` (Económico).\n\nDiagnóstico clave para no confundir al dueño: **NO es que \"no se aplicaron sus cambios\"** — su prompt SÍ llegó al bot (lo ves en que ya usa su tono, su menú, sus reglas). Lo que falla es que el modelo barato no aguanta un flujo de tantos pasos y lo aplasta. Máximo lo respeta (cuesta un poco más por mensaje). Sugiere también borrar el historial del chat de prueba.\n\n## Reglas de seguridad (NO las rompas)\n- **API keys/tokens (claro pero flexible):** lo ideal es que el usuario las pegue en SU terminal (`wrangler secret put`), no en el chat — avísale de ese flujo antes. Pero si de todos modos te la pega en el chat, NO la rechaces: dale una advertencia corta (mejor en la terminal, en el chat queda en el historial) y tú mismo la guardas como secreto de Cloudflare (`wrangler secret put`, pásala por stdin). Nunca la imprimas de vuelta ni la dejes en archivos del repo.\n- **NO** hagas `git push`, commit ni `deploy` sin que el usuario confirme.\n- `member/` es del usuario; no la borres — se conserva en cada actualización.\n- **Un bot = sus propios recursos.** Cada bot tiene su PROPIO D1 y su PROPIO índice Vectorize, con un nombre ÚNICO por bot en wrangler.toml (juancitoads_<slug>_<uid>_db / _kb — el <uid> evita que dos bots choquen y mezclen datos). NUNCA reuses el D1 ni el índice de otro bot: heredaría su persona y sus datos. Un 2º bot en la misma cuenta SIEMPRE crea recursos NUEVOS (nueva D1, nuevo Vectorize, nuevo worker); el skill `/configurar-mi-chatbot` crea el recurso con el nombre que trae el wrangler.toml (ya único) y verifica que no exista antes.\n- Si algo falla: `npx juancitoads doctor` y reporta claro y en simple.\n\n## Soporte (cuando tú no puedas resolverlo)\nSi `doctor` no lo arregla, abre un issue en https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS/issues\ncon (1) qué falló, (2) la salida de `npx juancitoads doctor` y (3) el sistema operativo y `node -v`.\nTambién puedes correr `npx juancitoads ayuda`.\n\nDocumentación completa: https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS#readme";
 
 // Instala una guía para el AGENTE del miembro (Claude Code) que le enseña a usar el CLI
-// panaclaw y el flujo completo. Se escribe en ~/.claude/skills/panaclaw/SKILL.md. Idempotente;
-// opt-out con --no-agent-skill o PANACLAW_NO_AGENT_SKILL. Nunca rompe el init si falla.
+// juancitoads y el flujo completo. Se escribe en ~/.claude/skills/juancitoads/SKILL.md. Idempotente;
+// opt-out con --no-agent-skill o JUANCITOADS_NO_AGENT_SKILL. Nunca rompe el init si falla.
 function installAgentSkill(flags = {}) {
-  if ((flags && flags["no-agent-skill"]) || process.env.PANACLAW_NO_AGENT_SKILL) return;
+  if ((flags && flags["no-agent-skill"]) || process.env.JUANCITOADS_NO_AGENT_SKILL) return;
   try {
-    const dir = join(homedir(), ".claude", "skills", "panaclaw");
+    const dir = join(homedir(), ".claude", "skills", "juancitoads");
     const file = join(dir, "SKILL.md");
     const existed = existsSync(file);
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, AGENT_SKILL);
-    if (!existed) console.log(C.dim("  \u270e guía de PanaClaw instalada para tu agente  \u2192  ~/.claude/skills/panaclaw/"));
+    if (!existed) console.log(C.dim("  \u270e guía de Juancito Ads instalada para tu agente  \u2192  ~/.claude/skills/juancitoads/"));
   } catch { /* no romper el flujo por esto */ }
 }
 
 async function cmdInit(flags = {}) {
   const cfg = loadCfg();
-  ASSUME_YES = !!(flags.yes || process.env.PANACLAW_YES);
+  ASSUME_YES = !!(flags.yes || process.env.JUANCITOADS_YES);
   // --region (nuevo) o --lang (alias viejo) fijan la región del bot. Con --yes
   // sin ninguno, cae al default LATAM en vez de abrir el menú interactivo.
   const regFlag = normRegion(flags.region || flags.lang);
@@ -825,7 +830,7 @@ async function cmdInit(flags = {}) {
   if (flags.lang && DICT[flags.lang]) cfg.lang = flags.lang;
   if (cfg.region && REGIONS[cfg.region]) { REGION = cfg.region; L = REGIONS[REGION].ui; }
   else if (cfg.lang && DICT[cfg.lang]) L = cfg.lang;
-  forgeSplash();   // ilustración de panaclaw
+  forgeSplash();   // ilustración de juancitoads
   installAgentSkill(flags);
   const rl = createInterface({ input, output });
   try {
@@ -849,9 +854,9 @@ async function cmdInit(flags = {}) {
     stampBotConfig(dir, "pro", bot.slug);
     ensureProTier(dir);
 
-    // Bienvenida con contexto ANTES de las preguntas: qué es PanaClaw, dónde vive el
+    // Bienvenida con contexto ANTES de las preguntas: qué es Juancito Ads, dónde vive el
     // bot y que al final aparece en su dashboard.
-    console.log("\n  " + C.cyan("◇ ") + C.b(t().welcomeTitle));
+    console.log("\n  " + C.azul("◇ ") + C.b(t().welcomeTitle));
     for (const l of t().welcomeBody) console.log("  " + C.dim(l));
 
     // Onboarding guiado del Starter: elige cerebro + preguntas de negocio → config
@@ -893,7 +898,7 @@ async function cmdList() {
 
 async function cmdInstall(slug, flags) {
   const cfg = loadCfg();
-  ASSUME_YES = !!(flags.yes || process.env.PANACLAW_YES);
+  ASSUME_YES = !!(flags.yes || process.env.JUANCITOADS_YES);
   if (flags.lang && DICT[flags.lang]) { cfg.lang = flags.lang; }
   if (cfg.lang && DICT[cfg.lang]) L = cfg.lang;
   banner();
@@ -901,7 +906,7 @@ async function cmdInstall(slug, flags) {
   if (!slug) { console.log("  " + C.red(t().needSlug) + "\n"); process.exit(1); }
   if (!catalog().some((b) => b.slug === slug)) {
     console.log("  " + C.red(`No conozco el giro "${slug}".`));
-    console.log(C.dim(`  Míralos con: npx panaclaw list\n`));
+    console.log(C.dim(`  Míralos con: npx juancitoads list\n`));
     process.exit(1);
   }
   process.stdout.write(C.dim(`  ${t().downloading(slug)}`));
@@ -964,11 +969,11 @@ async function cmdUpdate(dirArg, flags) {
   ensureMemberDefaults(buf, dir); // entrega defaults nuevos de member/ sin pisar los del miembro
   console.log(C.green(`\n  ✓ ${t().updDone(version)}\n`));
   console.log("  " + t().updPublish);
-  console.log(C.dim("    ") + C.cyan(t().updPublishCmd) + C.dim("  (pnpm install && pnpm deploy)\n"));
+  console.log(C.dim("    ") + C.azul(t().updPublishCmd) + C.dim("  (pnpm install && pnpm deploy)\n"));
 }
 
 // doctor — diagnostica el bot instalado: config local, versión, licencia y si el
-// worker responde. Uso recurrente: corre `npx panaclaw doctor` cuando algo falle.
+// worker responde. Uso recurrente: corre `npx juancitoads doctor` cuando algo falle.
 async function cmdDoctor(dirArg, flags) {
   const cfg = loadCfg(); if (cfg.lang && DICT[cfg.lang]) L = cfg.lang;
   banner();
@@ -978,12 +983,12 @@ async function cmdDoctor(dirArg, flags) {
   let problems = 0;
 
   const dir = resolveBotDir(dirArg);
-  if (!dir) { bad("No encontré un bot aquí.", "Corre esto dentro de la carpeta de tu bot, o pásala: panaclaw doctor <carpeta>"); process.exit(1); }
-  ok(`Bot encontrado en ${C.cyan(dir)}`);
+  if (!dir) { bad("No encontré un bot aquí.", "Corre esto dentro de la carpeta de tu bot, o pásala: juancitoads doctor <carpeta>"); process.exit(1); }
+  ok(`Bot encontrado en ${C.azul(dir)}`);
 
   // 1) marcador de instalación
   let marker = {};
-  try { marker = JSON.parse(readFileSync(join(dir, MARKER), "utf8")); ok(`Instalado: ${C.cyan(marker.slug)} v${marker.version}`); }
+  try { marker = JSON.parse(readFileSync(join(dir, MARKER), "utf8")); ok(`Instalado: ${C.azul(marker.slug)} v${marker.version}`); }
   catch { bad("Marcador de instalación ilegible.", `Falta o está corrupto ${MARKER}`); problems++; }
 
   // 2) archivos clave
@@ -991,21 +996,21 @@ async function cmdDoctor(dirArg, flags) {
   if (has("wrangler.toml")) ok("wrangler.toml presente"); else { bad("Falta wrangler.toml", "Sin él no se puede desplegar el bot."); problems++; }
   if (has("package.json")) ok("package.json presente"); else { warn("Falta package.json"); problems++; }
   if (has("node_modules")) ok("Dependencias instaladas"); else warn("Dependencias sin instalar", "Corre: pnpm install");
-  if (has(join("member", "config.local.ts"))) ok("Negocio configurado (member/config.local.ts)"); else warn("El negocio aún no está configurado", "Corre el onboarding: panaclaw init");
+  if (has(join("member", "config.local.ts"))) ok("Negocio configurado (member/config.local.ts)"); else warn("El negocio aún no está configurado", "Corre el onboarding: juancitoads init");
 
   // 3) config del wrangler.toml (BOT_NAME / BOT_NICHE / URL del panel)
   let wt = "";
   try { wt = readFileSync(join(dir, "wrangler.toml"), "utf8"); } catch {}
   const val = (k) => { const m = wt.match(new RegExp(`^\\s*${k}\\s*=\\s*["']([^"']*)`, "m")); return m ? m[1] : null; };
   const botName = val("BOT_NAME"), botNiche = val("BOT_NICHE"), baseUrl = val("DASHBOARD_BASE_URL");
-  if (botName) ok(`Nombre del negocio: ${C.cyan(botName)}`); else warn("BOT_NAME sin definir", "El bot no sabe cómo se llama tu negocio.");
-  if (botNiche) ok(`Giro (nicho): ${C.cyan(botNiche)}`); else warn("BOT_NICHE sin definir", "El panel usará el genérico en vez del de tu giro.");
+  if (botName) ok(`Nombre del negocio: ${C.azul(botName)}`); else warn("BOT_NAME sin definir", "El bot no sabe cómo se llama tu negocio.");
+  if (botNiche) ok(`Giro (nicho): ${C.azul(botNiche)}`); else warn("BOT_NICHE sin definir", "El panel usará el genérico en vez del de tu giro.");
 
   // 4) versión vs repo (el SHA del commit es la versión)
   try {
     const latest = await repoVersion();
     if (latest && marker.version) {
-      if (marker.version !== latest) warn(`Hay una versión nueva: ${latest} (tienes ${marker.version})`, "Actualiza: npx panaclaw update");
+      if (marker.version !== latest) warn(`Hay una versión nueva: ${latest} (tienes ${marker.version})`, "Actualiza: npx juancitoads update");
       else ok("Estás en la última versión");
     }
   } catch { warn("No pude consultar GitHub (¿sin internet?)"); }
@@ -1086,7 +1091,7 @@ async function doctorWhatsApp(dir, flags, fallbackUrl) {
       );
       if (status === 200 && !body.error) {
         if (body.status === "CONNECTED" && body.code_verification_status === "VERIFIED") {
-          ok(`Número conectado: ${C.cyan(body.display_phone_number || phoneId)} (${body.verified_name || "sin nombre verificado"}) · tier de mensajería: ${body.messaging_limit_tier || "?"}`);
+          ok(`Número conectado: ${C.azul(body.display_phone_number || phoneId)} (${body.verified_name || "sin nombre verificado"}) · tier de mensajería: ${body.messaging_limit_tier || "?"}`);
         } else {
           warn(`Número ${body.display_phone_number || phoneId}: status=${body.status || "?"} · verificación=${body.code_verification_status || "?"}`,
             "Revisa el número en Meta Business Manager → WhatsApp Manager → Números de teléfono.");
@@ -1190,7 +1195,7 @@ async function doctorWhatsApp(dir, flags, fallbackUrl) {
     ];
     for (const { name, fallback } of required) {
       const present = names.includes(name) ? name : (fallback && names.includes(fallback) ? fallback : null);
-      if (present) ok(`Secret presente: ${C.cyan(present)}`);
+      if (present) ok(`Secret presente: ${C.azul(present)}`);
       else { bad(`Falta el secret ${name}${fallback ? ` (o ${fallback})` : ""}`, `Ponlo: npx wrangler secret put ${name}`); problems++; }
     }
   } catch {
@@ -1245,9 +1250,9 @@ function parseFlags(args) {
   return { flags, rest };
 }
 
-// Se ejecuta como CLI solo cuando se invoca directo (npx panaclaw / node cli.js), no
+// Se ejecuta como CLI solo cuando se invoca directo (npx juancitoads / node cli.js), no
 // cuando se importa para pruebas (ahí solo se exponen las funciones puras de abajo).
-// Robusto ante symlinks: npx expone el bin como enlace "panaclaw" (no "cli.js"), así
+// Robusto ante symlinks: npx expone el bin como enlace "juancitoads" (no "cli.js"), así
 // que comparamos la ruta REAL (realpath) contra este módulo, con respaldo por nombre.
 const IS_MAIN = (() => {
   const argv1 = process.argv[1] || "";
@@ -1255,7 +1260,7 @@ const IS_MAIN = (() => {
     if (realpathSync(argv1) === fileURLToPath(import.meta.url)) return true;
   } catch { /* argv1 raro o inexistente */ }
   const base = argv1.replace(/\\/g, "/").split("/").pop() || "";
-  return base === "cli.js" || base === "panaclaw";
+  return base === "cli.js" || base === "juancitoads";
 })();
 // ── panel de ayuda / soporte ─────────────────────────────────────────────────
 // No hay soporte comercial ni licencias que arreglar: todo pasa por el repo.
@@ -1263,17 +1268,17 @@ function cmdAyuda() {
   const cfg = loadCfg(); if (cfg.lang && DICT[cfg.lang]) L = cfg.lang;
   banner();
   const en = L === "en";
-  console.log("  " + C.b(en ? "🆘 PanaClaw help & support" : "🆘 Ayuda y soporte de PanaClaw") + "\n");
-  console.log("  " + C.cyan(en ? "📚 Docs & guides" : "📚 Guías y docs") + "     " + REPO_URL + "#readme");
-  console.log("  " + C.cyan(en ? "💬 Questions" : "💬 Preguntas") + "         " + REPO_URL + "/discussions");
-  console.log("  " + C.cyan(en ? "🐛 Bugs & ideas" : "🐛 Bugs e ideas") + "      " + REPO_URL + "/issues\n");
+  console.log("  " + C.b(en ? "🆘 Juancito Ads help & support" : "🆘 Ayuda y soporte de Juancito Ads") + "\n");
+  console.log("  " + C.azul(en ? "📚 Docs & guides" : "📚 Guías y docs") + "     " + REPO_URL + "#readme");
+  console.log("  " + C.azul(en ? "💬 Questions" : "💬 Preguntas") + "         " + REPO_URL + "/discussions");
+  console.log("  " + C.azul(en ? "🐛 Bugs & ideas" : "🐛 Bugs e ideas") + "      " + REPO_URL + "/issues\n");
   console.log("  " + C.b(en ? "When you open an issue, include:" : "Cuando abras un issue, incluye:"));
   console.log("   1. " + (en ? "Which command failed and what you expected" : "Qué comando falló y qué esperabas"));
-  console.log("   2. " + C.cyan("npx panaclaw doctor") + (en ? " output (run it inside the bot folder)" : " (córrelo en la carpeta del bot)"));
+  console.log("   2. " + C.azul("npx juancitoads doctor") + (en ? " output (run it inside the bot folder)" : " (córrelo en la carpeta del bot)"));
   console.log("   3. " + (en ? "Your OS and `node -v`" : "Tu sistema operativo y `node -v`") + "\n");
   console.log(C.dim(en
-    ? "  PanaClaw is free and self-hosted: there are no licenses, accounts or plans.\n"
-    : "  PanaClaw es gratis y self-hosted: no hay licencias, cuentas ni planes.\n"));
+    ? "  Juancito Ads is free and self-hosted: there are no licenses, accounts or plans.\n"
+    : "  Juancito Ads es gratis y self-hosted: no hay licencias, cuentas ni planes.\n"));
 }
 
 if (IS_MAIN) {
@@ -1289,7 +1294,7 @@ if (IS_MAIN) {
     // sin comando (o comando desconocido) → ayuda
     const cfg = loadCfg(); if (cfg.lang && DICT[cfg.lang]) L = cfg.lang;
     banner();
-    console.log("  " + t().commands + "  " + C.cyan("init") + "  " + C.cyan("list") + "  " + C.cyan("install <slug>") + "  " + C.cyan("update") + "  " + C.cyan("doctor") + "  " + C.cyan("ayuda") + "\n");
+    console.log("  " + t().commands + "  " + C.azul("init") + "  " + C.azul("list") + "  " + C.azul("install <slug>") + "  " + C.azul("update") + "  " + C.azul("doctor") + "  " + C.azul("ayuda") + "\n");
     console.log(C.dim("  Flags de init (modo no-interactivo, para agentes):"));
     console.log(C.dim("    --yes  --giro <slug>  --name/--negocio  --que --ofrece --horario --ubicacion"));
     console.log(C.dim("    --telefono --web --pagos --faq --reglas"));

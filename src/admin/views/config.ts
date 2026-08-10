@@ -22,9 +22,9 @@ function esc(s: string): string {
   );
 }
 
-// Brand accent = cyan (PanaClaw retro-terminal theme). The selected card
-// lights up accent; the hidden radio drives the highlight via Tailwind's `peer`
-// utilities so the whole card is clickable (it's a <label>).
+// The selected card lights up in the brand accent (neon blue); the hidden radio
+// drives the highlight via Tailwind's `peer` utilities so the whole card is
+// clickable (it's a <label>).
 const CARD_BASE =
   "peer-checked:border-accent peer-checked:bg-accent-soft " +
   "peer-checked:[&_.card-icon]:text-accent peer-checked:[&_.card-label]:text-accent " +

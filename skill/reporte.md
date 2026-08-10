@@ -11,7 +11,7 @@ demostrar que el bot vale lo que cuesta. Habla siempre en español claro de nego
 protagonista es el **resultado** (conversaciones atendidas, escalaciones, leads, ahorro),
 nunca el código ni el SQL.
 
-El bot guarda todo en una base de datos D1 en Cloudflare (`panaclaw_db`). Tú la
+El bot guarda todo en una base de datos D1 en Cloudflare (`juancitoads_db`). Tú la
 consultas, calculas los números del último mes y redactas el informe. **Solo lectura: este
 skill NUNCA borra ni modifica datos.** Adáptate a lo que EXISTA: si es un bot Starter no
 hay leads ni agendas, así que reportas conversaciones + escalaciones. Si es Pro, agregas
@@ -27,7 +27,7 @@ SIGUE ESTAS REGLAS AL PIE DE LA LETRA.
    informe incluye leads y citas (Pro) o solo conversaciones + escalaciones (Starter/free).
 3. Detecta **qué tablas existen de verdad** (no asumas). Corre:
    ```
-   wrangler d1 execute panaclaw_db --remote --command "SELECT name FROM sqlite_master WHERE type='table';"
+   wrangler d1 execute juancitoads_db --remote --command "SELECT name FROM sqlite_master WHERE type='table';"
    ```
    En todo bot habrá `conversations`, `messages`, `tickets`. La tabla `leads` puede existir
    pero estar vacía en Starter — reporta leads SOLO si el tier es Pro **y** hay filas.
@@ -50,32 +50,32 @@ periodo en ms. Lee cada resultado y guárdalo; NO se lo muestres crudo al miembr
 
 **1. Conversaciones atendidas** (clientes distintos con actividad en el periodo):
 ```
-wrangler d1 execute panaclaw_db --remote --command "SELECT COUNT(*) AS conversaciones FROM conversations WHERE last_message_at >= <DESDE>;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT COUNT(*) AS conversaciones FROM conversations WHERE last_message_at >= <DESDE>;"
 ```
 
 **2. Mensajes manejados por el bot** (volumen de trabajo):
 ```
-wrangler d1 execute panaclaw_db --remote --command "SELECT COUNT(*) AS mensajes, SUM(CASE WHEN role='user' THEN 1 ELSE 0 END) AS del_cliente, SUM(CASE WHEN role='assistant' THEN 1 ELSE 0 END) AS del_bot FROM messages WHERE created_at >= <DESDE>;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT COUNT(*) AS mensajes, SUM(CASE WHEN role='user' THEN 1 ELSE 0 END) AS del_cliente, SUM(CASE WHEN role='assistant' THEN 1 ELSE 0 END) AS del_bot FROM messages WHERE created_at >= <DESDE>;"
 ```
 
 **3. Escalaciones a humano** (tickets abiertos en el periodo, por categoría):
 ```
-wrangler d1 execute panaclaw_db --remote --command "SELECT COUNT(*) AS escalaciones FROM tickets WHERE created_at >= <DESDE>;"
-wrangler d1 execute panaclaw_db --remote --command "SELECT category AS categoria, COUNT(*) AS total FROM tickets WHERE created_at >= <DESDE> GROUP BY category ORDER BY total DESC;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT COUNT(*) AS escalaciones FROM tickets WHERE created_at >= <DESDE>;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT category AS categoria, COUNT(*) AS total FROM tickets WHERE created_at >= <DESDE> GROUP BY category ORDER BY total DESC;"
 ```
 Las categorías reales son `billing` (cobros), `product` (producto/servicio),
 `complaint` (queja), `other` (otro) — tradúcelas al español en el informe.
 
 **4. Leads capturados — SOLO si tier = Pro y la tabla tiene filas:**
 ```
-wrangler d1 execute panaclaw_db --remote --command "SELECT COUNT(*) AS leads FROM leads WHERE created_at >= <DESDE>;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT COUNT(*) AS leads FROM leads WHERE created_at >= <DESDE>;"
 ```
 Si el tier es Starter/free o no hay filas, **omite esta sección** del informe (no inventes
 ceros con cara de fracaso; simplemente no aplica).
 
 **5. Costo aproximado de la IA** (lo que costó operar el bot). Saca los tokens por modelo:
 ```
-wrangler d1 execute panaclaw_db --remote --command "SELECT model_used AS modelo, SUM(input_tokens) AS input, SUM(cached_input_tokens) AS cacheado, SUM(output_tokens) AS output FROM messages WHERE created_at >= <DESDE> AND model_used IS NOT NULL GROUP BY model_used;"
+wrangler d1 execute juancitoads_db --remote --command "SELECT model_used AS modelo, SUM(input_tokens) AS input, SUM(cached_input_tokens) AS cacheado, SUM(output_tokens) AS output FROM messages WHERE created_at >= <DESDE> AND model_used IS NOT NULL GROUP BY model_used;"
 ```
 Luego **calcula el costo con la misma fórmula del repo** (`costOfUsage` en `src/pricing.ts`).
 Lee ese archivo para usar las tarifas REALES vigentes; a la fecha son (USD por millón de tokens):

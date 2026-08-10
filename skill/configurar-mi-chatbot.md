@@ -1,11 +1,11 @@
 ---
 name: configurar-mi-chatbot
-description: Asistente de instalación de PanaClaw (el Starter open source). Trabaja en 4 fases: (1) despliega TU PLATAFORMA en Cloudflare y te entrega tu dashboard vivo, (2) configura TU CHATBOT (negocio, tareas, idioma, conocimiento), (3) conecta TUS CONEXIONES (canales y avisos) viéndolas ponerse en verde en el panel, (4) PRUEBA FINAL con un mensaje real. Todo en ~35 min. Se activa con "/configurar-mi-chatbot", "ármame mi chatbot", "instalar bot panaclaw", "configurar mi bot".
+description: Asistente de instalación de Juancito Ads (el Starter open source). Trabaja en 4 fases: (1) despliega TU PLATAFORMA en Cloudflare y te entrega tu dashboard vivo, (2) configura TU CHATBOT (negocio, tareas, idioma, conocimiento), (3) conecta TUS CONEXIONES (canales y avisos) viéndolas ponerse en verde en el panel, (4) PRUEBA FINAL con un mensaje real. Todo en ~35 min. Se activa con "/configurar-mi-chatbot", "ármame mi chatbot", "instalar bot juancitoads", "configurar mi bot".
 ---
 
 # Configurar mi chatbot
 
-Eres el asistente de instalación de PanaClaw (el Starter open source — `BOT_TIER = "free"` en `wrangler.toml`). Tu trabajo: llevar al usuario de cero a su plataforma viva y su bot conectado, en su propia cuenta de Cloudflare, en ~35 minutos.
+Eres el asistente de instalación de Juancito Ads (el Starter open source — `BOT_TIER = "free"` en `wrangler.toml`). Tu trabajo: llevar al usuario de cero a su plataforma viva y su bot conectado, en su propia cuenta de Cloudflare, en ~35 minutos.
 
 El orden importa y es intencional: **primero la plataforma** (que desde el inicio vea SU dashboard), **el chatbot después**, y **las conexiones al final** — viéndolas ponerse en verde en su panel.
 
@@ -125,21 +125,21 @@ Crea los recursos (confirma antes con el miembro):
 
 ```bash
 # Base de datos D1 (guarda conversaciones, leads, etc.)
-wrangler d1 create panaclaw_db
+wrangler d1 create juancitoads_db
 # 👉 De la salida copia el "database_id" y reemplaza {{D1_DATABASE_ID}} en wrangler.toml
 
 # Índice Vectorize para la base de conocimiento (búsqueda semántica, embeddings BGE de 1024 dimensiones)
-wrangler vectorize create panaclaw_kb --dimensions=1024 --metric=cosine
+wrangler vectorize create juancitoads_kb --dimensions=1024 --metric=cosine
 
 # Bucket R2 para el catálogo de productos
-wrangler r2 bucket create panaclaw-catalog
+wrangler r2 bucket create juancitoads-catalog
 ```
 
 > Recuerda: después de crear D1, **edita `wrangler.toml`** y reemplaza `{{D1_DATABASE_ID}}` por el `database_id` real que te dio el comando. El bot AI (Workers AI), el AGENT (Durable Object `SupportAgent`), DB (D1), KB (Vectorize) y CATALOG (R2) ya están declarados como bindings en `wrangler.toml`; solo falta el id de D1.
 
 ### Paso 1.3 — Instalar dependencias y migraciones
 
-**Primero verifica que `pnpm` exista** (aquí Node ya está, porque `panaclaw init` corrió). Si
+**Primero verifica que `pnpm` exista** (aquí Node ya está, porque `juancitoads init` corrió). Si
 `pnpm -v` falla, instálalo tú antes de seguir — lo más limpio es `corepack enable pnpm` (viene
 con Node); si no jala, `npm i -g pnpm`. Con pnpm listo, instala dependencias y aplica las
 migraciones de la base de datos en la nube:
@@ -222,7 +222,7 @@ Ahora sí, le damos identidad al bot: su negocio, sus tareas, su idioma y su con
 ### Paso 2.1 — Negocio
 
 **ANTES de preguntar nada, LEE `member/config.local.ts`.** Si el bot se instaló con
-`panaclaw init`, el instalador ya pudo recoger: nombre del negocio, a qué se dedica,
+`juancitoads init`, el instalador ya pudo recoger: nombre del negocio, a qué se dedica,
 qué ofrece, horario, ubicación, teléfono, sitio web/redes, métodos de pago, preguntas
 frecuentes, reglas/escalación, tono y correo de avisos (en `businessConfig`, sus
 `customFields` y `memberConfig`). **Lo que ya esté ahí NO se vuelve a preguntar**:
@@ -557,7 +557,7 @@ Con el bot YA vivo y probado (no antes), remata así — sin presión, ya probó
    (`/reporte`), bajar sus prospectos a Excel (`/exportar`) y traer mejoras nuevas
    (`/actualizar-mi-bot`). Dile que basta con pedírmelo en español normal.
 
-3. **No le pidas datos personales para nada más.** PanaClaw no recolecta correos ni
+3. **No le pidas datos personales para nada más.** Juancito Ads no recolecta correos ni
    información del usuario: su bot y sus datos se quedan en su Cloudflare.
 
 ✅ Checkpoint final: borra `.bot-setup.json` (el setup terminó; el estado vive en `.bot-state.json`).
@@ -584,7 +584,7 @@ Con el bot YA vivo y probado (no antes), remata así — sin presión, ya probó
 - Opcionales para fijar modelos: `ANTHROPIC_MODEL_FAST`/`ANTHROPIC_MODEL_SMART`, `OPENAI_MODEL_FAST`/`OPENAI_MODEL_SMART`.
 
 **Bindings** ya declarados en `wrangler.toml`:
-- `AI` (Workers AI), `AGENT` (Durable Object `SupportAgent`), `DB` (D1 `panaclaw_db`), `KB` (Vectorize `panaclaw_kb`), `CATALOG` (R2 `panaclaw-catalog`). Cron diario `0 3 * * *` (purga mensajes de más de 90 días).
+- `AI` (Workers AI), `AGENT` (Durable Object `SupportAgent`), `DB` (D1 `juancitoads_db`), `KB` (Vectorize `juancitoads_kb`), `CATALOG` (R2 `juancitoads-catalog`). Cron diario `0 3 * * *` (purga mensajes de más de 90 días).
 
 **Comandos** (todos con **pnpm**):
 - `pnpm install` — instalar dependencias.

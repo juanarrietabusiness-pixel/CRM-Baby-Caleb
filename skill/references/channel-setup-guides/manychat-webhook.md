@@ -56,7 +56,7 @@ Aquí le dices a ManyChat: "cuando llegue un mensaje, pregúntale a mi bot qué 
 3. Configura así:
    - **Método (Method):** `POST`
    - **URL:** `<worker-url>/webhooks/manychat`
-     (la URL de tu Worker la ves cuando corres `pnpm run deploy`, algo como `https://panaclaw.TU-CUENTA.workers.dev`)
+     (la URL de tu Worker la ves cuando corres `pnpm run deploy`, algo como `https://juancitoads.TU-CUENTA.workers.dev`)
 4. En el **Body** (cuerpo), pega este JSON:
    ```json
    {

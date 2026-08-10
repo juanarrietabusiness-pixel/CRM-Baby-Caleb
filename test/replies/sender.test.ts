@@ -20,7 +20,7 @@ describe("sendChunkedReply", () => {
   it("passes channel and env through to the adapter", async () => {
     const sendReply = vi.fn(async () => {});
     const adapter = { sendReply, parseIncoming: vi.fn() } as unknown as ChannelAdapter;
-    const env = { BOT_NAME: "panaclaw" } as any;
+    const env = { BOT_NAME: "juancitoads" } as any;
     await sendChunkedReply(adapter, "twilio", "+5215555", ["hola"], env);
     const [reply, passedEnv] = sendReply.mock.calls[0] as any[];
     expect(reply.channel).toBe("twilio");

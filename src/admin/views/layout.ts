@@ -1,9 +1,10 @@
 // Dashboard shell: a fixed 248px sidebar (grouped navigation) + a live-status
-// topbar, wrapping each tab's server-rendered body. Brand theme ("PanaClaw"):
-// deep-black + flash-orange over Archivo, with JetBrains Mono reserved for
-// data. Design tokens are exposed both as CSS custom properties (for inline
-// styles) and mapped to Tailwind color names (for utility classes) — see
-// docs/design-system.md, the contract every view follows.
+// topbar, wrapping each tab's server-rendered body. Brand theme ("Juancito
+// Ads"): deep navy + neon blue, headings in Inter over Hanken Grotesk body
+// copy, with JetBrains Mono reserved for data. Design tokens are exposed both
+// as CSS custom properties (for inline styles) and mapped to Tailwind color
+// names (for utility classes) — see docs/design-system.md, the contract every
+// view follows.
 //
 // The layout() API is unchanged: views keep their own activeTab id; the group,
 // breadcrumb and page title are derived here.
@@ -73,12 +74,12 @@ const NAV: Section[] = [
 
 // <head> assets: fonts, Tailwind CDN + token config, lucide, htmx.
 const HEAD_ASSETS = `
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="icon" href="/favicon-192.png" sizes="192x192">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -86,27 +87,27 @@ const HEAD_ASSETS = `
       theme: {
         extend: {
           colors: {
-            bg: "#100101",
-            panel: "#190a0a",
-            panel2: "#221010",
-            raise: "#2c1818",
-            line: "#2e1c1c",
-            linelit: "#4a3333",
-            accent: { DEFAULT: "#ff5100", soft: "rgba(255,81,0,.12)" },
-            accent2: "#ff8a4c",
-            onaccent: "#100101",
-            cream: "#fff7f7",
-            muted: "#bababa",
-            dim: "#857a7a",
+            bg: "#050D1F",
+            panel: "#0A1628",
+            panel2: "#0F1E33",
+            raise: "#16294A",
+            line: "#16294A",
+            linelit: "#1B3A6B",
+            accent: { DEFAULT: "#1E90FF", soft: "rgba(30,144,255,.12)" },
+            accent2: "#F5A623",
+            onaccent: "#050D1F",
+            cream: "#F4F8FF",
+            muted: "#A0B4CC",
+            dim: "#6B819B",
             ok: "#57c98a",
-            info: "#6e9be8",
-            warn: "#e8b430",
+            info: "#35c4de",
+            warn: "#f2cc3f",
             bad: "#f4364c",
             violet: "#b49bf0",
           },
           fontFamily: {
-            display: ["Archivo", "ui-sans-serif", "system-ui", "sans-serif"],
-            sans: ["Archivo", "ui-sans-serif", "system-ui", "sans-serif"],
+            display: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+            sans: ["'Hanken Grotesk'", "ui-sans-serif", "system-ui", "sans-serif"],
             mono: ["'JetBrains Mono'", "ui-monospace", "monospace"],
           },
         },
@@ -121,31 +122,36 @@ const HEAD_ASSETS = `
 // overlay. All motion collapses under prefers-reduced-motion.
 const GLOBAL_STYLE = `
 <style>
-  /* Paleta de marca PanaClaw (ver PanaClaw/src/styles/global.css). Los valores
-     de identidad — fondo, texto y acento — son los de la marca tal cual; las
-     superficies son el equivalente SÓLIDO del blanco translúcido que usa el
-     sitio, porque en el panel las capas se apilan (sidebar + tarjeta + modal) y
-     la translucidez se ensucia. Los colores semánticos NO salen de la marca:
-     una paleta de 4 colores no puede expresar 8 estados. Ver §3 de
+  /* Paleta de marca Juancito Ads (ver PAGINA-JUANCITO-ADS/src/styles/global.css).
+     Los valores de identidad —fondo, azul neón, naranja y el gris de texto—
+     son los del sitio tal cual; las superficies intermedias son el equivalente
+     SÓLIDO del blanco translúcido que el sitio superpone, porque en el panel
+     las capas se apilan (sidebar + tarjeta + modal) y la translucidez se
+     ensucia. Los colores semánticos NO salen de la marca: una paleta de tres
+     colores no puede expresar ocho estados. Ver §1 y §3 de
      docs/design-system.md. */
   :root{
-    --bg:#100101; --panel:#190a0a; --panel2:#221010; --raise:#2c1818;
-    --line:#2e1c1c; --linelit:#4a3333;
-    --accent:#ff5100; --accent-2:#ff8a4c; --accent-soft:rgba(255,81,0,.12);
-    /* Texto sobre relleno de acento. La marca usa su negro sobre el naranja. */
-    --on-accent:#100101;
-    --cream:#fff7f7; --muted:#bababa; --dim:#857a7a;
-    --ok:#57c98a; --info:#6e9be8; --warn:#e8b430; --bad:#f4364c; --violet:#b49bf0;
+    --bg:#050D1F; --panel:#0A1628; --panel2:#0F1E33; --raise:#16294A;
+    --line:#16294A; --linelit:#1B3A6B;
+    --accent:#1E90FF; --accent-2:#F5A623; --accent-soft:rgba(30,144,255,.12);
+    /* Texto sobre relleno de acento. El azul neón de la marca es luminoso: el
+       azul marino encima contrasta 5.9:1, el blanco solo 3.2:1. */
+    --on-accent:#050D1F;
+    --cream:#F4F8FF; --muted:#A0B4CC; --dim:#6B819B;
+    --ok:#57c98a; --info:#35c4de; --warn:#f2cc3f; --bad:#f4364c; --violet:#b49bf0;
     /* legacy aliases kept so mockup-derived snippets keep working */
-    --border:#2e1c1c; --border-lit:#4a3333; --green:#57c98a; --blue:#6e9be8; --red:#f4364c;
-    --font-display:Archivo,ui-sans-serif,system-ui,sans-serif;
+    --border:#16294A; --border-lit:#1B3A6B; --green:#57c98a; --blue:#35c4de; --red:#f4364c;
+    --font-display:Inter,ui-sans-serif,system-ui,sans-serif;
+    --font-body:'Hanken Grotesk',ui-sans-serif,system-ui,sans-serif;
     --font-mono:'JetBrains Mono',ui-monospace,monospace;
   }
   *{box-sizing:border-box}
-  /* La marca es Archivo en todo. La monoespaciada se queda solo para datos
-     —IDs, importes, fragmentos de código— vía .font-mono o --font-mono. */
+  /* Las dos tipografías de la marca, repartidas igual que en el sitio: Inter
+     para titulares y cifras (--font-display), Hanken Grotesk para el texto
+     corrido. La monoespaciada se queda solo para datos —IDs, importes,
+     fragmentos de código— vía .font-mono o --font-mono. */
   html,body{margin:0;padding:0;background:var(--bg);color:var(--cream);
-    font-family:var(--font-display);-webkit-font-smoothing:antialiased}
+    font-family:var(--font-body);-webkit-font-smoothing:antialiased}
   a{color:var(--accent);text-decoration:none}
   a:hover{color:var(--accent-2)}
   ::-webkit-scrollbar{width:10px;height:10px}
@@ -197,11 +203,11 @@ const GLOBAL_STYLE = `
      elemento y lo acompaña con un halo difuso del acento. */
   .card{animation:rise .4s cubic-bezier(.16,1,.3,1) both}
   .bigbtn{transition:transform .2s ease,box-shadow .25s ease,background .2s ease}
-  .bigbtn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(255,81,0,.35)}
-  .bigbtn:active{transform:translateY(0);box-shadow:0 3px 10px rgba(255,81,0,.28)}
+  .bigbtn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(30,144,255,.35)}
+  .bigbtn:active{transform:translateY(0);box-shadow:0 3px 10px rgba(30,144,255,.28)}
   .ghostbtn{transition:border-color .2s ease,color .2s ease,background .2s ease}
   .ghostbtn:hover{border-color:var(--accent);color:var(--cream);background:var(--accent-soft)}
-  .glow{text-shadow:0 0 22px var(--accent-soft),0 0 40px rgba(255,81,0,.10)}
+  .glow{text-shadow:0 0 22px var(--accent-soft),0 0 40px rgba(30,144,255,.10)}
 
   /* list / table rows + interactive bits reused across views */
   .convrow:hover{background:var(--panel2)}
@@ -228,7 +234,7 @@ const GLOBAL_STYLE = `
 
   /* modal + toast (class names kept from prior layout for existing views) */
   .modal-backdrop{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
-    padding:1rem;background:rgba(16,1,1,.72);backdrop-filter:blur(6px);animation:fadeIn .15s ease-out}
+    padding:1rem;background:rgba(5,13,31,.72);backdrop-filter:blur(6px);animation:fadeIn .15s ease-out}
   .modal-card{background:var(--panel);border:1px solid var(--linelit);box-shadow:0 24px 64px rgba(0,0,0,.6);
     animation:popIn .18s cubic-bezier(.16,1,.3,1);transform-origin:center}
   .toast{background:var(--panel);border:1px solid var(--linelit);color:var(--cream);box-shadow:0 14px 40px rgba(0,0,0,.55);
@@ -365,9 +371,9 @@ function sidebar(activeTab: string, pro: boolean, niche: NichePack | null): stri
   return `<aside class="sb">
     <div class="sb-brand" style="padding:20px 18px 16px;border-bottom:1px solid var(--line)">
       <div style="display:flex;align-items:center;gap:10px">
-        <img src="/logo.svg" alt="" width="34" height="34" style="width:34px;height:34px;flex:none;display:block">
+        <img src="/logo.png" alt="" width="34" height="34" style="width:34px;height:34px;flex:none;display:block">
         <div style="line-height:1.05">
-          <div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:-.02em">PanaClaw</div>
+          <div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:-.02em">Juancito Ads</div>
           <div style="font-size:9.5px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase">Panel · ${pro ? "Pro" : "Free"}</div>
         </div>
       </div>
@@ -408,7 +414,7 @@ export function layout(opts: { title: string; activeTab: string; body: string; e
   <div class="shell">
     ${sidebar(opts.activeTab, pro, niche)}
     <div style="display:flex;flex-direction:column;min-width:0">
-      <header style="position:sticky;top:0;z-index:30;background:rgba(16,1,1,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 26px;display:flex;align-items:center;gap:20px">
+      <header style="position:sticky;top:0;z-index:30;background:rgba(5,13,31,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 26px;display:flex;align-items:center;gap:20px">
         <div style="min-width:0">
           <div style="font-size:10px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase">${section.label} / ${item.label}</div>
           <h1 style="font-family:var(--font-display);font-weight:700;font-size:22px;margin:2px 0 0;letter-spacing:-.02em">${item.label}</h1>
@@ -448,7 +454,7 @@ export function layout(opts: { title: string; activeTab: string; body: string; e
     // llega al navegador. Con una sola barra, la comilla cerraba la cadena y
     // todo este bloque moría con SyntaxError — el selector nunca aparecía.
     el.innerHTML = '<select onchange="if(this.value.indexOf(\\'http\\')===0)window.location=this.value" ' +
-      'style="background:rgba(16,1,1,.92);color:var(--cream,#fff7f7);border:1px solid var(--line);border-radius:8px;' +
+      'style="background:rgba(5,13,31,.92);color:var(--cream,#F4F8FF);border:1px solid var(--line);border-radius:8px;' +
       'padding:6px 10px;font-family:\\'JetBrains Mono\\',monospace;font-size:11px;letter-spacing:.04em;cursor:pointer" ' +
       'title="Cambiar de proyecto">' + opts + '</select>';
   }).catch(function(){});
@@ -460,7 +466,7 @@ export function layout(opts: { title: string; activeTab: string; body: string; e
 }
 
 // Se muestra cuando el bot corre con BOT_TIER="free" y se pide un tab avanzado.
-// NO es una página de venta: en PanaClaw todo viene desbloqueado y no hay nada
+// NO es una página de venta: en Juancito Ads todo viene desbloqueado y no hay nada
 // que comprar. Que aparezca significa que el wrangler.toml quedó en "free" —
 // así que explica cómo cambiarlo, en vez de mandar a un sitio a pagar.
 // Vive dentro del layout para conservar el nav; `feature` es el tab que se pidió.
@@ -535,14 +541,14 @@ export function loginPage(env?: Env, error?: string): string {
        Va detrás de todo y no intercepta clics. */
     .login-glow{position:fixed;top:-30vh;left:50%;transform:translateX(-50%);
       width:120vw;max-width:1100px;height:1100px;max-height:120vh;border-radius:50%;
-      background:radial-gradient(circle at center,var(--accent) 0%,rgba(238,0,0,.34) 34%,rgba(16,1,1,0) 70%);
+      background:radial-gradient(circle at center,var(--accent) 0%,rgba(245,166,35,.30) 34%,rgba(5,13,31,0) 70%);
       filter:blur(18px);opacity:.42;pointer-events:none;z-index:0}
     .login-card{position:relative;z-index:1;width:100%;max-width:392px;
       background:var(--panel);border:1px solid var(--linelit);border-radius:20px;
       box-shadow:0 28px 80px rgba(0,0,0,.65);padding:34px 30px 30px}
     .login-field{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--cream);
       padding:13px 14px;font-size:14px;outline:none;transition:border-color .2s,background .2s}
-    .login-field:focus{border-color:var(--accent);background:rgba(255,81,0,.05)}
+    .login-field:focus{border-color:var(--accent);background:rgba(30,144,255,.06)}
     .login-submit{width:100%;background:var(--accent);border:1px solid var(--accent);
       color:var(--on-accent);padding:13px;font-family:var(--font-display);font-weight:700;
       font-size:13.5px;letter-spacing:.04em;cursor:pointer}
@@ -552,7 +558,7 @@ export function loginPage(env?: Env, error?: string): string {
 <body style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px;overflow-x:hidden">
   <div class="login-glow" aria-hidden="true"></div>
   <form class="login-card" method="POST" action="/admin/login">
-    <img src="/logo.svg" alt="" width="42" height="42" style="width:42px;height:42px;display:block;margin-bottom:18px">
+    <img src="/logo.png" alt="" width="42" height="42" style="width:42px;height:42px;display:block;margin-bottom:18px">
     <h1 style="font-family:var(--font-display);font-weight:700;font-size:23px;margin:0;letter-spacing:-.02em;line-height:1.15">
       Panel de ${esc(business)}
     </h1>

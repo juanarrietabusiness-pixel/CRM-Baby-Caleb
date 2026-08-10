@@ -1,6 +1,6 @@
 ---
 name: actualizar-mi-bot
-description: Actualiza tu instalación de PanaClaw a la última versión sin romper el bot ni perder la configuración del usuario (carpeta member/, secrets de Cloudflare, datos en D1). Se activa con "/actualizar-mi-bot", "actualizar bot", "actualizar mi chatbot", "update panaclaw".
+description: Actualiza tu instalación de Juancito Ads a la última versión sin romper el bot ni perder la configuración del usuario (carpeta member/, secrets de Cloudflare, datos en D1). Se activa con "/actualizar-mi-bot", "actualizar bot", "actualizar mi chatbot", "update juancitoads".
 ---
 
 # Actualizar mi bot
@@ -26,9 +26,9 @@ Si en algún momento dudas: **member/ es sagrado, src/ se actualiza.**
 ## Sobre las actualizaciones
 
 No hay validación de nivel por API ni chequeos externos. Las actualizaciones vienen del
-repo público de PanaClaw (`upstream`) y **conservan siempre tu `member/`**.
+repo público de Juancito Ads (`upstream`) y **conservan siempre tu `member/`**.
 
-No corras ningún `curl` a servicios externos para "chequear nivel": PanaClaw es open source,
+No corras ningún `curl` a servicios externos para "chequear nivel": Juancito Ads es open source,
 las mejoras llegan por `git` y todo viene desbloqueado — no hay nivel que chequear.
 
 ## Paso 0 — Pre-flight (chequeos antes de tocar nada)
@@ -47,9 +47,9 @@ las mejoras llegan por `git` y todo viene desbloqueado — no hay nivel que cheq
    ```
    Guarda ese valor como **VERSIÓN_ACTUAL** (ej. `0.1.0`).
 
-## Paso 1 — Configurar el remote de PanaClaw (solo la primera vez)
+## Paso 1 — Configurar el remote de Juancito Ads (solo la primera vez)
 
-Las actualizaciones vienen del repo oficial de PanaClaw, que añadimos como un remote llamado `upstream`.
+Las actualizaciones vienen del repo oficial de Juancito Ads, que añadimos como un remote llamado `upstream`.
 
 ```bash
 git remote -v
@@ -58,10 +58,10 @@ git remote -v
 - Si **ya aparece `upstream`** → perfecto, continúa.
 - Si **NO aparece `upstream`** → agrégalo apuntando al repo oficial:
   ```bash
-  git remote add upstream https://github.com/abrinay1997-stack/CRM-PANACLAW.git
+  git remote add upstream https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS.git
   ```
 
-> Nota: si el usuario clonó directo el repo oficial (su `origin` ya apunta a `abrinay1997-stack/CRM-PANACLAW`), puede usar `origin` en lugar de `upstream` en todos los pasos siguientes.
+> Nota: si el usuario clonó directo el repo oficial (su `origin` ya apunta a `juanarrietabusiness-pixel/CRM-JuancitoADS`), puede usar `origin` en lugar de `upstream` en todos los pasos siguientes.
 
 ## Paso 2 — Traer la última versión y comparar
 
@@ -215,7 +215,7 @@ coincide con el secret: borra la línea `KB_REINDEX_TOKEN` de `.dev.vars`, repit
 
 Lee `DASHBOARD_BASE_URL` de `wrangler.toml` (o el slug en `.bot-state.json`) y pega `/health`:
 ```bash
-curl -s https://panaclaw-<SLUG>.workers.dev/health
+curl -s https://juancitoads-<SLUG>.workers.dev/health
 ```
 Debe responder algo como `{"ok":true}` / `ok`.
 
