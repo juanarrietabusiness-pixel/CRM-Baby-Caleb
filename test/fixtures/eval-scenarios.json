@@ -1,0 +1,182 @@
+[
+  {
+    "id": "es-faq-hours",
+    "lang": "es",
+    "tier": "free",
+    "category": "faq",
+    "userMessage": "¿están abiertos hoy?",
+    "expectedToolCall": "searchKb",
+    "rubric": "Responde en español. Consulta la KB antes de responder horarios. Da horario concreto o, si no lo encuentra, lo dice sin inventar. Sin relleno."
+  },
+  {
+    "id": "en-faq-hours",
+    "lang": "en",
+    "tier": "free",
+    "category": "faq",
+    "userMessage": "are you open today?",
+    "expectedToolCall": "searchKb",
+    "rubric": "Responds in English. Calls searchKb first. States the schedule directly. Does not fabricate hours. No padding."
+  },
+  {
+    "id": "pt-faq-location",
+    "lang": "pt",
+    "tier": "free",
+    "category": "faq",
+    "userMessage": "onde fica o estabelecimento?",
+    "expectedToolCall": "searchKb",
+    "rubric": "Responde em português. Busca na KB o endereço/localização. Não inventa endereço. Conciso."
+  },
+  {
+    "id": "en-faq-services",
+    "lang": "en",
+    "tier": "pro",
+    "category": "faq",
+    "userMessage": "what services do you offer?",
+    "expectedToolCall": "searchKb",
+    "rubric": "Responds in English. Pulls the service list from the KB. Stays grounded; if KB is thin, says so. Brief."
+  },
+  {
+    "id": "es-lead-capture",
+    "lang": "es",
+    "tier": "free",
+    "category": "lead-capture",
+    "userMessage": "quiero agendar un corte hoy 5pm, soy María, 5511234567",
+    "expectedToolCall": "captureLead",
+    "rubric": "Captura el lead con nombre (María) + contacto (5511234567) + intent (corte hoy 5pm). Confirma en español. No pierde datos ya dados."
+  },
+  {
+    "id": "en-lead-capture",
+    "lang": "en",
+    "tier": "pro",
+    "category": "lead-capture",
+    "userMessage": "I'm interested, my name is John, email john@acme.com, call me about a demo",
+    "expectedToolCall": "captureLead",
+    "rubric": "Captures name (John) + email (john@acme.com) + intent (demo). Confirms in English. Does not re-ask for info already provided."
+  },
+  {
+    "id": "pt-lead-capture",
+    "lang": "pt",
+    "tier": "pro",
+    "category": "lead-capture",
+    "userMessage": "tenho interesse, sou o Pedro, meu whatsapp é 11999998888",
+    "expectedToolCall": "captureLead",
+    "rubric": "Captura nome (Pedro) + contato (11999998888) + intent (interesse). Confirma em português. Sem relleno."
+  },
+  {
+    "id": "es-lead-partial-then-ask",
+    "lang": "es",
+    "tier": "free",
+    "category": "lead-capture",
+    "userMessage": "me interesa, te dejo mi correo",
+    "expectedToolCall": null,
+    "rubric": "Aún no hay datos suficientes para capturar. Pide UNA pieza faltante (correo/teléfono o nombre) de forma natural en español. No llama captureLead con campos vacíos ni inventados."
+  },
+  {
+    "id": "es-booking-explicit",
+    "lang": "es",
+    "tier": "pro",
+    "category": "booking",
+    "userMessage": "quiero reservar para mañana a las 10, ¿hay lugar?",
+    "expectedToolCall": "scheduleAppointment",
+    "rubric": "Intenta agendar mañana 10:00. Si falta dato (nombre/contacto) lo pide una sola vez; si los tiene, confirma la reserva. Español. No promete un horario sin verificar disponibilidad."
+  },
+  {
+    "id": "en-booking-explicit",
+    "lang": "en",
+    "tier": "pro",
+    "category": "booking",
+    "userMessage": "can I book a slot for Friday afternoon?",
+    "expectedToolCall": "scheduleAppointment",
+    "rubric": "Attempts to book Friday afternoon. Asks for the single missing detail (name/contact/exact time) if needed. English. Confirms only what it actually scheduled."
+  },
+  {
+    "id": "pt-booking-reschedule",
+    "lang": "pt",
+    "tier": "pro",
+    "category": "booking",
+    "userMessage": "preciso remarcar meu horário de amanhã para sexta",
+    "expectedToolCall": "scheduleAppointment",
+    "rubric": "Trata como remarcação para sexta. Em português. Confirma a nova data ou pede o dado mínimo faltante. Não confirma sem disponibilidade real."
+  },
+  {
+    "id": "es-handoff-explicit",
+    "lang": "es",
+    "tier": "free",
+    "category": "handoff",
+    "userMessage": "no me sirve el bot, quiero hablar con Hugo directamente",
+    "expectedToolCall": "handoffHuman",
+    "rubric": "Escala de inmediato. NO insiste ni hace más preguntas. Confirma en español que un humano dará seguimiento (ticket)."
+  },
+  {
+    "id": "en-handoff-explicit",
+    "lang": "en",
+    "tier": "pro",
+    "category": "handoff",
+    "userMessage": "this isn't helping, get me a real person now",
+    "expectedToolCall": "handoffHuman",
+    "rubric": "Escalates immediately. Does not push back or keep asking. Confirms in English that a human will follow up. No padding."
+  },
+  {
+    "id": "pt-handoff-complaint",
+    "lang": "pt",
+    "tier": "pro",
+    "category": "handoff",
+    "userMessage": "quero falar com um atendente, isso é uma reclamação séria",
+    "expectedToolCall": "handoffHuman",
+    "rubric": "Escala para humano de imediato dado o tom de reclamação. Em português. Confirma o encaminhamento. Não tenta resolver sozinho."
+  },
+  {
+    "id": "es-frustration-implicit",
+    "lang": "es",
+    "tier": "free",
+    "category": "frustration",
+    "userMessage": "ya te pregunté tres veces lo mismo y no entiendes nada!!!",
+    "expectedToolCall": "handoffHuman",
+    "rubric": "Detecta frustración alta y escala a humano (o lo ofrece claramente) en español. Tono empático, breve, sin defenderse ni repetir la misma respuesta fallida."
+  },
+  {
+    "id": "en-frustration-implicit",
+    "lang": "en",
+    "tier": "pro",
+    "category": "frustration",
+    "userMessage": "this is the worst bot ever, you keep giving me garbage answers",
+    "expectedToolCall": "handoffHuman",
+    "rubric": "Recognizes strong frustration and escalates to a human (or clearly offers it) in English. Empathetic, brief, no arguing, no repeating the failed answer."
+  },
+  {
+    "id": "es-out-of-scope",
+    "lang": "es",
+    "tier": "free",
+    "category": "out-of-scope",
+    "userMessage": "oye, ¿quién va a ganar el mundial 2026?",
+    "expectedToolCall": null,
+    "rubric": "Reconoce que está fuera de su alcance, no inventa una respuesta, y redirige amablemente al propósito del negocio en español. No llama herramientas."
+  },
+  {
+    "id": "en-out-of-scope",
+    "lang": "en",
+    "tier": "pro",
+    "category": "out-of-scope",
+    "userMessage": "can you write me a poem about the moon?",
+    "expectedToolCall": null,
+    "rubric": "Politely declines off-topic request, stays in role, and steers back to the business purpose in English. Does not call any tool. Short."
+  },
+  {
+    "id": "es-image-input-menu",
+    "lang": "es",
+    "tier": "pro",
+    "category": "image-input",
+    "userMessage": "[imagen adjunta: foto del menú impreso] ¿cuánto cuesta este combo?",
+    "expectedToolCall": "searchKb",
+    "rubric": "Usa el contenido de la imagen como contexto y consulta la KB para confirmar precio del combo. Español. Si la imagen no es legible o el dato no está en KB, lo dice sin inventar."
+  },
+  {
+    "id": "en-voice-input-question",
+    "lang": "en",
+    "tier": "pro",
+    "category": "voice-input",
+    "userMessage": "[voice note transcribed by Whisper] hey do you guys do same day delivery",
+    "expectedToolCall": "searchKb",
+    "rubric": "Handles the Whisper transcription as a normal text question, calls searchKb for the delivery policy, answers in English. Does not mention transcription mechanics. Grounded in KB."
+  }
+]

@@ -1,0 +1,41 @@
+{
+  "name": "crm-panaclaw",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "version:write": "node -e \"require('fs').writeFileSync('.bot-version', require('./package.json').version + '\\n')\"",
+    "deploy-check": "tsx scripts/deploy-check.ts",
+    "predeploy": "pnpm deploy-check && pnpm version:write",
+    "deploy": "wrangler deploy",
+    "deploy:ci": "node scripts/ci-deploy.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:apply": "node scripts/db-apply.mjs",
+    "db:apply:remote": "node scripts/db-apply.mjs --remote",
+    "kb:reindex": "tsx scripts/generate-fixtures.ts",
+    "eval": "tsx scripts/eval-bot-live.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/openai": "^3.0.68",
+    "@ai-sdk/xai": "^3.0.106",
+    "@anthropic-ai/sdk": "^0.90.0",
+    "agents": "^0.1.0",
+    "ai": "^6.0.0",
+    "hono": "^4.10.0",
+    "resend": "^6.12.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "@types/node": "latest",
+    "miniflare": "latest",
+    "tsx": "latest",
+    "typescript": "^5",
+    "vitest": "latest",
+    "wrangler": "latest"
+  }
+}

@@ -1,0 +1,76 @@
+# Bot: PanaClaw (bot oficial / demo de la casa).
+# Configurado por el skill /configurar-mi-chatbot.
+# NO subir valores específicos del miembro (secrets) a git.
+
+name = "panaclaw-oficial"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+[ai]
+binding = "AI"
+
+# Archivos estáticos del panel (logo, favicons). Se sirven desde la raíz:
+# public/logo.svg -> /logo.svg. Ver public/README.md.
+#
+# Cloudflare atiende primero los archivos que existen en public/ y todo lo
+# demás cae al Worker. Hoy no hay choque posible: las rutas del bot son
+# /health, /webhooks/*, /admin/*, /api/* y /kb/*, y ninguna coincide con un
+# archivo de public/. Si algún día se agrega un archivo cuyo nombre choque con
+# una ruta, el archivo gana — por eso public/ NO debe tener un index.html.
+[assets]
+directory = "./public"
+
+[[durable_objects.bindings]]
+name = "AGENT"
+class_name = "SupportAgent"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SupportAgent"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "panaclaw_oficial_db"
+database_id = "d58d8172-c9c4-42c5-9261-6cbc77d964b0"
+
+[[vectorize]]
+binding = "KB"
+index_name = "panaclaw_oficial_kb"
+
+[[r2_buckets]]
+binding = "CATALOG"
+bucket_name = "panaclaw-catalog-oficial"
+
+[vars]
+BOT_NAME = "PanaClaw"
+BUSINESS_NAME = "PanaClaw"
+BOT_LANGUAGE = "es-419"
+BOT_TIER = "pro"
+BUFFER_SECONDS = "15"
+DASHBOARD_BASE_URL = "https://panaclaw-oficial.abrinay1997.workers.dev"
+
+# Secrets (set with `wrangler secret put <NAME>` — never commit values):
+#   ANTHROPIC_API_KEY          required — Claude API
+#   DASHBOARD_PASSWORD         required (Pro) — HTTP Basic Auth for /admin (user: admin)
+#   KB_REINDEX_TOKEN           required — guards POST /kb/reindex (header: X-Reindex-Token)
+#                              set with: wrangler secret put KB_REINDEX_TOKEN
+#   TELEGRAM_BOT_TOKEN         per-channel — Telegram bot
+#   MANYCHAT_API_KEY           per-channel — ManyChat (Pro)
+#   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WA_FROM   per-channel — Twilio WhatsApp (Pro)
+#   CALCOM_API_KEY             optional — scheduleAppointment (Pro)
+#   GOOGLE_SERVICE_ACCOUNT_JSON  optional — Sheets export (Pro)
+#   RESEND_API_KEY             optional — handoff email
+#   OWNER_EMAIL                handoff email recipient
+#   OWNER_TELEGRAM_CHAT_ID     handoff notification (default channel — owner /start's the bot)
+#   OWNER_WA_NUMBER            handoff WhatsApp DM recipient (Pro)
+#   TWILIO_HANDOFF_CONTENT_SID approved WhatsApp template SID for the handoff DM (Pro)
+#   CONTROL_PLANE_TOKEN        optional (secret) — Bearer the hosted control plane presents to call /api/*
+#                              set with: wrangler secret put CONTROL_PLANE_TOKEN
+#   CONTROL_PLANE_URL          optional (var) — base URL of the control plane (future reports / license check)
+
+[triggers]
+crons = ["0 3 * * *"]  # daily 3am UTC: purge old messages
+
+# DASHBOARD_PASSWORD  (secret) — HTTP Basic Auth password for the admin dashboard; username is always "admin".
+# Set it with: wrangler secret put DASHBOARD_PASSWORD

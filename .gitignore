@@ -1,0 +1,21 @@
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.local
+*.log
+.DS_Store
+dist/
+.playwright-cli/
+.bot-setup.json
+.bot-state.json
+.bot-version
+.env*
+!.env.example
+
+# build artifacts
+# NOTE: scripts/kb-fixtures.json is imported by the Worker at build time
+# (src/kb/reindex.ts) so it MUST be tracked. Default content is `[]`;
+# regenerate from member/kb/ with `pnpm kb:reindex`.
+docs/_recon-digest.json
+.mc-credentials.local
+.dashboard-credentials.local

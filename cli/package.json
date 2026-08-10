@@ -1,0 +1,34 @@
+{
+  "name": "panaclaw",
+  "version": "0.1.0",
+  "description": "CRM - PanaClaw — instala bots de IA con CRM en tu propia infraestructura, en un comando.",
+  "license": "MIT",
+  "author": "PanaClaw",
+  "homepage": "https://github.com/abrinay1997-stack/CRM-PANACLAW#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abrinay1997-stack/CRM-PANACLAW.git",
+    "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/abrinay1997-stack/CRM-PANACLAW/issues"
+  },
+  "type": "module",
+  "bin": {
+    "panaclaw": "bin/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "chatbot",
+    "crm",
+    "ai",
+    "whatsapp",
+    "cloudflare",
+    "panaclaw"
+  ],
+  "files": [
+    "bin"
+  ]
+}
