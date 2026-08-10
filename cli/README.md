@@ -1,13 +1,14 @@
 # juancitoads
 
 **Chatbots de IA para tu negocio, desde tu terminal.** `juancitoads` instala y mantiene
-bots de IA por giro (restaurante, barbería, inmobiliaria, clínica…) en **tu propia
-cuenta de Cloudflare**, con **tus llaves**. El bot es tuyo — para usarlo o revenderlo.
+un bot de IA con CRM —WhatsApp, Instagram, Messenger y Telegram desde un mismo
+cerebro— en **tu propia cuenta de Cloudflare**, con **tus llaves**. El bot es tuyo:
+para usarlo o para revenderlo.
 
 Pensado para que lo maneje tu **agente de IA** (Claude Code o Codex): tú respondes
 preguntas de negocio y apruebas; el agente corre lo técnico.
 
-> Parte de [CRM - Juancito Ads](https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS). Gratis y open source (MIT).
+> Parte de [CRM Juancito Ads](https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS). Gratis y open source (MIT).
 
 ---
 
@@ -109,10 +110,6 @@ Guía completa y referencia de comandos:
 existe tal servidor. Solo baja el código público desde GitHub. El bot y todos sus
 datos viven en **tu** Cloudflare, con **tus** llaves.
 
----
-
-© Juancito Ads · [github.com/juanarrietabusiness-pixel/CRM-JuancitoADS](https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS)
-
 ## 🔍 ¿Es seguro? Verifícalo tú mismo
 
 Es sano desconfiar de un `npx` que no conoces — si tu agente de IA se niega a ejecutarlo, está haciendo su trabajo. Aquí está todo lo que necesitas para comprobarlo en un minuto:
@@ -145,3 +142,7 @@ Los escáneres de cadena de suministro (Socket y similares) marcan las *capacida
 | **Cadenas URL** | Solo GitHub, y las APIs de los canales en el diagnóstico (`doctor --whatsapp` consulta la Graph API de Meta con el token que TÚ le pasas). | No hay direcciones IP ni dominios opacos. |
 
 Y lo más importante: **tu API key nunca pasa por el CLI**. Cuando toca guardarla, se hace con `wrangler secret put` contra *tu* cuenta de Cloudflare — el CLI nunca la recibe, ni la escribe en disco, ni la manda a ningún lado.
+
+---
+
+© Juancito Ads · [github.com/juanarrietabusiness-pixel/CRM-JuancitoADS](https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS)

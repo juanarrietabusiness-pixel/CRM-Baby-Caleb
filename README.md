@@ -144,9 +144,18 @@ Puedes correrlo desde el repo clonado:
 node cli/bin/cli.js init
 ```
 
-Para publicarlo tú en npm: el workflow [`publish-cli.yml`](./.github/workflows/publish-cli.yml)
-ya está listo con Trusted Publishing (sin tokens). Solo falta que registres el
-paquete `juancitoads` en npmjs.com y lo enlaces a este repo y a ese workflow.
+**Para publicarlo**, el workflow [`publish-cli.yml`](./.github/workflows/publish-cli.yml)
+ya está listo; los detalles están en su cabecera. El resumen:
+
+1. Crea un **Granular Access Token** en npmjs.com con permiso de escritura y
+   guárdalo como secret `NPM_TOKEN` en este repo.
+2. Actions → **Publicar CLI en npm** → *Run workflow*.
+3. Publicada la v0.1.0, conecta el paquete a este repo con
+   `npm trust github juancitoads --repo juanarrietabusiness-pixel/CRM-JuancitoADS --file publish-cli.yml`
+   y **borra el secret**: de ahí en adelante publica por OIDC, sin tokens.
+
+El token hace falta solo la primera vez: npm exige que el paquete ya exista en
+el registro antes de dejarte configurar Trusted Publishing.
 
 Y si quieres probar un fork o una rama antes de publicar:
 

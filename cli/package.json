@@ -1,7 +1,7 @@
 {
   "name": "juancitoads",
   "version": "0.1.0",
-  "description": "CRM - Juancito Ads — instala bots de IA con CRM en tu propia infraestructura, en un comando.",
+  "description": "Arma tu chatbot de IA con CRM para WhatsApp, Instagram y Telegram en tu propia nube de Cloudflare, en un comando.",
   "license": "MIT",
   "author": "Juancito Ads",
   "homepage": "https://github.com/juanarrietabusiness-pixel/CRM-JuancitoADS#readme",
@@ -24,9 +24,14 @@
     "chatbot",
     "crm",
     "ai",
+    "ia",
     "whatsapp",
+    "telegram",
+    "instagram",
     "cloudflare",
-    "juancitoads"
+    "cloudflare-workers",
+    "juancitoads",
+    "juancito-ads"
   ],
   "files": [
     "bin"

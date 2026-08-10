@@ -6,23 +6,30 @@
 #
 # ── Dos formas de autenticarse, y el workflow acepta las dos ────────────────
 #
-# A · Trusted Publishing (OIDC) — lo ideal: npm confía en este repositorio y NO
-#     hay ningún token guardado. Nada que robar, nada que rotar. Se configura
-#     en npmjs.com → paquete juancitoads → Settings → Trusted Publisher:
-#       Organization or user: juanarrietabusiness-pixel
-#       Repository:           CRM-JuancitoADS
-#       Workflow filename:    publish-cli.yml
-#
-# B · Token en GitHub Secrets — el plan de respaldo para el PRIMER publish.
-#     La configuración de Trusted Publisher vive DENTRO del paquete, así que
-#     puede no existir mientras el paquete no se haya publicado nunca. Para
-#     ese arranque:
+# B · Token en GitHub Secrets — obligatorio para el PRIMER publish. La
+#     configuración de Trusted Publisher vive DENTRO del paquete, y npm exige
+#     que el paquete ya exista en el registro para poder crearla (lo dice
+#     `npm trust`: "The package you're configuring must already exist on the
+#     npm registry"). O sea: la primera versión SIEMPRE sale con token.
 #       1. npmjs.com → Access Tokens → Generate New Token → Granular Access
 #          Token, con permiso de "Read and write" sobre paquetes.
 #       2. GitHub → este repo → Settings → Secrets and variables → Actions
 #          → New repository secret, con nombre NPM_TOKEN.
-#     Publicada la primera versión, configura A y BORRA el secret: OIDC es más
-#     seguro y el workflow lo prefiere solo.
+#       3. Actions → "Publicar CLI en npm" → Run workflow.
+#
+# A · Trusted Publishing (OIDC) — a lo que hay que llegar en cuanto exista la
+#     v0.1.0: npm confía en este repositorio y NO hay ningún token guardado.
+#     Nada que robar, nada que rotar. Dos formas de configurarlo:
+#
+#       npm trust github juancitoads \
+#         --repo juanarrietabusiness-pixel/CRM-JuancitoADS \
+#         --file publish-cli.yml
+#
+#     …o a mano en npmjs.com → paquete juancitoads → Settings → Trusted
+#     Publisher, con esos mismos tres datos.
+#
+#     Hecho eso, BORRA el secret NPM_TOKEN. El workflow prefiere OIDC solo, y
+#     un token que ya no hace falta es solo superficie de ataque.
 #
 # Cómo se dispara: a mano desde la pestaña Actions, o al publicar un release.
 name: Publicar CLI en npm
