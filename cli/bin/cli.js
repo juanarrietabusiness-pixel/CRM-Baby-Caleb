@@ -17,7 +17,7 @@
 //   npx juancitoads init --yes --negocio "Tacos Ana" --que "taquería" --cerebro claude
 // Flags de init: --giro --name/--negocio --que --ofrece --horario
 //   --ubicacion --telefono --web --pagos --faq --reglas --tono --cerebro
-//   --region es-419|es-ES|en|pt-BR --lang es|en --yes --no-agent-skill
+//   --region es-PA|es-419|es-ES|en|pt-BR --lang es|en --yes --no-agent-skill
 import { createInterface } from "node:readline/promises";
 import { emitKeypressEvents } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
@@ -122,7 +122,12 @@ const t = () => DICT[L];
 // configuración mexicana (idioma "giro", moneda $, tz CDMX) y había que
 // arreglarlo a mano en el panel. `L` (arriba) es aparte: el idioma de ESTA CLI.
 // `ui` deriva L; el bot entiende botLang vía localePanel (es-es→España, pt→Brasil).
+// Panamá va primero y es el default: es la casa de Juancito Ads y de donde
+// vienen sus clientes. `es-419` sigue existiendo para el resto de LATAM, con
+// hora de Ciudad de México — que es una hora menos que Panamá, así que no da
+// igual cuál se elija en cuanto el bot agenda citas.
 const REGIONS = {
+  "es-PA":  { botLang: "es-MX", memberLang: "es", currency: "$",  tz: "America/Panama",      ui: "es", label: "Español (Panamá)" },
   "es-419": { botLang: "es-MX", memberLang: "es", currency: "$",  tz: "America/Mexico_City", ui: "es", label: "Español (Latinoamérica)" },
   "es-ES":  { botLang: "es-ES", memberLang: "es", currency: "€",  tz: "Europe/Madrid",       ui: "es", label: "Español (España)" },
   "en":     { botLang: "en",    memberLang: "en", currency: "$",  tz: "America/New_York",    ui: "en", label: "English" },
@@ -131,13 +136,16 @@ const REGIONS = {
 // Acepta el valor tal cual (es-419) o alias viejos (--lang es/en) y normaliza.
 function normRegion(v) {
   const s = String(v || "").toLowerCase().replace("_", "-");
-  if (s === "es-419" || s === "es" || s === "es-mx" || s === "latam") return "es-419";
+  if (s === "es-pa" || s === "panama" || s === "panamá" || s === "pa") return "es-PA";
+  if (s === "es-419" || s === "es-mx" || s === "latam") return "es-419";
+  // "es" a secas cae en Panamá, que es el default del CLI.
+  if (s === "es") return "es-PA";
   if (s === "es-es" || s === "espana" || s === "españa" || s === "spain") return "es-ES";
   if (s === "en" || s === "english") return "en";
   if (s.startsWith("pt") || s === "brasil" || s === "brazil") return "pt-BR";
   return null;
 }
-let REGION = "es-419";
+let REGION = "es-PA";
 
 // Modo no-interactivo: cuando el CLI lo corre un AGENTE (Claude Code/Codex) o CI, no hay
 // terminal interactiva. `interactive()` es false si no hay TTY o si se pasó --yes/JUANCITOADS_YES.
@@ -360,7 +368,8 @@ function stampBotConfig(dir, plan, slug) {
   const wt = join(dir, "wrangler.toml");
   if (!existsSync(wt)) return;
   const tier = plan === "free" ? "free" : "pro";
-  const lang = (REGIONS[REGION] || REGIONS["es-419"]).botLang;
+  const R = REGIONS[REGION] || REGIONS["es-PA"];
+  const lang = R.botLang;
   const niche = NICHE_SLUGS[String(slug || "").toLowerCase()] || "generico";
   let s = readFileSync(wt, "utf8");
   // CRÍTICO: resolver TODO {{BOT_SLUG}} a un slug válido ANTES que nada. wrangler
@@ -380,6 +389,14 @@ function stampBotConfig(dir, plan, slug) {
   s = s.replace(/\{\{BOT_SLUG\}\}/g, safeSlug);
   s = s.replace(/BOT_TIER\s*=\s*"[^"]*"/g, `BOT_TIER = "${tier}"`);
   s = s.replace(/BOT_LANGUAGE\s*=\s*"[^"]*"/g, `BOT_LANGUAGE = "${lang}"`);
+  // Zona horaria del negocio. Mismo patrón que BOT_NICHE: si la plantilla es
+  // vieja y no trae la línea, se INSERTA en [vars] en vez de perderse — sin
+  // ella la agenda de Cal.com cae al default de Ciudad de México.
+  if (/BOT_TIMEZONE\s*=\s*"[^"]*"/.test(s)) {
+    s = s.replace(/BOT_TIMEZONE\s*=\s*"[^"]*"/g, `BOT_TIMEZONE = "${R.tz}"`);
+  } else {
+    s = s.replace(/^\[vars\][^\n]*\n/m, (m) => `${m}BOT_TIMEZONE = "${R.tz}"\n`);
+  }
   // BOT_NICHE: reemplaza si la línea existe; si el artifact es viejo y NO la trae,
   // la INSERTA en [vars] (si no, el bot corría siempre como 'generico' y perdía el
   // niche pack). Antes esto era replace-only = no-op cuando faltaba la línea.
@@ -512,13 +529,13 @@ const canInstall = () => true;
 async function chooseLang(rl, cfg) {
   // Ya elegida (flag o corrida previa): respétala y deriva el idioma de la CLI.
   if (cfg.region && REGIONS[cfg.region]) { REGION = cfg.region; L = REGIONS[REGION].ui; return; }
-  const keys = ["es-419", "es-ES", "en", "pt-BR"];
+  const keys = ["es-PA", "es-419", "es-ES", "en", "pt-BR"];
   const i = await select(
     rl,
     DICT.es.chooseLang,
     keys.map((k) => ({ label: REGIONS[k].label, desc: `${REGIONS[k].currency} · ${REGIONS[k].botLang}` })),
   );
-  REGION = keys[i] ?? "es-419";
+  REGION = keys[i] ?? "es-PA";
   L = REGIONS[REGION].ui;
   cfg.region = REGION; cfg.lang = L; saveCfg(cfg);
   console.log("");
@@ -685,7 +702,7 @@ async function starterOnboarding(rl, licenseEmail, flags = {}) {
 function renderMemberConfig({ businessName, botName, lang, tier, email, what, offer, hours, location, phone, tone, web, pagos, faq, reglas }) {
   // Idioma/moneda/tz salen de la región elegida en el init. `lang` (parámetro)
   // se conserva por compatibilidad pero la fuente es REGION.
-  const R = REGIONS[REGION] || REGIONS["es-419"];
+  const R = REGIONS[REGION] || REGIONS["es-PA"];
   const cf = {};
   if (what) cf.queHacemos = what;
   if (offer) cf.ofrecemos = offer;
@@ -702,9 +719,12 @@ export const memberConfig = {
   botName: ${j(botName)},
   language: ${j(R.memberLang)} as "es" | "en" | "pt",
   tier: ${j(tier === "free" ? "free" : "pro")} as "free" | "pro",
+  // Copia de referencia de la zona horaria. La que el bot USA de verdad es
+  // BOT_TIMEZONE en wrangler.toml: si la cambias, cámbiala en los dos sitios.
   timezone: ${j(R.tz)},
-  // Moneda con la que el bot habla de precios ($ | € | R$). El bot la lee de
-  // aquí si no la cambiaste en el panel (setting bot_currency manda si existe).
+  // Moneda con la que hablas de precios ($ | € | R$). Por ahora es solo una
+  // nota para ti y para tu agente: el bot toma los precios de businessConfig y
+  // de tu base de conocimiento tal como los escribas.
   currency: ${j(R.currency)},
   contactEmail: ${j(email)},
 };
@@ -826,7 +846,7 @@ async function cmdInit(flags = {}) {
   // sin ninguno, cae al default LATAM en vez de abrir el menú interactivo.
   const regFlag = normRegion(flags.region || flags.lang);
   if (regFlag) cfg.region = regFlag;
-  else if (ASSUME_YES && !cfg.region) cfg.region = "es-419";
+  else if (ASSUME_YES && !cfg.region) cfg.region = "es-PA";
   if (flags.lang && DICT[flags.lang]) cfg.lang = flags.lang;
   if (cfg.region && REGIONS[cfg.region]) { REGION = cfg.region; L = REGIONS[REGION].ui; }
   else if (cfg.lang && DICT[cfg.lang]) L = cfg.lang;
@@ -1299,7 +1319,7 @@ if (IS_MAIN) {
     console.log(C.dim("    --yes  --giro <slug>  --name/--negocio  --que --ofrece --horario --ubicacion"));
     console.log(C.dim("    --telefono --web --pagos --faq --reglas"));
     console.log(C.dim("    --tono cercano|formal|divertido  --cerebro claude|chatgpt|grok"));
-    console.log(C.dim("    --region es-419|es-ES|en|pt-BR   (alias viejo: --lang es|en)"));
+    console.log(C.dim("    --region es-PA|es-419|es-ES|en|pt-BR   (alias viejo: --lang es|en)"));
     console.log(C.dim("  Flags de update: --force  (reinstala aunque ya estés en el último commit)"));
     console.log(C.dim("  Flags de doctor --whatsapp: --url https://…  --token <ACCESS_TOKEN>  --phone-id <ID>  --verify-token <TOKEN>  --waba-id <ID> (opcional)\n"));
     console.log(C.dim(`  Código: ${REPO_URL}\n`));

@@ -47,6 +47,9 @@ bucket_name = "juancitoads-catalog-oficial"
 BOT_NAME = "Juancito Ads"
 BUSINESS_NAME = "Juancito Ads"
 BOT_LANGUAGE = "es-419"
+# Zona horaria del negocio (IANA). La agenda de Cal.com la usa si no hay
+# CALCOM_TIMEZONE. La estampa el instalador según la región elegida.
+BOT_TIMEZONE = "America/Panama"
 BOT_TIER = "pro"
 BUFFER_SECONDS = "15"
 DASHBOARD_BASE_URL = ""  # se llena tras el primer deploy; vacío = el worker usa su propio origin

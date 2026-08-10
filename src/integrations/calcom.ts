@@ -17,8 +17,16 @@ export function calcomConfigured(env: Env): boolean {
   return Boolean(env.CALCOM_API_KEY && (env.CALCOM_EVENT_TYPE_ID || env.CALCOM_EVENT_TYPES));
 }
 
+/**
+ * Zona horaria con la que se piden y reservan los horarios.
+ *
+ * Orden: lo que el dueño puso para Cal.com > la zona del negocio que estampó el
+ * instalador > el default. El segundo escalón es el que importa: sin él, un bot
+ * instalado en Panamá agendaba con hora de Ciudad de México —una hora menos— y
+ * el error solo se veía cuando el cliente llegaba tarde a su cita.
+ */
 export function calcomTimeZone(env: Env): string {
-  return (env.CALCOM_TIMEZONE || "").trim() || DEFAULT_TZ;
+  return (env.CALCOM_TIMEZONE || "").trim() || (env.BOT_TIMEZONE || "").trim() || DEFAULT_TZ;
 }
 
 /**

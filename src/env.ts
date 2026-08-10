@@ -17,6 +17,10 @@ export interface Env {
   BUSINESS_NAME: string;
   BOT_LANGUAGE: string;
   BOT_TIER: "free" | "pro";
+  // Zona horaria del negocio (IANA, ej. America/Panama). La escribe el
+  // instalador a partir de la región elegida. Hoy la usa la agenda de Cal.com;
+  // CALCOM_TIMEZONE, si existe, manda sobre ella.
+  BOT_TIMEZONE?: string;
   // Nicho del bot (restaurante, inmobiliaria…). Selecciona el "niche pack" que
   // re-etiqueta el dashboard, aporta el playbook del giro y sus columnas.
   // Ausente/desconocido → pack genérico (comportamiento actual). Ver src/niches/.
@@ -73,7 +77,7 @@ export interface Env {
   CALCOM_API_KEY?: string;                 // secret: API key de Cal.com (cal_...)
   CALCOM_EVENT_TYPE_ID?: string;           // event type por defecto (numérico, como string)
   CALCOM_EVENT_TYPES?: string;             // opcional: JSON {"corte":123,"barba":456} servicio→eventTypeId
-  CALCOM_TIMEZONE?: string;                // zona horaria (default America/Mexico_City)
+  CALCOM_TIMEZONE?: string;                // zona horaria; si falta se usa BOT_TIMEZONE
   GOOGLE_SERVICE_ACCOUNT_JSON?: string;  // base64-encoded JSON
   OWNER_EMAIL: string;  // for handoff notifications (email)
   OWNER_TELEGRAM_CHAT_ID?: string;  // for handoff notifications (default channel)

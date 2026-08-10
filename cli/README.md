@@ -65,7 +65,8 @@ completo: instalar, configurar, desplegar y operar el bot. Puedes desactivarlo c
 Opciones útiles:
 
 - `--email tu@correo.com` `--name "Tu Nombre"` — precarga datos sin teclearlos en el asistente.
-- `--region es-419|es-ES|en|pt-BR` — idioma, moneda y zona horaria de arranque.
+- `--region es-PA|es-419|es-ES|en|pt-BR` — idioma, moneda y zona horaria de arranque. Por
+  defecto `es-PA` (Panamá); `es-419` es el resto de Latinoamérica, con hora de Ciudad de México.
 - `--force` (en `update`) — reinstala aunque ya estés en el último commit.
 - Todo el onboarding acepta flags (pensado para que tu **agente** lo corra sin menús):
   `--giro --negocio --que --ofrece --horario --ubicacion --telefono --web --pagos --faq --reglas --tono --cerebro --yes`.

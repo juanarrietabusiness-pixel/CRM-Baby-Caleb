@@ -35,6 +35,17 @@ describe("calcomTimeZone", () => {
   it("respeta CALCOM_TIMEZONE", () => {
     expect(calcomTimeZone(env({ CALCOM_TIMEZONE: "America/Bogota" }))).toBe("America/Bogota");
   });
+  it("usa BOT_TIMEZONE cuando no hay CALCOM_TIMEZONE", () => {
+    expect(calcomTimeZone(env({ BOT_TIMEZONE: "America/Panama" }))).toBe("America/Panama");
+  });
+  it("CALCOM_TIMEZONE gana sobre BOT_TIMEZONE", () => {
+    expect(
+      calcomTimeZone(env({ BOT_TIMEZONE: "America/Panama", CALCOM_TIMEZONE: "Europe/Madrid" })),
+    ).toBe("Europe/Madrid");
+  });
+  it("ignora un BOT_TIMEZONE en blanco", () => {
+    expect(calcomTimeZone(env({ BOT_TIMEZONE: "   " }))).toBe(DEFAULT_TZ);
+  });
 });
 
 describe("resolveEventTypeId", () => {
