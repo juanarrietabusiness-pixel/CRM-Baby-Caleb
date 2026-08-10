@@ -121,21 +121,33 @@ Pregunta: **"¿Ya tienes cuenta de Cloudflare?"**
 
 ### Paso 1.2 — Crear los recursos en la nube
 
-Crea los recursos (confirma antes con el miembro):
+⚠️ **Los nombres NO se inventan: se leen de `wrangler.toml`.** El instalador ya estampó ahí
+un nombre único por bot (`juancitoads_<giro>_<uid>_db`, etc.), justamente para que dos
+clientes en la misma cuenta de Cloudflare nunca compartan datos. Si creas los recursos con
+otro nombre, `wrangler deploy` falla al final con un *index not found* o *bucket not found*
+—Vectorize y R2 se enlazan por NOMBRE, no por id— y toca rehacerlo.
+
+Primero mira qué nombres te tocaron:
 
 ```bash
-# Base de datos D1 (guarda conversaciones, leads, etc.)
-wrangler d1 create juancitoads_db
-# 👉 De la salida copia el "database_id" y reemplaza {{D1_DATABASE_ID}} en wrangler.toml
-
-# Índice Vectorize para la base de conocimiento (búsqueda semántica, embeddings BGE de 1024 dimensiones)
-wrangler vectorize create juancitoads_kb --dimensions=1024 --metric=cosine
-
-# Bucket R2 para el catálogo de productos
-wrangler r2 bucket create juancitoads-catalog
+grep -E "database_name|index_name|bucket_name" wrangler.toml
 ```
 
-> Recuerda: después de crear D1, **edita `wrangler.toml`** y reemplaza `{{D1_DATABASE_ID}}` por el `database_id` real que te dio el comando. El bot AI (Workers AI), el AGENT (Durable Object `SupportAgent`), DB (D1), KB (Vectorize) y CATALOG (R2) ya están declarados como bindings en `wrangler.toml`; solo falta el id de D1.
+Y crea EXACTAMENTE esos (confirma antes con el miembro):
+
+```bash
+# Base de datos D1 (conversaciones, leads, etc.) — usa el database_name de arriba
+wrangler d1 create <database_name>
+# 👉 De la salida copia el "database_id" y reemplaza {{D1_DATABASE_ID}} en wrangler.toml
+
+# Índice Vectorize para la base de conocimiento (embeddings BGE, 1024 dimensiones)
+wrangler vectorize create <index_name> --dimensions=1024 --metric=cosine
+
+# Bucket R2 para el catálogo de productos
+wrangler r2 bucket create <bucket_name>
+```
+
+> Recuerda: después de crear D1, **edita `wrangler.toml`** y reemplaza `{{D1_DATABASE_ID}}` por el `database_id` real que te dio el comando. Es el ÚNICO valor que falta: el bot AI (Workers AI), el AGENT (Durable Object `SupportAgent`), DB (D1), KB (Vectorize) y CATALOG (R2) ya están declarados como bindings.
 
 ### Paso 1.3 — Instalar dependencias y migraciones
 
@@ -584,7 +596,7 @@ Con el bot YA vivo y probado (no antes), remata así — sin presión, ya probó
 - Opcionales para fijar modelos: `ANTHROPIC_MODEL_FAST`/`ANTHROPIC_MODEL_SMART`, `OPENAI_MODEL_FAST`/`OPENAI_MODEL_SMART`.
 
 **Bindings** ya declarados en `wrangler.toml`:
-- `AI` (Workers AI), `AGENT` (Durable Object `SupportAgent`), `DB` (D1 `juancitoads_db`), `KB` (Vectorize `juancitoads_kb`), `CATALOG` (R2 `juancitoads-catalog`). Cron diario `0 3 * * *` (purga mensajes de más de 90 días).
+- `AI` (Workers AI), `AGENT` (Durable Object `SupportAgent`), `DB` (D1), `KB` (Vectorize) y `CATALOG` (R2) — los nombres de los tres últimos están en `wrangler.toml` y son únicos por bot. Cron diario `0 3 * * *` (purga mensajes de más de 90 días).
 
 **Comandos** (todos con **pnpm**):
 - `pnpm install` — instalar dependencias.

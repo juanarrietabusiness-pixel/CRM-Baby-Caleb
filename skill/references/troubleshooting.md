@@ -29,15 +29,18 @@ Si algo falta, el comando te lo dice por nombre antes de intentar subir nada.
 | `wrangler: command not found` | wrangler no está en el PATH | usa `pnpm wrangler ...`, o instala global con `npm install -g wrangler` |
 | `wrangler login` no abre el navegador | terminal sin entorno gráfico | corre `WRANGLER_LOG=debug pnpm wrangler login` y copia/pega el URL en tu navegador a mano |
 | Dependencias no instalan / `node_modules` corrupto | instalación a medias | borra `node_modules` y corre `pnpm install` de nuevo |
-| `D1 create ... already exists` | la base de datos ya existía | corre `pnpm wrangler d1 list`, copia el `database_id` real y pégalo en `wrangler.toml` (binding **DB**, `juancitoads_db`) |
-| `Vectorize ... already exists` | el índice ya existía | corre `pnpm wrangler vectorize list` y reutiliza `juancitoads_kb` (no lo vuelvas a crear) |
+| `D1 create ... already exists` | la base de datos ya existía | corre `pnpm wrangler d1 list`, copia el `database_id` real y pégalo en `wrangler.toml` (binding **DB**) |
+| `Vectorize ... already exists` | el índice ya existía | corre `pnpm wrangler vectorize list` y reutiliza el que ya tienes (no lo vuelvas a crear) |
 | `pnpm typecheck` marca errores tras editar `member/config.local.ts` | falta un campo o hay una coma/llave mal | revisa que `businessConfig` tenga `hours`, `services`, `location`, `paymentMethods`, `contactPhone` y `customFields`, y que `memberConfig` esté completo |
 
 **Crear la base de datos y el índice (primera vez):**
 
+Los nombres salen de tu `wrangler.toml` (cada bot tiene los suyos), no son fijos:
+
 ```bash
-pnpm wrangler d1 create juancitoads_db
-pnpm wrangler vectorize create juancitoads_kb --dimensions=1024 --metric=cosine
+grep -E "database_name|index_name" wrangler.toml   # mira cuáles te tocaron
+pnpm wrangler d1 create <database_name>
+pnpm wrangler vectorize create <index_name> --dimensions=1024 --metric=cosine
 ```
 
 Después aplica el esquema de la base de datos:
@@ -153,7 +156,7 @@ indexarlos en Vectorize para que el bot use la info nueva.
 |---|---|---|
 | El bot no conoce info del negocio (horarios, servicios, precios) | la KB no está indexada o cambió y no se reindexó | vuelve a indexar (ver abajo) |
 | El bot responde con info vieja | editaste `member/kb/*.md` pero no reindexaste | reindexa después de cada cambio en la KB |
-| `Vectorize: index not found` | el índice no existe | `pnpm wrangler vectorize create juancitoads_kb --dimensions=1024 --metric=cosine` |
+| `Vectorize: index not found` | el índice no existe, o su nombre no coincide con `index_name` | compara `pnpm wrangler vectorize list` contra `grep index_name wrangler.toml`; si falta, créalo con ESE nombre: `pnpm wrangler vectorize create <index_name> --dimensions=1024 --metric=cosine` |
 | `dimension mismatch` al indexar | el índice se creó con dimensiones distintas | borra y recrea el índice con `--dimensions=1024` (embeddings BGE) |
 | La búsqueda (`searchKb`) devuelve resultados raros o vacíos | poca info o documentos muy largos | divide los `.md` en secciones claras por tema y reindexa |
 | `member/config.local.ts` cambió pero el bot no lo refleja | esa config se lee en runtime, no es KB | no requiere reindex; basta redeploy con `pnpm run deploy` (no toca tu carpeta `member/`) |
