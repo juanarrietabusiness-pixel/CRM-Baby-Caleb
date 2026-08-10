@@ -3,7 +3,7 @@
 # Configurado por el skill /configurar-mi-chatbot.
 # NO subir valores específicos del miembro (secrets) a git.
 
-name = "juancitoads-oficial"
+name = "juancitoads-bot"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]
@@ -32,16 +32,21 @@ new_sqlite_classes = ["SupportAgent"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "juancitoads_oficial_db"
-database_id = "{{D1_DATABASE_ID}}"  # crea tu D1 (wrangler d1 create juancitoads_oficial_db) y pega aquí su id
+database_name = "juancitoads-bot-db"
+database_id = "13acf414-7f62-4723-bd20-64612442dc07"
 
 [[vectorize]]
 binding = "KB"
-index_name = "juancitoads_oficial_kb"
+index_name = "juancitoads-bot-kb"
 
-[[r2_buckets]]
-binding = "CATALOG"
-bucket_name = "juancitoads-catalog-oficial"
+# Bucket R2 para el catálogo. Desactivado: hoy `src/tools/catalogQuery.ts` lee el
+# catálogo desde `member/config.local.ts`, así que nada accede a `env.CATALOG` y
+# el binding solo obligaría a habilitar R2 en la cuenta. Para reactivarlo:
+# habilita R2 en el dashboard, crea el bucket y descomenta este bloque (y quita
+# el `?` de CATALOG en `src/env.ts`).
+# [[r2_buckets]]
+# binding = "CATALOG"
+# bucket_name = "juancitoads-bot-catalog"
 
 [vars]
 BOT_NAME = "Juancito Ads"
@@ -52,7 +57,7 @@ BOT_LANGUAGE = "es-419"
 BOT_TIMEZONE = "America/Panama"
 BOT_TIER = "pro"
 BUFFER_SECONDS = "15"
-DASHBOARD_BASE_URL = ""  # se llena tras el primer deploy; vacío = el worker usa su propio origin
+DASHBOARD_BASE_URL = "https://juancitoads-bot.juanarrietabusiness.workers.dev"
 
 # Secrets (set with `wrangler secret put <NAME>` — never commit values):
 #   ANTHROPIC_API_KEY          required — Claude API

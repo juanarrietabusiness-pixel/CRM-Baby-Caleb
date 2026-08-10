@@ -7,7 +7,9 @@ export interface Env {
   AGENT: DurableObjectNamespace<SupportAgent>;
   DB: D1Database;
   KB: VectorizeIndex;
-  CATALOG: R2Bucket;
+  // Binding R2 opcional: el bloque [[r2_buckets]] está comentado en wrangler.toml
+  // porque hoy nada lo lee (catalogQuery sirve el catálogo desde member/config.local.ts).
+  CATALOG?: R2Bucket;
   AI: Ai;
 
   // Vars (member-set)
