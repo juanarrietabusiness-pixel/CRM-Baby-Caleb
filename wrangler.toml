@@ -49,8 +49,8 @@ index_name = "juancitoads-bot-kb"
 # bucket_name = "juancitoads-bot-catalog"
 
 [vars]
-BOT_NAME = "Juancito Ads"
-BUSINESS_NAME = "Juancito Ads"
+BOT_NAME = "Baby Caleb"
+BUSINESS_NAME = "Baby Caleb"
 BOT_LANGUAGE = "es-419"
 # Zona horaria del negocio (IANA). La agenda de Cal.com la usa si no hay
 # CALCOM_TIMEZONE. La estampa el instalador según la región elegida.
