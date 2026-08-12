@@ -14,9 +14,12 @@ jobs:
       - uses: pnpm/action-setup@v3
         with:
           version: 9
+      # La misma versión que usa el deploy (ver .github/workflows/deploy.yml):
+      # que las pruebas corran en un Node distinto al que publica es pedir un
+      # "en CI pasaba" a futuro.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck

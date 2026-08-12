@@ -155,7 +155,7 @@ secrets interactivos.
 desbloquear a mano. No lo reemplaza — si se usa, se monta el CI igual después.
 
 ```bash
-node -v                 # necesita v18+; si falta, instalar Node LTS de nodejs.org
+node -v                 # necesita v22+ (lo exige wrangler); si no, Node LTS de nodejs.org
 corepack enable pnpm    # pnpm viene con Node, solo hay que encenderlo
 pnpm -v
 
