@@ -33,9 +33,13 @@ jobs:
       - uses: pnpm/action-setup@v3
         with:
           version: 9
+      # Node 22, no 20: wrangler 4.x exige >= 22 y aborta con "Wrangler requires
+      # at least Node.js v22.0.0" antes de hablar con Cloudflare. Como
+      # package.json trae wrangler en "latest", esto sube solo — el piso lo
+      # pone wrangler, no nosotros.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "pnpm"
 
       - run: pnpm install --frozen-lockfile
