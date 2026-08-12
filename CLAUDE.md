@@ -34,8 +34,11 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 - `src/index.ts` — webhooks de canales (Telegram, WhatsApp, Meta…).
 - `src/agent.ts` — el Durable Object que piensa y responde (buffer + tools).
 - `src/llm/provider.ts` — el cerebro (Anthropic / OpenAI / xAI, con llave propia).
-- `src/admin/` — el panel (`/admin`): Resumen, Conversaciones, Conexiones, Config, KB, Costos.
+- `src/admin/` — el panel (`/admin`): Resumen, Conversaciones, Conexiones, Config, KB, Catálogo, Costos.
 - `src/tools/` — searchKb, handoffHuman, pauseBot, captureLead, scheduleAppointment, catalogQuery.
+- `src/db/catalog.ts` + `src/catalog/validation.ts` — el catálogo (D1, tabla `catalog_items`):
+  código, nombre, costo, venta, stock y bodega. El costo **nunca** sale hacia el bot y la
+  cantidad exacta de stock tampoco — ver `docs/PLAN_CATALOGO_BABY_CALEB.md`.
 - `src/niches/` — el "niche pack" genérico (Starter). Personaliza tono/columnas del panel.
 - `skill/` — asistentes para el usuario.
 

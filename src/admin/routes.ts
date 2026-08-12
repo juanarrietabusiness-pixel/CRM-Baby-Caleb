@@ -48,6 +48,17 @@ import { runFlywheel, getLessons, saveLessons } from "../flywheel/detect";
 import { applySuggestion, dismissSuggestion } from "../flywheel/apply";
 import { renderLeads, exportLeadsCsv } from "./views/leads";
 import { renderTickets } from "./views/tickets";
+import { renderCatalogo } from "./views/catalogo";
+import { renderCatalogoEditor } from "./views/catalogoEditor";
+import { CatalogRepo } from "../db/catalog";
+import {
+  validateProduct,
+  normalizeCode,
+  uniqueCode,
+  dollarsToCents,
+  type ProductInput,
+  type StockInput,
+} from "../catalog/validation";
 import { renderConfig } from "./views/config";
 import { renderConexiones } from "./views/conexiones";
 import { renderCampanas } from "./views/campanas";
@@ -418,6 +429,145 @@ adminApp.post("/agente/tools/:name/toggle", async (c) => {
 adminApp.get("/leads", async (c) => c.html(await renderLeads(c.env)));
 
 adminApp.get("/tickets", async (c) => c.html(await renderTickets(c.env)));
+
+// ── Catálogo ───────────────────────────────────────────────────────────────
+// El motor de precios del bot. Lo edita la dueña; el bot solo lee (y nunca el
+// costo — ver src/db/catalog.ts).
+
+adminApp.get("/catalogo", async (c) =>
+  c.html(
+    await renderCatalogo(c.env, {
+      q: c.req.query("q") ?? "",
+      saved: c.req.query("saved") ?? undefined,
+      deleted: c.req.query("deleted") === "1",
+    }),
+  ),
+);
+
+adminApp.get("/catalogo/nuevo", (c) => c.html(renderCatalogoEditor(c.env, { product: null })));
+
+adminApp.get("/catalogo/:code/editar", async (c) => {
+  const producto = await new CatalogRepo(new Db(c.env.DB)).getForAdmin(c.req.param("code"));
+  if (!producto) return c.redirect("/admin/catalogo");
+  return c.html(renderCatalogoEditor(c.env, { product: producto }));
+});
+
+adminApp.post("/catalogo/guardar", async (c) => {
+  const form = await c.req.formData();
+  const repo = new CatalogRepo(new Db(c.env.DB));
+
+  const codigoOriginal = String(form.get("original_code") ?? "").trim();
+  const code = normalizeCode(String(form.get("code") ?? ""));
+  const name = String(form.get("name") ?? "").trim();
+  const active = form.get("active") !== null;
+
+  // Las bodegas llegan como columnas paralelas (un array por campo): la fila i
+  // se arma con el índice i de cada uno. Las filas sin cantidad se descartan.
+  const bodegas = form.getAll("stock_branch");
+  const cantidades = form.getAll("stock_qty");
+  const stock: StockInput[] = [];
+  for (let i = 0; i < bodegas.length; i++) {
+    const branch = String(bodegas[i] ?? "").trim();
+    const raw = String(cantidades[i] ?? "").trim();
+    if (!branch && !raw) continue;
+    const qty = Number.parseInt(raw.replace(/[^\d-]/g, ""), 10);
+    stock.push({ branch, stockQty: Number.isFinite(qty) ? qty : 0 });
+  }
+
+  const input: ProductInput = {
+    code,
+    name,
+    costPrice: dollarsToCents(form.get("cost_price")),
+    salePrice: dollarsToCents(form.get("sale_price")) ?? 0,
+    active,
+    stock,
+  };
+
+  const check = validateProduct(input);
+
+  // El código es la identidad del producto: si lo cambian por uno que ya
+  // existe, guardar pisaría el inventario del otro.
+  if (check.ok && code !== codigoOriginal && (await repo.allCodes()).includes(code)) {
+    check.ok = false;
+    check.errors.push(`Ya hay un producto con el código ${code}. Use otro.`);
+  }
+
+  if (!check.ok) {
+    // Se devuelve el formulario con lo que la dueña escribió, no una pantalla
+    // de error: perder el trabajo por una errata es inaceptable.
+    return c.html(
+      renderCatalogoEditor(c.env, {
+        product: {
+          code: String(form.get("code") ?? "").trim(),
+          name,
+          salePrice: input.salePrice,
+          costPrice: input.costPrice,
+          active,
+          stock: stock.map((s) => ({ branch: s.branch, stockQty: s.stockQty })),
+          stockTotal: stock.reduce((a, s) => a + s.stockQty, 0),
+          updatedAt: Date.now(),
+        },
+        errors: check.errors,
+        warnings: check.warnings,
+      }),
+    );
+  }
+
+  // Renombrar el código borra el producto viejo y crea el nuevo: son la misma
+  // ficha, no dos.
+  if (codigoOriginal && codigoOriginal !== code) await repo.delete(codigoOriginal);
+
+  await repo.saveProduct({
+    code,
+    name,
+    costPrice: input.costPrice,
+    salePrice: input.salePrice,
+    active,
+    stock,
+  });
+
+  return c.redirect(`/admin/catalogo?saved=${encodeURIComponent(name)}`);
+});
+
+adminApp.post("/catalogo/:code/activo", async (c) => {
+  const form = await c.req.formData();
+  await new CatalogRepo(new Db(c.env.DB)).setActive(
+    c.req.param("code"),
+    String(form.get("active") ?? "") === "1",
+  );
+  const q = c.req.query("q");
+  return c.redirect(`/admin/catalogo${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+});
+
+adminApp.post("/catalogo/:code/duplicar", async (c) => {
+  const repo = new CatalogRepo(new Db(c.env.DB));
+  const original = await repo.getForAdmin(c.req.param("code"));
+  if (!original) return c.redirect("/admin/catalogo");
+
+  const nuevoCode = uniqueCode(`${original.code}-COPIA`, await repo.allCodes());
+  await repo.saveProduct({
+    code: nuevoCode,
+    name: `${original.name} (copia)`,
+    costPrice: original.costPrice,
+    salePrice: original.salePrice,
+    // La copia nace INACTIVA y en cero: se revisa y se activa a mano, para que
+    // no aparezca un duplicado ante una clienta por accidente, ni prometa un
+    // inventario que en realidad es el del producto original.
+    active: false,
+    stock: original.stock.map((s) => ({ branch: s.branch, stockQty: 0 })),
+  });
+  return c.redirect(`/admin/catalogo/${encodeURIComponent(nuevoCode)}/editar`);
+});
+
+adminApp.post("/catalogo/:code/borrar", async (c) => {
+  const form = await c.req.formData();
+  const code = c.req.param("code");
+  if (String(form.get("confirmacion") ?? "").trim().toUpperCase() !== "BORRAR") {
+    return c.redirect(`/admin/catalogo/${encodeURIComponent(code)}/editar`);
+  }
+  await new CatalogRepo(new Db(c.env.DB)).delete(code);
+  return c.redirect("/admin/catalogo?deleted=1");
+});
 
 // Conexiones: mapa de canales con estado verde/gris (paso 4 del onboarding).
 adminApp.get("/conexiones", (c) => c.html(renderConexiones(c.env)));

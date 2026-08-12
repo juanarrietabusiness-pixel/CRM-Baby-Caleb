@@ -203,3 +203,36 @@ CREATE TABLE IF NOT EXISTS template_sends (
   UNIQUE (campaign_key, conversation_id)
 );
 CREATE INDEX IF NOT EXISTS idx_template_sends_time ON template_sends(sent_at);
+
+-- ── Catálogo ───────────────────────────────────────────────────────────────
+-- Una fila por PRODUCTO en una BODEGA. La llave es (code, branch): el mismo
+-- producto vive en varias bodegas con existencias distintas, pero el nombre y
+-- los precios son del producto, no de la bodega — el panel los escribe iguales
+-- en todas sus filas (ver CatalogRepo.saveProduct).
+--
+-- Plata en CENTAVOS de dólar (45.00 → 4500). Con decimales, SQLite acumula
+-- error de redondeo al sumar y los precios de Baby Caleb llevan centavos
+-- (el costo del XXL es 29.20).
+--
+-- cost_price es memoria interna del negocio: lo lee el panel para calcular
+-- margen, NUNCA el bot. Ver PUBLIC_COLS en src/db/catalog.ts — la ruta que
+-- alimenta a catalogQuery no selecciona esa columna.
+-- Los comentarios van en su propia línea, nunca al final de una columna: el
+-- helper de tests arma cada statement en una sola línea y un comentario al
+-- final se comería el resto de la tabla (test/helpers/miniflareSetup.ts).
+CREATE TABLE IF NOT EXISTS catalog_items (
+  -- code: el código del negocio (NAT-RN, MOON-FUL…)
+  code       TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  -- cost_price y sale_price en centavos USD. El costo es interno.
+  cost_price INTEGER,
+  sale_price INTEGER NOT NULL,
+  stock_qty  INTEGER NOT NULL DEFAULT 0,
+  -- branch: una de SUCURSALES (src/catalog/validation.ts)
+  branch     TEXT NOT NULL,
+  active     INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (code, branch)
+);
+CREATE INDEX IF NOT EXISTS idx_catalog_code ON catalog_items(code);
+CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(active);

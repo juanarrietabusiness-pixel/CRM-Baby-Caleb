@@ -81,7 +81,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   },
   catalogQuery: {
     label: "Consultar catálogo",
-    desc: "Consulta el catálogo de productos/servicios del negocio para responder con precios y opciones reales.",
+    desc: "Consulta el catálogo real (precio de venta y existencias por bodega) para responder sin inventar. Nunca ve el costo ni le dice a la clienta la cantidad exacta de stock.",
     icon: "package",
   },
 };
