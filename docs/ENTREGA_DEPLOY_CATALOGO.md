@@ -87,6 +87,19 @@ secrets interactivos.
    | Workers KV Storage | Edit | Cloudflare lo mete por defecto en sus tokens de CI |
    | Account Settings | Read | que wrangler resuelva la cuenta |
 
+   Y dos de tipo **User** (el selector tiene una sección aparte para eso, más abajo):
+
+   | Permiso | Nivel | Para qué |
+   |---|---|---|
+   | User Details | Read | wrangler llama a `/accounts` para ubicarse |
+   | Memberships | Read | ídem — van juntos en el token que arma Cloudflare |
+
+   ⚠️ **El valor del token es el que Cloudflare muestra UNA sola vez, en la pantalla
+   verde de "Create Token".** No es el código que aparece después en la lista de tokens:
+   ése es el *ID* del token, se parece bastante y no sirve para autenticar. Copiarlo por
+   error es el motivo más común de `Invalid access token [code: 9109]`. Si esa pantalla
+   ya se cerró, no hay forma de recuperarlo — hay que hacer "Roll" y copiar el nuevo.
+
    Account Resources: solo esa cuenta. Zone Resources: ninguno (el bot vive en
    `workers.dev`). Client IP Filtering: vacío.
 
@@ -125,10 +138,28 @@ secrets interactivos.
 
    De ahí en adelante, cada push a `main` se despliega solo.
 
-4. **Mirar la pestaña Actions.** El run dirá en qué paso quedó. Si falla en "Aplicar el
-   esquema a D1" o en "Desplegar el Worker" con un error de autorización, es el token:
-   le falta alguno de los permisos de la tabla de arriba. Se corrige el token y se vuelve
-   a lanzar el mismo run con "Re-run jobs" — no hace falta otro commit.
+4. **Mirar la pestaña Actions.** El run dirá en qué paso quedó. Se corrige lo que sea y se
+   vuelve a lanzar el mismo run con "Re-run jobs" — no hace falta otro commit.
+
+   Los errores que ya se vieron en la práctica, y qué significan:
+
+   | En el log | Qué pasa |
+   |---|---|
+   | `Wrangler requires at least Node.js v22` | El workflow fijaba Node 20. Ya está arreglado. |
+   | `Invalid access token [code: 9109]` | El token no es válido **como está guardado**. Casi siempre es que se copió el *ID* del token en vez del valor, o que se coló un espacio al pegarlo. No es falta de permisos: Cloudflare rechaza la credencial completa. |
+   | `Authentication error [code: 10000]` | La credencial llega pero no puede con esa operación: o le falta un permiso de las tablas de arriba, o el `CLOUDFLARE_ACCOUNT_ID` no es el de la cuenta donde vive el bot. |
+
+   Para saber si el token sirve, sin adivinar — se pega el valor en una terminal
+   cualquiera (esto **no** toca nada, solo pregunta):
+
+   ```bash
+   curl https://api.cloudflare.com/client/v4/user/tokens/verify \
+     -H "Authorization: Bearer <el-token>"
+   ```
+
+   Si responde `"status": "active"`, el token está bien y el problema es de permisos o
+   del account ID. Si responde `9109`, el valor guardado no sirve y hay que generarlo
+   otra vez.
 
 5. **Comprobar que se puede entrar al panel** — `…workers.dev/admin`. Si pide contraseña
    y la acepta, listo.
