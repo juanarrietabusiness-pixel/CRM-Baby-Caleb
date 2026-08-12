@@ -1,0 +1,63 @@
+# Despliegue automático a Cloudflare.
+#
+# El deploy sale del repositorio, no del computador de nadie: cada push a
+# `main` corre las pruebas y, si pasan, aplica el esquema y publica el Worker.
+# Así no hay forma de que lo desplegado difiera de lo que está en git.
+#
+# Necesita dos secrets del repositorio (Settings → Secrets and variables →
+# Actions):
+#   CLOUDFLARE_API_TOKEN   — token de la cuenta donde vive el bot
+#   CLOUDFLARE_ACCOUNT_ID  — id de esa misma cuenta
+#
+# `workflow_dispatch` permite dispararlo a mano desde la pestaña Actions
+# eligiendo la rama — útil para probar antes de mergear a main.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Dos pushes seguidos no pueden desplegar en paralelo: el segundo espera, y si
+# llega un tercero mientras tanto, el del medio se descarta. Evita que dos
+# `wrangler deploy` se pisen y quede publicada la versión vieja.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      # Las pruebas son el candado: nada roto llega a producción.
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # El esquema es idempotente (todo CREATE TABLE IF NOT EXISTS), así que
+      # correrlo en cada deploy no toca los datos que ya existen: solo agrega
+      # las tablas nuevas.
+      - name: Aplicar el esquema a D1
+        run: node scripts/db-apply.mjs --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ci-deploy y no `pnpm run deploy`: el segundo dispara el hook predeploy,
+      # que aborta si falta el secret DASHBOARD_PASSWORD. Ese chequeo tiene
+      # sentido en la máquina de una persona, no en CI.
+      - name: Desplegar el Worker
+        run: node scripts/ci-deploy.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
