@@ -52,8 +52,24 @@ if (!match) {
 const dbName = match[1];
 
 const remote = process.argv.includes("--remote");
-const args = ["d1", "execute", dbName, `--file=${SCHEMA}`, ...(remote ? ["--remote"] : ["--local"])];
 
+// Sin terminal (GitHub Actions), wrangler no puede preguntar "vas a tocar la
+// base de producción, ¿seguro?" — así que se responde de antemano. Con
+// terminal NO se pasa: ahí la pregunta es la red de seguridad de la persona.
+const unattended = !process.stdin.isTTY || process.env.CI === "true";
+const args = [
+  "d1",
+  "execute",
+  dbName,
+  `--file=${SCHEMA}`,
+  ...(remote ? ["--remote"] : ["--local"]),
+  ...(remote && unattended ? ["--yes"] : []),
+];
+
+// `npx wrangler` y no `wrangler` a secas: en CI esto se invoca como
+// `node scripts/db-apply.mjs`, sin pasar por pnpm, y entonces
+// node_modules/.bin no está en el PATH — wrangler no se encuentra y el paso
+// muere con ENOENT. npx sí lo resuelve. (Igual que scripts/ci-deploy.mjs.)
 console.log(`→ wrangler ${args.join(" ")}`);
-const res = spawnSync("wrangler", args, { stdio: "inherit", shell: process.platform === "win32" });
+const res = spawnSync("npx", ["wrangler", ...args], { stdio: "inherit", shell: process.platform === "win32" });
 process.exit(res.status ?? 1);

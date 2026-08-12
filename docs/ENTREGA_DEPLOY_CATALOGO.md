@@ -1,8 +1,15 @@
 # Entrega — desplegar el catálogo de Baby Caleb
 
-> Para: Juan, con Claude Code corriendo **en su Mac** (la CLI local, no la web).
 > Rama con el trabajo: `claude/baby-caleb-catalog-plan-e7pjxx`
-> Escrito el 2026-08-12.
+> Escrito el 2026-08-12. Actualizado el 2026-08-12 con la decisión tomada.
+
+## Decisión tomada: se despliega desde el repositorio (Camino A)
+
+El deploy sale de GitHub Actions, no del computador de nadie. **Juan solo tiene dos
+tareas, las dos desde el navegador**: crear un token en Cloudflare y pegarlo en los
+secrets del repo. Todo lo demás ya está escrito y probado — ver "Camino A" abajo.
+
+El Camino B (deploy manual desde una Mac) queda como plan de emergencia. No hace falta.
 
 ## Qué está hecho
 
@@ -14,17 +21,37 @@ las tres bodegas reales. `pnpm typecheck` limpio, `pnpm test` en 501 pruebas pas
 El detalle técnico está en `docs/PLAN_CATALOGO_BABY_CALEB.md`. Este documento es solo lo
 que falta para ponerlo en producción.
 
+## Qué se verificó antes de entregar
+
+Todo lo que se puede comprobar sin el token, se comprobó:
+
+- `tsc --noEmit` limpio y **501 pruebas en 68 archivos, todas pasando**.
+- `wrangler deploy --dry-run` arma el bundle completo (4 MB, 692 KB gzip) con sus cuatro
+  bindings (Durable Object, D1, Vectorize, AI) y sus variables — o sea que **no falta
+  ningún archivo en git**: lo que CI clona alcanza para construir el Worker. Era el riesgo
+  real, porque parte de la config del negocio vive en `member/`, y quedó descartado.
+- La D1 `juancitoads-bot-db` existe y ya tiene el esquema viejo (17 tablas), pero **no
+  tiene `catalog_items`** — confirma que el catálogo nunca se ha desplegado y que el paso
+  de esquema del workflow es justamente lo que falta correr.
+- El esquema es idempotente de verdad: las 17 tablas son `CREATE TABLE IF NOT EXISTS`, así
+  que aplicarlo en cada deploy no toca los datos que ya están.
+
+**Se encontró y se arregló un bug que habría tumbado el primer run de CI.**
+`scripts/db-apply.mjs` invocaba `wrangler` a secas. Eso funciona en una Mac (porque ahí se
+llama vía `pnpm`, que pone `node_modules/.bin` en el PATH), pero el workflow lo llama con
+`node scripts/db-apply.mjs --remote`, sin pasar por pnpm — y ahí `wrangler` no existe en el
+PATH: el paso moría con `ENOENT` antes de tocar la base. Ahora usa `npx wrangler`, igual
+que `scripts/ci-deploy.mjs`. De paso, sin terminal responde solo a la pregunta de "vas a
+tocar producción, ¿seguro?" (con terminal la sigue haciendo: ahí esa pregunta protege a una
+persona).
+
 ## Qué falta
 
-**Nada del código.** Falta desplegarlo, y decidir de dónde sale ese despliegue.
-
-No se pudo hacer desde la sesión donde se escribió porque ese entorno tiene bloqueada la
-salida a `api.cloudflare.com` por política de red. No es un problema del repo ni de
-credenciales.
+**Nada del código.** Falta el token: los dos pasos de navegador del Camino A.
 
 ---
 
-## Decisión: de dónde debe salir el deploy
+## Por qué el deploy sale del repositorio
 
 El dueño pidió explícitamente que **el proyecto se despliegue desde el repositorio, no
 desde el computador de nadie**. Eso es lo correcto y es a donde hay que llegar.
@@ -34,7 +61,7 @@ desde una Mac solo *sube* el código; la laptop no queda prendida sirviendo nada
 cambia es quién tiene la última palabra sobre qué versión está publicada — y debe ser git,
 no la carpeta local de una persona.
 
-### Camino A — CI desde GitHub (el objetivo)
+### Camino A — CI desde GitHub (el elegido)
 
 Ya está escrito el workflow: **`.github/workflows/deploy.yml`**. Corre en cada push a
 `main`: instala, corre typecheck y pruebas, aplica el esquema a D1 y despliega el Worker.
@@ -49,35 +76,72 @@ secrets interactivos.
 1. **Crear un token de API de Cloudflare** en la cuenta donde vive `juancitoads-bot`
    (dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom token):
 
+   Todos los permisos son de tipo **Account** (la primera columna del selector):
+
    | Permiso | Nivel | Para qué |
    |---|---|---|
    | Workers Scripts | Edit | subir el Worker, la migración del Durable Object, los assets |
    | D1 | Edit | aplicar el esquema |
    | Workers AI | Edit | el binding `[ai]` |
    | Vectorize | Edit | crear/usar el índice de la base de conocimiento |
+   | Workers KV Storage | Edit | Cloudflare lo mete por defecto en sus tokens de CI |
    | Account Settings | Read | que wrangler resuelva la cuenta |
 
    Account Resources: solo esa cuenta. Zone Resources: ninguno (el bot vive en
    `workers.dev`). Client IP Filtering: vacío.
 
+   > Sobre **Workers KV Storage**: el bot no usa KV. Va igual porque es lo que
+   > Cloudflare incluye por defecto en el token que genera para desplegar desde CI,
+   > y agregarlo cuesta un clic — mientras que si llegara a faltar, el error de
+   > permisos aparece recién a mitad del deploy. Es barato ir sobre seguro.
+
 2. **Guardarlo como secret del repositorio** en GitHub → Settings → Secrets and variables
-   → Actions → New repository secret:
-   - `CLOUDFLARE_API_TOKEN`
-   - `CLOUDFLARE_ACCOUNT_ID`
+   → Actions → New repository secret. Son dos:
+
+   - `CLOUDFLARE_API_TOKEN` — el token del paso 1. Cloudflare lo muestra **una sola
+     vez**; si se cierra esa pantalla sin copiarlo, hay que generar otro.
+   - `CLOUDFLARE_ACCOUNT_ID` — el ID de la cuenta. Está en dash.cloudflare.com →
+     Workers & Pages, en la barra derecha ("Account ID"), y también es el código que
+     aparece en la URL del dashboard: `dash.cloudflare.com/<ese-código>/...`.
 
    **El token no se pega en ningún chat ni en ningún archivo del repo.** Solo ahí.
 
-3. **Mergear la rama a `main`.** El workflow solo corre en `main`; mientras el trabajo
-   viva en la rama, no se dispara solo. (También se puede lanzar a mano desde la pestaña
-   Actions con "Run workflow", eligiendo la rama, si se quiere probar antes de mergear.)
+3. **Probar sin mergear** (recomendado): pestaña Actions → workflow "Deploy" → "Run
+   workflow" → elegir la rama `claude/baby-caleb-catalog-plan-e7pjxx` → Run. El workflow
+   tiene `workflow_dispatch` justo para esto. Así se sabe si el token quedó bien
+   **antes** de tocar `main`, y si algo falla no queda a medias en la rama principal.
 
-4. **Mirar la pestaña Actions.** El primer run dirá si el token quedó con los permisos
-   correctos.
+4. **Mergear la rama a `main`.** El workflow corre solo en los push a `main`; mientras el
+   trabajo viva en la rama, no se dispara por su cuenta. Con el merge queda desplegado y,
+   de ahí en adelante, cada push a `main` se publica solo.
 
-### Camino B — un deploy manual, una sola vez
+5. **Mirar la pestaña Actions.** El run dirá en qué paso quedó. Si falla en "Aplicar el
+   esquema a D1" o en "Desplegar el Worker" con un error de autorización, es el token:
+   le falta alguno de los permisos de la tabla de arriba.
 
-Si se quiere ver el panel funcionando **hoy**, sin esperar a montar el CI. No reemplaza al
-Camino A: es un atajo para desbloquear, y después se monta el CI igual.
+6. **Comprobar que se puede entrar al panel** — `…workers.dev/admin`. Si pide contraseña
+   y la acepta, listo.
+
+   Ojo con esto, que es el único hueco del Camino A: el panel **falla cerrado**. Si el
+   Worker no tiene el secret `DASHBOARD_PASSWORD`, el deploy sale bien igual pero no hay
+   contraseña que sirva — ninguna entra. El deploy manual sí avisa de esto antes de subir
+   nada (el hook `predeploy`), pero CI se lo salta a propósito, porque ese chequeo pide
+   una terminal.
+
+   El Worker de Baby Caleb ya está desplegado y en pie, así que lo más probable es que el
+   secret ya exista de la instalación. Si no entra, se crea **desde el navegador**, sin
+   terminal: dash.cloudflare.com → Workers & Pages → `juancitoads-bot` → Settings →
+   Variables and Secrets → Add → tipo **Secret**, nombre `DASHBOARD_PASSWORD`, y el valor
+   es la contraseña que se quiera para `/admin`. Toma efecto sin volver a desplegar.
+
+   (Este secret vive en el Worker, en Cloudflare — no es un secret del repo en GitHub.
+   Son dos cajas distintas: las de GitHub son para que CI pueda desplegar, ésta es para
+   que el bot funcione.)
+
+### Camino B — un deploy manual, una sola vez (plan de emergencia)
+
+**No hace falta: se eligió el Camino A.** Queda escrito por si el CI se atasca y hay que
+desbloquear a mano. No lo reemplaza — si se usa, se monta el CI igual después.
 
 ```bash
 node -v                 # necesita v18+; si falta, instalar Node LTS de nodejs.org
@@ -110,7 +174,12 @@ pnpm exec wrangler secret put DASHBOARD_PASSWORD
 ## Después del deploy — cargar el catálogo
 
 1. Entrar a `https://juancitoads-bot.juanarrietabusiness.workers.dev/admin/catalogo`.
-2. **Opcional**, para no cargar los 7 productos del ADN a mano:
+2. **Opcional**, para no cargar los 7 productos del ADN a mano: aplicar
+   `src/db/seed-catalog.sql`. Sin wrangler instalado (que es el caso si se fue por el
+   Camino A), se hace desde el navegador: dash.cloudflare.com → Storage & Databases → D1
+   → `juancitoads-bot-db` → pestaña **Console**, y pegar ahí el contenido del archivo.
+
+   Con wrangler a mano, el equivalente es:
 
    ```bash
    wrangler d1 execute juancitoads-bot-db --file=src/db/seed-catalog.sql --remote
@@ -118,6 +187,9 @@ pnpm exec wrangler secret put DASHBOARD_PASSWORD
 
    ⚠️ **Este archivo empieza con `DELETE FROM catalog_items`.** Correrlo *después* de haber
    cargado productos a mano los borra. Si se usa, que sea lo primero.
+
+   ⚠️ Y solo **después** de que el deploy haya corrido: la tabla `catalog_items` la crea el
+   paso de esquema del workflow. Antes de eso el archivo falla con "no such table".
 
 3. Cargar el **stock de cada bodega** en cada producto y **activarlos**. Entran inactivos
    y en cero a propósito: un producto activo sin existencias hace que el bot le diga
