@@ -106,23 +106,34 @@ secrets interactivos.
 
    **El token no se pega en ningún chat ni en ningún archivo del repo.** Solo ahí.
 
-3. **Probar sin mergear** (recomendado): pestaña Actions → workflow "Deploy" → "Run
-   workflow" → elegir la rama `claude/baby-caleb-catalog-plan-e7pjxx` → Run. El workflow
-   tiene `workflow_dispatch` justo para esto. Así se sabe si el token quedó bien
-   **antes** de tocar `main`, y si algo falla no queda a medias en la rama principal.
+3. **Mergear la rama a `main`.** Ése es el primer deploy — no hay forma de ensayarlo antes.
 
-4. **Mergear la rama a `main`.** El workflow corre solo en los push a `main`; mientras el
-   trabajo viva en la rama, no se dispara por su cuenta. Con el merge queda desplegado y,
-   de ahí en adelante, cada push a `main` se publica solo.
+   > **Ojo, esto se intentó y no se puede.** El workflow tiene `workflow_dispatch`, así
+   > que en teoría se podría lanzar a mano sobre la rama para probar el token sin tocar
+   > `main`. En la práctica no: GitHub solo ofrece "Run workflow" para workflows que ya
+   > existen **en la rama por defecto**, y `deploy.yml` nace en esta rama. Mientras no se
+   > mergee, el botón no aparece y la API responde 404. Después del merge sí queda
+   > disponible para cualquier rama — pero para el primer deploy, el merge *es* la prueba.
 
-5. **Mirar la pestaña Actions.** El run dirá en qué paso quedó. Si falla en "Aplicar el
+   El riesgo de mergear a ciegas es bajo y conviene tenerlo claro: el paso de Cloudflare
+   va **último**, después de typecheck y de las 501 pruebas. Si el token quedara con algún
+   permiso de menos, lo que falla es el deploy, no el merge — el código queda en `main`
+   (que es donde debe estar, ya pasó CI), se corrige el token y se le da "Re-run jobs".
+   Y si llegara a fallar justo entre los dos pasos de Cloudflare, lo peor que pasa es que
+   el esquema quede aplicado y el Worker sin actualizar: las tablas nuevas se quedan ahí
+   sin que nadie las use, sin tocar un solo dato de los que ya existen.
+
+   De ahí en adelante, cada push a `main` se despliega solo.
+
+4. **Mirar la pestaña Actions.** El run dirá en qué paso quedó. Si falla en "Aplicar el
    esquema a D1" o en "Desplegar el Worker" con un error de autorización, es el token:
-   le falta alguno de los permisos de la tabla de arriba.
+   le falta alguno de los permisos de la tabla de arriba. Se corrige el token y se vuelve
+   a lanzar el mismo run con "Re-run jobs" — no hace falta otro commit.
 
-6. **Comprobar que se puede entrar al panel** — `…workers.dev/admin`. Si pide contraseña
+5. **Comprobar que se puede entrar al panel** — `…workers.dev/admin`. Si pide contraseña
    y la acepta, listo.
 
-   Ojo con esto, que es el único hueco del Camino A: el panel **falla cerrado**. Si el
+   Ojo con esto, que es el otro hueco del Camino A: el panel **falla cerrado**. Si el
    Worker no tiene el secret `DASHBOARD_PASSWORD`, el deploy sale bien igual pero no hay
    contraseña que sirva — ninguna entra. El deploy manual sí avisa de esto antes de subir
    nada (el hook `predeploy`), pero CI se lo salta a propósito, porque ese chequeo pide
