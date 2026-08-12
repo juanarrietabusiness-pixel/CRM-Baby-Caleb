@@ -1,15 +1,34 @@
 # Entrega — desplegar el catálogo de Baby Caleb
 
-> Rama con el trabajo: `claude/baby-caleb-catalog-plan-e7pjxx`
-> Escrito el 2026-08-12. Actualizado el 2026-08-12 con la decisión tomada.
+> Escrito el 2026-08-12. **Cerrado el 2026-08-12: desplegado y verificado.**
 
-## Decisión tomada: se despliega desde el repositorio (Camino A)
+## Estado: hecho
 
-El deploy sale de GitHub Actions, no del computador de nadie. **Juan solo tiene dos
-tareas, las dos desde el navegador**: crear un token en Cloudflare y pegarlo en los
-secrets del repo. Todo lo demás ya está escrito y probado — ver "Camino A" abajo.
+El catálogo está en producción y el deploy sale del repositorio. Quedó así:
 
-El Camino B (deploy manual desde una Mac) queda como plan de emergencia. No hace falta.
+- Run **#3** del workflow `Deploy` en verde, los 9 pasos.
+- La tabla `catalog_items` **existe en la D1 de producción** — antes no estaba, así que
+  es prueba de que el esquema se aplicó de verdad y no solo de que el log dijo "success".
+- El Worker responde: `/health` → 200, `/admin/login` → 200.
+- `catalog_items` en 0 productos, que es lo esperado antes de cargar el catálogo.
+
+De aquí en adelante **cada push a `main` se despliega solo**. Lo que sigue no es técnico:
+cargar los productos y el stock (ver "Después del deploy", abajo).
+
+Este documento se conserva como registro de lo que costó llegar acá — los tres runs, qué
+falló en cada uno y por qué. Si mañana hay que montar esto mismo para otro cliente, las
+tres piedras del camino están abajo con nombre y apellido.
+
+### Los tres intentos
+
+| Run | Murió en | Causa |
+|---|---|---|
+| #1 | Aplicar el esquema a D1 | `wrangler` no estaba en el PATH (`ENOENT`). El workflow llama al script con `node`, sin pasar por pnpm. Arreglado con `npx wrangler`. |
+| #2 | Aplicar el esquema a D1 | `Wrangler requires at least Node.js v22.0.0`. Los workflows fijaban Node 20. Arreglado subiendo a 22. |
+| #3 | — | Verde. Lo que faltaba era el token: el `Invalid access token [code: 9109]` del run #2 se fue al regenerarlo. |
+
+Ninguno de los dos primeros llegó a escribir nada: los dos murieron antes de tocar la
+base, y el paso del Worker quedó en `skipped` las dos veces.
 
 ## Qué está hecho
 
@@ -18,8 +37,8 @@ la pestaña `/admin/catalogo` para crear, editar, activar/desactivar, duplicar y
 productos. Las 6 variables del negocio (código, nombre, costo, venta, stock, sucursal) y
 las tres bodegas reales. `pnpm typecheck` limpio, `pnpm test` en 501 pruebas pasando.
 
-El detalle técnico está en `docs/PLAN_CATALOGO_BABY_CALEB.md`. Este documento es solo lo
-que falta para ponerlo en producción.
+El detalle técnico está en `docs/PLAN_CATALOGO_BABY_CALEB.md`. Este documento cubre solo
+lo que costó ponerlo en producción.
 
 ## Qué se verificó antes de entregar
 
@@ -30,9 +49,9 @@ Todo lo que se puede comprobar sin el token, se comprobó:
   bindings (Durable Object, D1, Vectorize, AI) y sus variables — o sea que **no falta
   ningún archivo en git**: lo que CI clona alcanza para construir el Worker. Era el riesgo
   real, porque parte de la config del negocio vive en `member/`, y quedó descartado.
-- La D1 `juancitoads-bot-db` existe y ya tiene el esquema viejo (17 tablas), pero **no
-  tiene `catalog_items`** — confirma que el catálogo nunca se ha desplegado y que el paso
-  de esquema del workflow es justamente lo que falta correr.
+- La D1 `juancitoads-bot-db` existía con el esquema viejo (17 tablas) pero **sin
+  `catalog_items`** — confirmaba que el catálogo nunca se había desplegado, y que el paso
+  de esquema del workflow era justamente lo que faltaba correr.
 - El esquema es idempotente de verdad: las 17 tablas son `CREATE TABLE IF NOT EXISTS`, así
   que aplicarlo en cada deploy no toca los datos que ya están.
 
@@ -45,9 +64,9 @@ que `scripts/ci-deploy.mjs`. De paso, sin terminal responde solo a la pregunta d
 tocar producción, ¿seguro?" (con terminal la sigue haciendo: ahí esa pregunta protege a una
 persona).
 
-## Qué falta
+## Qué faltaba
 
-**Nada del código.** Falta el token: los dos pasos de navegador del Camino A.
+El token. Los dos pasos de navegador del Camino A — ya hechos.
 
 ---
 
@@ -71,7 +90,7 @@ Usa `scripts/ci-deploy.mjs`, que ya venía en el repo y está pensado justo para
 crea el índice Vectorize si no existe y despliega sin el hook `predeploy` que exige
 secrets interactivos.
 
-**Lo que falta para encenderlo:**
+**Lo que hubo que hacer para encenderlo** (y la receta si hay que repetirlo en otro bot):
 
 1. **Crear un token de API de Cloudflare** en la cuenta donde vive `juancitoads-bot`
    (dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom token):
@@ -86,6 +105,19 @@ secrets interactivos.
    | Vectorize | Edit | crear/usar el índice de la base de conocimiento |
    | Workers KV Storage | Edit | Cloudflare lo mete por defecto en sus tokens de CI |
    | Account Settings | Read | que wrangler resuelva la cuenta |
+
+   Y dos de tipo **User** (el selector tiene una sección aparte para eso, más abajo):
+
+   | Permiso | Nivel | Para qué |
+   |---|---|---|
+   | User Details | Read | wrangler llama a `/accounts` para ubicarse |
+   | Memberships | Read | ídem — van juntos en el token que arma Cloudflare |
+
+   ⚠️ **El valor del token es el que Cloudflare muestra UNA sola vez, en la pantalla
+   verde de "Create Token".** No es el código que aparece después en la lista de tokens:
+   ése es el *ID* del token, se parece bastante y no sirve para autenticar. Copiarlo por
+   error es el motivo más común de `Invalid access token [code: 9109]`. Si esa pantalla
+   ya se cerró, no hay forma de recuperarlo — hay que hacer "Roll" y copiar el nuevo.
 
    Account Resources: solo esa cuenta. Zone Resources: ninguno (el bot vive en
    `workers.dev`). Client IP Filtering: vacío.
@@ -125,10 +157,28 @@ secrets interactivos.
 
    De ahí en adelante, cada push a `main` se despliega solo.
 
-4. **Mirar la pestaña Actions.** El run dirá en qué paso quedó. Si falla en "Aplicar el
-   esquema a D1" o en "Desplegar el Worker" con un error de autorización, es el token:
-   le falta alguno de los permisos de la tabla de arriba. Se corrige el token y se vuelve
-   a lanzar el mismo run con "Re-run jobs" — no hace falta otro commit.
+4. **Mirar la pestaña Actions.** El run dirá en qué paso quedó. Se corrige lo que sea y se
+   vuelve a lanzar el mismo run con "Re-run jobs" — no hace falta otro commit.
+
+   Los errores que ya se vieron en la práctica, y qué significan:
+
+   | En el log | Qué pasa |
+   |---|---|
+   | `Wrangler requires at least Node.js v22` | El workflow fijaba Node 20. Ya está arreglado. |
+   | `Invalid access token [code: 9109]` | El token no es válido **como está guardado**. Casi siempre es que se copió el *ID* del token en vez del valor, o que se coló un espacio al pegarlo. No es falta de permisos: Cloudflare rechaza la credencial completa. |
+   | `Authentication error [code: 10000]` | La credencial llega pero no puede con esa operación: o le falta un permiso de las tablas de arriba, o el `CLOUDFLARE_ACCOUNT_ID` no es el de la cuenta donde vive el bot. |
+
+   Para saber si el token sirve, sin adivinar — se pega el valor en una terminal
+   cualquiera (esto **no** toca nada, solo pregunta):
+
+   ```bash
+   curl https://api.cloudflare.com/client/v4/user/tokens/verify \
+     -H "Authorization: Bearer <el-token>"
+   ```
+
+   Si responde `"status": "active"`, el token está bien y el problema es de permisos o
+   del account ID. Si responde `9109`, el valor guardado no sirve y hay que generarlo
+   otra vez.
 
 5. **Comprobar que se puede entrar al panel** — `…workers.dev/admin`. Si pide contraseña
    y la acepta, listo.
