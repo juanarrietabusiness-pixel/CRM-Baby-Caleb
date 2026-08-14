@@ -64,6 +64,46 @@ describe("renderSystemPrompt", () => {
   });
 });
 
+// El bot llegó a ofrecer "cremas y lociones" —productos inexistentes— ante un
+// "¿qué tienen disponible?". La regla dejó de ser un consejo en la descripción
+// de la tool y pasó al system prompt, que va en cada turno.
+describe("<fuentes_de_verdad>", () => {
+  const conCatalogo = { ...input, toolList: ["searchKb", "catalogQuery", "handoffHuman"] };
+
+  it("obliga a consultar el catálogo antes de hablar de productos", () => {
+    const prompt = renderSystemPrompt(conCatalogo);
+    expect(prompt).toContain("<fuentes_de_verdad>");
+    expect(prompt).toContain("REGLA INQUEBRANTABLE");
+    expect(prompt).toContain("Siempre, sin excepción");
+    expect(prompt).toContain("NO EXISTE");
+  });
+
+  it("cubre la pregunta general y la venta por volumen", () => {
+    const prompt = renderSystemPrompt(conCatalogo);
+    expect(prompt).toContain("¿qué tienen?");
+    expect(prompt).toContain("`cantidad`");
+    expect(prompt).toContain("maximoDisponible");
+  });
+
+  it("solo promete las fuentes que están activas", () => {
+    // Sin catalogQuery (tool apagada desde el panel) no se menciona el catálogo:
+    // prometerlo haría que el modelo intente llamar algo que no existe.
+    const soloKb = renderSystemPrompt(input);
+    expect(soloKb).toContain("<fuentes_de_verdad>");
+    expect(soloKb).toContain("searchKb");
+    expect(soloKb).not.toContain("catalogQuery");
+    expect(soloKb).toContain("una sola fuente");
+
+    expect(renderSystemPrompt(conCatalogo)).toContain("exactamente dos fuentes");
+  });
+
+  it("se omite entero si no hay ninguna fuente de verdad activa", () => {
+    const sinFuentes = renderSystemPrompt({ ...input, toolList: ["handoffHuman"] });
+    expect(sinFuentes).not.toContain("<fuentes_de_verdad>");
+    expect(sinFuentes).not.toContain("{{");
+  });
+});
+
 describe("systemPromptFromEnv", () => {
   it("pulls botName/businessName/language from env", () => {
     const env = {
