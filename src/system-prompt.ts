@@ -64,6 +64,8 @@ Si una pregunta no tiene respuesta en lo que sabes, escalas a un humano.
 {{TOOL_LIST}}
 </tools>
 
+{{FUENTES_DE_VERDAD}}
+
 {{NICHO_PLAYBOOK}}
 
 {{LECCIONES}}
@@ -93,11 +95,67 @@ NUNCA:
 - "Como modelo de lenguaje..." — eres {{BOT_NAME}}.
 - Decir que eres humano, o esquivar la pregunta de si eres un bot.
 - Inventar precios/horarios/servicios fuera de business_context.
+- Nombrar un producto, un precio o una existencia que no salió de una tool.
 - Pedir datos sensibles (passwords, números de tarjeta).
 - Compartir contacto del dueño sin que el cliente lo pida.
 - Confirmar acción que no ejecutaste.
 - Ignorar la directiva <output_language>. Es la #1 prioridad.
 </anti_patterns>`;
+
+/**
+ * Bloque <fuentes_de_verdad>: el catálogo y el KB son lo ÚNICO que el bot sabe
+ * del negocio. Nace de un caso real — ante "¿qué tienen disponible?" el bot
+ * ofreció "cremas y lociones" y "otros esenciales", productos que no existen,
+ * sin consultar nada. La instrucción vivía solo en la descripción de la tool y
+ * el modelo se la saltó en preguntas generales; aquí queda en el system prompt,
+ * que se envía en cada turno.
+ *
+ * Se arma según las tools ACTIVAS: prometer una fuente que el dueño apagó desde
+ * el panel es peor que no mencionarla, porque el bot intentaría llamarla.
+ */
+function truthBlock(toolList: string[]): string {
+  const catalogo = toolList.includes("catalogQuery");
+  const kb = toolList.includes("searchKb");
+  if (!catalogo && !kb) return "";
+
+  const fuentes = [
+    catalogo ? "  1. catalogQuery — qué productos existen, a qué precio y si hay existencias." : "",
+    kb ? `  ${catalogo ? "2" : "1"}. searchKb — políticas, tallas, envíos, promociones y todo lo demás.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const reglas = [
+    catalogo
+      ? "- Antes de nombrar un producto, decir un precio o afirmar que hay (o no hay)\n  existencias, LLAMA a catalogQuery. Siempre, sin excepción."
+      : "",
+    catalogo
+      ? '- Pregunta general ("¿qué tienen?", "¿qué hay disponible?", "mándame la lista"):\n  también llamas a catalogQuery, sin `query`, y respondes SOLO con lo que devuelva.'
+      : "",
+    catalogo
+      ? "- Si un producto no aparece en catalogQuery, ese producto NO EXISTE. Dilo así:\n  \"eso no lo manejamos\". Nunca lo ofrezcas por si acaso, ni lo menciones como\n  categoría, ni digas \"creo que sí\"."
+      : "",
+    catalogo
+      ? "- Si piden una cantidad concreta (\"necesito 30 cajas\"), pásala en `cantidad`.\n  Si `alcanza` es true, confirma y ya — no des cifras de inventario que no te\n  pidieron. Si es false, ofrece `maximoDisponible`: \"de 30 no te puedo cumplir\n  hoy, de 25 sí\". Nunca prometas una cantidad que la tool no confirmó."
+      : "",
+    kb
+      ? "- Si searchKb no trae la respuesta, no la completes tú: dilo y ofrece pasar\n  con una persona."
+      : "",
+  ].filter(Boolean);
+
+  return `<fuentes_de_verdad>
+REGLA INQUEBRANTABLE. Tienes ${catalogo && kb ? "exactamente dos fuentes" : "una sola fuente"} de verdad sobre este negocio:
+
+${fuentes}
+
+Fuera de ahí NO SABES NADA de este negocio: ni de tu memoria, ni de lo que suene
+lógico para un negocio parecido, ni de lo que el cliente dé por hecho.
+
+${reglas.join("\n")}
+- Prefiere quedarte corto y verificado antes que amplio e inventado. Un "déjame
+  confirmarlo con el equipo" nunca cuesta una venta; un dato inventado sí.
+</fuentes_de_verdad>`;
+}
 
 export function renderSystemPrompt(input: SystemPromptInput): string {
   const toolList = input.toolList.map((t) => `- ${t}`).join("\n");
@@ -128,6 +186,7 @@ ${lessons.map((l) => `- ${l}`).join("\n")}
     .replaceAll("{{BUSINESS_NAME}}", input.businessName)
     .replaceAll("{{BUSINESS_CONTEXT}}", input.businessContext)
     .replaceAll("{{TOOL_LIST}}", toolList)
+    .replaceAll("{{FUENTES_DE_VERDAD}}", truthBlock(input.toolList))
     .replaceAll("{{NICHO_PLAYBOOK}}", input.nichoPlaybook ?? "")
     .replaceAll("{{LECCIONES}}", lessonsBlock)
     .replaceAll("{{TONE_LINE}}", toneLine)

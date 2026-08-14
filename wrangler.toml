@@ -40,7 +40,7 @@ binding = "KB"
 index_name = "juancitoads-bot-kb"
 
 # Bucket R2 para el catálogo. Desactivado: hoy `src/tools/catalogQuery.ts` lee el
-# catálogo desde `member/config.local.ts`, así que nada accede a `env.CATALOG` y
+# catálogo de D1 (tabla `catalog_items`), así que nada accede a `env.CATALOG` y
 # el binding solo obligaría a habilitar R2 en la cuenta. Para reactivarlo:
 # habilita R2 en el dashboard, crea el bucket y descomenta este bloque (y quita
 # el `?` de CATALOG en `src/env.ts`).
