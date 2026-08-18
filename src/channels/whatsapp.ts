@@ -14,7 +14,10 @@
 import type { ChannelAdapter, IncomingMessage, OutgoingReply } from "./shared";
 import type { Env } from "../env";
 
-const GRAPH_VERSION = "v21.0";
+// v23.0: cada versión de Graph vive ~2 años y la v21.0 (oct-2024) se vence a
+// finales de 2026. El contrato de /messages y de /<media_id> no cambia entre
+// esas versiones — solo corre el reloj hacia adelante.
+const GRAPH_VERSION = "v23.0";
 const MEDIA_TTL_MS = 10 * 60 * 1000; // la URL firmada del proxy vive 10 min
 
 interface WaMessage {
