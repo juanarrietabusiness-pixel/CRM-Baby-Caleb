@@ -16,6 +16,7 @@ import { detectKind } from "./learn/fieldPath";
 import { saveCapture, isLearnMode } from "./learn/mapping";
 import { tokensMatch } from "./http-auth";
 import { apiApp } from "./api";
+import { renderPrivacyPolicy, renderTerms, renderDataDeletion } from "./legal";
 
 export { SupportAgent } from "./agent";
 
@@ -215,6 +216,13 @@ app.post("/webhooks/learn/:channel", async (c) => {
   await saveCapture(repo, channel, kind, payload);
   return c.json({ ok: true, captured: kind, channel }, 200);
 });
+
+// Páginas legales PÚBLICAS (sin contraseña). Meta las exige para poner la app
+// en producción: Configuración básica → Política de privacidad, Términos del
+// servicio y Eliminación de datos de usuario. Ver src/legal.ts.
+app.get("/privacidad", (c) => c.html(renderPrivacyPolicy(c.env)));
+app.get("/terminos", (c) => c.html(renderTerms(c.env)));
+app.get("/eliminar-datos", (c) => c.html(renderDataDeletion(c.env)));
 
 // Admin dashboard — Basic Auth guarded sub-app mounted at /admin/*.
 app.route("/admin", adminApp);
