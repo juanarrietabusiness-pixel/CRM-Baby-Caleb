@@ -71,6 +71,12 @@ export interface Env {
   WHATSAPP_ACCESS_TOKEN?: string;     // token del system user / WABA (Bearer)
   WHATSAPP_VERIFY_TOKEN?: string;     // handshake GET del webhook (si falta, usa META_VERIFY_TOKEN)
   WHATSAPP_APP_SECRET?: string;       // firma X-Hub-Signature-256 (si falta, usa META_APP_SECRET)
+  WHATSAPP_WABA_ID?: string;          // opcional: WhatsApp Business Account ID. Solo lo usa el
+                                      // diagnóstico de /admin/conexiones para comprobar que la app
+                                      // está SUSCRITA a la WABA (sin eso Meta nunca envía webhooks).
+  // Versión de la Graph API de Meta para TODOS sus canales (WhatsApp Cloud,
+  // Messenger, Instagram). Si falta, se usa la del código (src/channels/graph.ts).
+  GRAPH_API_VERSION?: string;
   XAI_API_KEY?: string;             // xAI (Grok) — proveedor LLM alterno (ver src/llm/provider.ts)
 
   // ── Cal.com (agenda real para scheduleAppointment) ───────────────────────

@@ -138,6 +138,9 @@ app.get("/webhooks/whatsapp", (c) => {
   if (mode === "subscribe" && token && expected && token === expected) {
     return c.text(challenge ?? "", 200);
   }
+  console.error(
+    `whatsapp verify: handshake rechazado (${!expected ? "no hay WHATSAPP_VERIFY_TOKEN ni META_VERIFY_TOKEN" : !token ? "Meta no mandó hub.verify_token" : "el token no coincide con el guardado"}).`,
+  );
   return c.text("forbidden", 403);
 });
 
@@ -147,16 +150,35 @@ app.post("/webhooks/whatsapp", async (c) => {
   const raw = await c.req.text();
   const sig = c.req.header("x-hub-signature-256");
   const secret = c.env.WHATSAPP_APP_SECRET || c.env.META_APP_SECRET;
-  const valid = !!secret && (await verifyMetaSignature(raw, sig, secret));
-  if (!valid) return c.text("bad signature", 403);
+  // Rechazar en silencio es lo peor que puede pasar aquí: el dueño ve "no llegan
+  // los mensajes", los logs solo muestran un 403 pelado y no hay forma de saber
+  // si fue el secret equivocado o si Meta ni siquiera llamó. Se logea el motivo.
+  if (!secret) {
+    console.error("whatsapp webhook: sin WHATSAPP_APP_SECRET ni META_APP_SECRET — todo POST se rechaza.");
+    return c.text("bad signature", 403);
+  }
+  if (!(await verifyMetaSignature(raw, sig, secret))) {
+    console.error(
+      `whatsapp webhook: firma inválida (${sig ? "X-Hub-Signature-256 no coincide" : "sin cabecera X-Hub-Signature-256"}) — el App Secret guardado no es el de la app que envía.`,
+    );
+    return c.text("bad signature", 403);
+  }
   let body: unknown;
   try {
     body = JSON.parse(raw);
   } catch {
+    console.error("whatsapp webhook: body no es JSON válido.");
     return c.text("bad json", 400);
   }
   const origin = c.env.DASHBOARD_BASE_URL || new URL(c.req.url).origin;
-  for (const msg of await parseWhatsAppEvents(body as any, c.env, origin)) {
+  const msgs = await parseWhatsAppEvents(body as any, c.env, origin);
+  // Meta manda MUCHOS POST de recibos (sent/delivered/read) sin ningún mensaje.
+  // Dejar rastro de ellos distingue "Meta no llama" de "Meta llama pero no era
+  // un mensaje" — que es exactamente la duda cuando el canal parece muerto.
+  if (msgs.length === 0) {
+    console.log("whatsapp webhook: POST sin mensajes procesables (recibos de estado u otro campo).");
+  }
+  for (const msg of msgs) {
     const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
     await c.env.AGENT.get(doId).ingest(msg);
   }

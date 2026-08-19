@@ -10,8 +10,8 @@
 //  • Validar la firma X-Hub-Signature-256 de cada POST — verifyMetaSignature().
 import type { ChannelAdapter, IncomingMessage, OutgoingReply, ChannelId } from "./shared";
 import type { Env } from "../env";
+import { graphVersion, GRAPH_API_VERSION } from "./graph";
 
-const GRAPH_VERSION = "v21.0";
 
 interface MetaMessaging {
   sender?: { id: string };
@@ -108,7 +108,7 @@ async function instagramSenderId(token: string): Promise<string> {
   if (igSenderIdCache?.token === token) return igSenderIdCache.id;
   try {
     const r = await fetch(
-      `https://graph.instagram.com/${GRAPH_VERSION}/me?fields=user_id&access_token=${encodeURIComponent(token)}`,
+      `https://graph.instagram.com/${GRAPH_API_VERSION}/me?fields=user_id&access_token=${encodeURIComponent(token)}`,
     );
     const j = (await r.json()) as { user_id?: string | number };
     const id = j?.user_id ? String(j.user_id) : "me";
@@ -144,7 +144,7 @@ export const metaAdapter: ChannelAdapter = {
     // Messenger envía como `me` (la Página). Instagram Login debe enviar como el
     // user_id (dueño del hilo), no como `me` (app-scoped id) → si no, 2534037.
     const node = useIG ? await instagramSenderId(token) : "me";
-    const url = `${base}/${GRAPH_VERSION}/${node}/messages`;
+    const url = `${base}/${graphVersion(env)}/${node}/messages`;
     console.log("meta out:", JSON.stringify({ useIG, node, to: reply.channelUserId }));
     for (let i = 0; i < reply.chunks.length; i++) {
       const delay = i === 0 ? 0 : reply.interChunkDelayMs ?? 1000;
