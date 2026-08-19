@@ -90,10 +90,22 @@ describe("diagnoseWhatsAppCloud", () => {
     expect(check(diag, "token").status).toBe("warn");
   });
 
-  it("falla el webhook si la URL no devuelve el reto de Meta", async () => {
-    mockGraph({ webhook: () => new Response("forbidden", { status: 403 }) });
+  // Un Worker no puede pedirse a sí mismo de forma fiable (Cloudflare corta el
+  // lazo con un 404), así que un fallo aquí no prueba que el webhook esté roto:
+  // decir "fail" mandaría al usuario a arreglar algo que funciona.
+  it("si la URL no devuelve el reto, avisa en vez de acusar", async () => {
+    mockGraph({ webhook: () => new Response("not found", { status: 404 }) });
     const diag = await diagnoseWhatsAppCloud(FULL);
-    expect(check(diag, "webhook").status).toBe("fail");
+    const w = check(diag, "webhook");
+    expect(w.status).toBe("warn");
+    expect(w.detail).toMatch(/NO significa que esté mal/);
+    expect(w.fix).toMatch(/hub\.challenge=12345/);
+  });
+
+  it("no manda el token de verificación en el enlace de comprobación manual sin escapar", async () => {
+    mockGraph({ webhook: () => new Response("not found", { status: 404 }) });
+    const diag = await diagnoseWhatsAppCloud({ ...FULL, WHATSAPP_VERIFY_TOKEN: "un token" });
+    expect(check(diag, "webhook").fix).toContain("un%20token");
   });
 
   it("con secrets faltantes no llama a Meta y señala cuáles poner", async () => {

@@ -231,29 +231,29 @@ async function checkWebhook(env: Env): Promise<DiagCheck> {
   }
   const challenge = `probe${Math.floor(Math.random() * 1e9)}`;
   const url = `${base}/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(expected)}&hub.challenge=${challenge}`;
+  // Un Worker NO puede pedirse a sí mismo de forma fiable: Cloudflare corta ese
+  // lazo y devuelve 404 aunque la URL funcione perfectamente desde fuera. Por eso
+  // esta prueba solo sirve para CONFIRMAR (si responde el reto, está viva); si
+  // falla, no prueba nada — y decir "fail" ahí manda a la gente a arreglar algo
+  // que no está roto. En ese caso se avisa y se le pasa el enlace para que lo
+  // compruebe desde su navegador, que es donde la prueba sí vale.
+  const manual = `${base}/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(expected)}&hub.challenge=12345`;
+  const inconclusive = (motivo: string): DiagCheck => ({
+    id: "webhook",
+    label,
+    status: "warn",
+    detail: `No se puede comprobar desde el propio Worker (${motivo}). Esto NO significa que esté mal.`,
+    fix: `Ábrela tú en el navegador: ${manual} — si ves 12345 en pantalla, tu webhook está bien y el problema está del lado de Meta.`,
+  });
   try {
     const res = await fetch(url);
     const text = (await res.text()).trim();
     if (res.ok && text === challenge) {
       return { id: "webhook", label, status: "ok", detail: `${base}/webhooks/whatsapp responde el handshake de Meta.` };
     }
-    return {
-      id: "webhook",
-      label,
-      status: "fail",
-      detail: `La URL respondió ${res.status} en vez de devolver el reto.`,
-      fix: "Comprueba que en Meta pegaste exactamente esta URL y ESTE mismo token de verificación.",
-    };
+    return inconclusive(`respondió ${res.status}`);
   } catch (e: any) {
-    // El Worker llamándose a sí mismo puede fallar por red/loopback aunque la URL
-    // esté perfecta desde fuera: por eso es aviso, no error.
-    return {
-      id: "webhook",
-      label,
-      status: "warn",
-      detail: `No pude probarla desde aquí (${e?.message ?? e}). Ábrela en el navegador para confirmarla.`,
-      fix: `Abre ${url.replace(encodeURIComponent(expected), "TU_TOKEN")} — debe devolver el número del reto.`,
-    };
+    return inconclusive(String(e?.message ?? e));
   }
 }
 
