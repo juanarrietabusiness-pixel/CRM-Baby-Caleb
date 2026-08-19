@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { parseWhatsAppEvents, whatsappAdapter } from "../../src/channels/whatsapp";
+import { GRAPH_API_VERSION } from "../../src/channels/graph";
 
 const ORIGIN = "https://bot.example.workers.dev";
 const env = { WHATSAPP_APP_SECRET: "s3cr3t" } as any;
@@ -97,7 +98,7 @@ describe("whatsappAdapter.sendReply", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as any[];
-    expect(url).toBe("https://graph.facebook.com/v21.0/PHONE_ID/messages");
+    expect(url).toBe(`https://graph.facebook.com/${GRAPH_API_VERSION}/PHONE_ID/messages`);
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe("Bearer TOKEN");
     const payload = JSON.parse(init.body);

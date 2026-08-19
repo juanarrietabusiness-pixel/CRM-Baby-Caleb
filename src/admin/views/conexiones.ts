@@ -5,6 +5,7 @@
 // ponerse verdes.
 import type { Env } from "../../env";
 import { layout } from "./layout";
+import type { WhatsAppDiagnosis, DiagStatus } from "../../channels/whatsappDiag";
 
 interface ChannelStatus {
   id: string;
@@ -20,6 +21,8 @@ interface ChannelStatus {
   securityNote?: string;
   /** Cómo conectar, en 1-2 líneas. */
   howTo: string;
+  /** Ruta del diagnóstico en vivo (pregunta al proveedor), si el canal tiene. */
+  diagPath?: string;
 }
 
 function channelStatuses(env: Env): ChannelStatus[] {
@@ -81,6 +84,11 @@ function channelStatuses(env: Env): ChannelStatus[] {
       ok: whatsappCloudMissing.length === 0,
       missing: whatsappCloudMissing,
       webhookPath: "/webhooks/whatsapp",
+      diagPath: "/admin/conexiones/whatsapp/diagnostico",
+      securityNote:
+        whatsappCloudMissing.length === 0 && !has(env.WHATSAPP_WABA_ID)
+          ? "Guarda también WHATSAPP_WABA_ID (WhatsApp Business Account ID) para que 'Probar conexión' pueda confirmar que Meta te está enviando los mensajes."
+          : undefined,
       howTo:
         "App de Meta → WhatsApp → Configuration: apunta el webhook a la URL de abajo, suscribe el campo messages, y guarda tu Phone Number ID y token. Pruébalo con el número de prueba gratis.",
     },
@@ -141,6 +149,20 @@ export function renderConexiones(env: Env): string {
              </div>`
           : "";
 
+      // La tarjeta verde solo dice "los secrets existen". El diagnóstico pregunta
+      // a Meta de verdad: token, suscripción de la app y handshake del webhook.
+      const diag = ch.diagPath
+        ? `<div style="display:flex;flex-direction:column;gap:8px">
+             <button type="button" class="text-[11px]" style="border:1px solid var(--line);color:var(--cream);padding:5px 10px;cursor:pointer;background:none;align-self:flex-start"
+                     hx-get="${esc(ch.diagPath)}" hx-target="#diag-${esc(ch.id)}" hx-swap="innerHTML"
+                     hx-indicator="#diag-${esc(ch.id)}-load">
+               Probar conexión con Meta
+             </button>
+             <span id="diag-${esc(ch.id)}-load" class="htmx-indicator text-dim text-[11px]">consultando a Meta…</span>
+             <div id="diag-${esc(ch.id)}"></div>
+           </div>`
+        : "";
+
       const security = ch.securityNote
         ? `<div class="text-[11px]" style="color:var(--warn)">⚠ ${esc(ch.securityNote)}</div>`
         : "";
@@ -158,6 +180,7 @@ export function renderConexiones(env: Env): string {
           ${missing}
           ${security}
           ${webhook}
+          ${diag}
         </div>`;
     })
     .join("");
@@ -174,6 +197,47 @@ export function renderConexiones(env: Env): string {
     </div>`;
 
   return layout({ title: "Conexiones", activeTab: "conexiones", body, env });
+}
+
+const DIAG_STYLE: Record<DiagStatus, { icon: string; color: string }> = {
+  ok: { icon: "✓", color: "var(--ok)" },
+  fail: { icon: "✕", color: "var(--bad)" },
+  warn: { icon: "!", color: "var(--warn)" },
+  skip: { icon: "–", color: "var(--dim)" },
+};
+
+const DIAG_VERDICT: Record<DiagStatus, string> = {
+  ok: "Todo en orden: Meta puede enviarte y recibir mensajes.",
+  fail: "Aquí está el problema — mira los pasos marcados en rojo.",
+  warn: "Falta comprobar algo para estar seguros.",
+  skip: "Falta comprobar algo para estar seguros.",
+};
+
+/** Fragmento htmx con el resultado de `diagnoseWhatsAppCloud`. */
+export function renderWhatsAppDiag(diag: WhatsAppDiagnosis): string {
+  const rows = diag.checks
+    .map((c) => {
+      const st = DIAG_STYLE[c.status];
+      const fix = c.fix
+        ? `<div class="text-[11px]" style="color:var(--warn);margin-top:2px">→ ${esc(c.fix)}</div>`
+        : "";
+      return `
+        <li style="display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--line)">
+          <span style="color:${st.color};font-weight:700;line-height:1.5">${st.icon}</span>
+          <div>
+            <div class="text-cream text-[12px] font-semibold">${esc(c.label)}</div>
+            <div class="text-dim text-[11.5px]">${esc(c.detail)}</div>
+            ${fix}
+          </div>
+        </li>`;
+    })
+    .join("");
+  const verdict = DIAG_STYLE[diag.verdict];
+  return `
+    <div style="border:1px solid var(--line);padding:10px 12px;background:var(--bg)">
+      <div class="text-[11.5px] font-semibold" style="color:${verdict.color}">${esc(DIAG_VERDICT[diag.verdict])}</div>
+      <ul style="list-style:none;margin:6px 0 0;padding:0">${rows}</ul>
+    </div>`;
 }
 
 /** Resumen corto para el badge de salud del Resumen. */

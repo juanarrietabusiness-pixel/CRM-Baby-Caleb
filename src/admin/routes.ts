@@ -60,7 +60,8 @@ import {
   type StockInput,
 } from "../catalog/validation";
 import { renderConfig } from "./views/config";
-import { renderConexiones } from "./views/conexiones";
+import { renderConexiones, renderWhatsAppDiag } from "./views/conexiones";
+import { diagnoseWhatsAppCloud } from "../channels/whatsappDiag";
 import { renderCampanas } from "./views/campanas";
 import { sendCampaign, createHandoffTemplate, contentApprovalStatus } from "../campaigns";
 import { Db } from "../db/client";
@@ -571,6 +572,13 @@ adminApp.post("/catalogo/:code/borrar", async (c) => {
 
 // Conexiones: mapa de canales con estado verde/gris (paso 4 del onboarding).
 adminApp.get("/conexiones", (c) => c.html(renderConexiones(c.env)));
+
+// Diagnóstico EN VIVO de WhatsApp Cloud: pregunta a Meta si el token sirve, si
+// la app está suscrita a la WABA (la causa #1 de "no llegan los mensajes") y si
+// la URL del webhook contesta el handshake. Solo lee: no envía nada.
+adminApp.get("/conexiones/whatsapp/diagnostico", async (c) =>
+  c.html(renderWhatsAppDiag(await diagnoseWhatsAppCloud(c.env))),
+);
 
 adminApp.get("/campanas", async (c) => {
   const q: Record<string, string | undefined> = {

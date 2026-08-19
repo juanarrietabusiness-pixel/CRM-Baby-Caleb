@@ -13,8 +13,8 @@
 // URL es pública pero con HMAC + expiración, y el token queda del lado del server.
 import type { ChannelAdapter, IncomingMessage, OutgoingReply } from "./shared";
 import type { Env } from "../env";
+import { graphVersion } from "./graph";
 
-const GRAPH_VERSION = "v21.0";
 const MEDIA_TTL_MS = 10 * 60 * 1000; // la URL firmada del proxy vive 10 min
 
 interface WaMessage {
@@ -157,9 +157,12 @@ export async function serveWhatsAppMedia(
   if (!timingSafeEqual(expected, sig)) return new Response("bad signature", { status: 403 });
 
   // 1) media_id → URL temporal de descarga
-  const metaRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(mediaId)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const metaRes = await fetch(
+    `https://graph.facebook.com/${graphVersion(env)}/${encodeURIComponent(mediaId)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   if (!metaRes.ok) return new Response("media lookup failed", { status: 502 });
   const meta = (await metaRes.json()) as { url?: string; mime_type?: string };
   if (!meta.url) return new Response("media url missing", { status: 502 });
@@ -188,7 +191,7 @@ export const whatsappAdapter: ChannelAdapter = {
     if (!phoneId || !token) {
       throw new Error("WhatsApp Cloud: falta WHATSAPP_PHONE_NUMBER_ID o WHATSAPP_ACCESS_TOKEN.");
     }
-    const url = `https://graph.facebook.com/${GRAPH_VERSION}/${phoneId}/messages`;
+    const url = `https://graph.facebook.com/${graphVersion(env)}/${phoneId}/messages`;
     for (let i = 0; i < reply.chunks.length; i++) {
       const delay = i === 0 ? 0 : reply.interChunkDelayMs ?? 1000;
       if (delay > 0) await new Promise((r) => setTimeout(r, delay));
