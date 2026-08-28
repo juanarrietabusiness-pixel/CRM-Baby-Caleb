@@ -363,3 +363,135 @@ bar-chart-3 · `costs` receipt.
   (§4, §5).
 - ❌ Don't add heavy client JS — htmx + the shell's lucide re-init is the model.
 - ❌ Don't restyle `layout.ts` (shared shell) — only your view file.
+
+---
+
+## 7. Móvil y accesibilidad
+
+Desktop is the finished product; the phone is not. This section is the contract
+for that half. It exists because until now the whole responsive story was one
+13-line `@media` block that laid the sidebar on its side — nobody had designed a
+mobile panel, the desktop one had just been kept from exploding.
+
+Everything here lives under `@media (max-width:767px)` unless it says otherwise.
+**The desktop layout does not change.**
+
+### 7a. The breakpoint
+
+One breakpoint: `767px`. Below it, phone rules; above it, what we have today.
+Don't add a second one without a reason you can write down — every extra
+breakpoint is a layout nobody tests.
+
+### 7b. Type scale — the floor is 12 px
+
+The panel was written with desktop density: 179 declarations sat below 12 px,
+some at 8 px. At arm's length on a phone that is not text, it is texture.
+
+| Role | Size | Notes |
+|---|---|---|
+| Page / section title | 17 px | 700 weight |
+| Body, list rows, bubbles | 14–15 px | the default for anything you read |
+| Support: timestamps, hints, tab labels | **12 px floor** | never smaller |
+| Big numbers (KPI) | 30–34 px | not 38; it wraps on a phone |
+| **Inputs, textareas, selects** | **16 px, mandatory** | below 16 px iOS Safari zooms the page on focus and leaves it misaligned |
+
+The 16 px input rule is not a preference. It is the difference between the owner
+answering a customer and the owner fighting the viewport.
+
+### 7c. Touch targets
+
+Anything tappable is **44 × 44 px minimum**: `.navlink`, `.chip`, `.subtab`,
+`.bigbtn`, `.ghostbtn`, icon-only buttons, table row actions. Padding counts
+toward the box; a 13 px icon in a 44 px button is fine.
+
+### 7d. Navigation — bottom bar + drawer
+
+The mobile nav is **not** the sidebar rotated, and it is **not** a hamburger on
+its own.
+
+- A **bottom bar** with four destinations: Resumen, Conversaciones, Leads, Menú.
+  The active one carries `aria-current="page"` plus the accent color — color
+  alone is not a state.
+- A **drawer** behind "Menú" holding the full nav *with its section headings*
+  (Inicio / Bandeja / Mi Agente / Análisis) as real `<h2>`s, plus "Cerrar sesión".
+
+The drawer only counts as done when all of this is true:
+
+- the trigger carries `aria-expanded` and `aria-controls`;
+- focus stays inside while it is open and returns to the trigger on close;
+- Escape closes it (the shell already listens for Escape — extend that handler);
+- it is reachable and operable with the keyboard alone.
+
+**Why not a hamburger alone:** today's strip is uncomfortable but it hides
+nothing — a screen reader reads all fourteen tabs. Putting everything behind a
+button that a screen reader cannot open would be prettier and less accessible.
+The bottom bar keeps the frequent destinations in the open; only the rest moves.
+
+### 7e. One column at a time
+
+Two-pane views (the inbox) show **one pane per screen** on a phone: the list, or
+the thread with a back control. Never both stacked inside a fixed-height box —
+that is what `height:calc(100vh - 200px)` was doing, and it left ~240 px for each.
+
+Use the URL for the state (`/admin/conversations?c=<id>` already distinguishes
+them). Do not add routes and do not touch `hx-*` to achieve this.
+
+### 7f. Tables become cards
+
+A grid with a pixel `min-width` is a horizontal scrollbar with extra steps.
+Below 767 px each row becomes a card: the identifying field as a heading, the
+rest as label/value pairs. Above 767 px it stays a table. Same data, two shapes.
+
+### 7g. Charts are fluid
+
+No `min-width` on an SVG. Charts scale to the container, drop points on narrow
+screens if they must, and **label the value that matters inside the card** — a
+chart whose latest number is off-screen has failed at the one thing it is for.
+
+### 7h. Viewport and safe areas
+
+- `100dvh`, never `100vh` — the mobile URL bar makes them different.
+- `viewport-fit=cover` on the meta tag, and `env(safe-area-inset-*)` padding on
+  anything anchored to an edge.
+- `<main>` drops to `padding:14px` on a phone. 26 px is 13 % of a 390 px screen.
+
+### 7i. Names, state and contrast
+
+- Every icon-only control needs an **`aria-label`**. `title` is a fallback, not a
+  name — and on mobile, where the text label is hidden, it is all that is left.
+- A **"saltar al contenido"** link is the first focusable element on the page.
+- Contrast: every text token must clear **AA (4.5:1)** against both `--bg` and
+  `--panel`. Verified for this palette:
+
+| Token | on `--bg` | on `--panel` |
+|---|---|---|
+| `--cream` #F4F8FF | 18.2 | 17.0 |
+| `--muted` #A0B4CC | 9.1 | 8.5 |
+| `--dim` #6B819B | 4.8 | **4.5** |
+| `--accent` #1E90FF | 6.0 | 5.6 |
+| `--ok` / `--warn` / `--bad` / `--info` | 5.1 – 12.4 | 4.7 – 11.6 |
+
+If you change a token, recompute. `--dim` on `--panel` sits at 4.52 — it passes,
+but there is no room left. Darkening `--panel` or lightening it by a hair breaks
+it, and `--dim` is the token the small support text uses.
+
+### 7j. Cómo se verifica
+
+`pnpm snapshot` renders all 15 tabs to `.snapshots/` with a seeded demo
+business. Run it before your change and after it:
+
+- `diff -r` the two folders — any structural regression shows up exactly;
+- serve the folder and look at it at 390, 768 and 1440 px — the desktop width is
+  there to prove you did not move it.
+
+### 7k. PROHIBIDO (móvil)
+
+- ❌ A pixel `min-width` on anything a phone has to show.
+- ❌ `100vh`. Use `100dvh`.
+- ❌ Text under 12 px, or an input under 16 px.
+- ❌ A tappable target under 44 px.
+- ❌ An icon-only control without an accessible name.
+- ❌ State expressed with color alone.
+- ❌ Hiding a whole feature on mobile because it was hard. Say it is
+  desktop-only, or make a mobile version — do not ship an empty box.
+- ❌ Changing the desktop layout to make the phone easier.

@@ -22,3 +22,6 @@ docs/_recon-digest.json
 
 # Lo genera pnpm 11+ al preguntar por build scripts; no es config del proyecto.
 pnpm-workspace.yaml
+
+# snapshots de /admin (generadas con pnpm snapshot)
+.snapshots/

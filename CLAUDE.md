@@ -28,6 +28,10 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
   negocio del usuario; se respetan en cada actualización).
 - Package manager: **pnpm** — `pnpm dev`, `pnpm run deploy`, `pnpm typecheck`, `pnpm test`,
   `pnpm db:apply:remote`. Corre `pnpm test` antes de cualquier deploy si tocaste `src/`.
+- **El panel también se usa desde el teléfono.** Antes de tocar `src/admin/views/`, lee
+  `docs/design-system.md` — el §7 (Móvil y accesibilidad) es contrato: 16 px en campos,
+  44 px táctiles, piso de 12 px en texto, nada de `min-width` en píxeles ni `100vh`.
+  `pnpm snapshot` rinde las pestañas a `.snapshots/` para comparar antes y después.
 
 ## Mapa rápido
 

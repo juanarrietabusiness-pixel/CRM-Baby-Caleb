@@ -16,7 +16,8 @@
     "db:apply": "node scripts/db-apply.mjs",
     "db:apply:remote": "node scripts/db-apply.mjs --remote",
     "kb:reindex": "tsx scripts/generate-fixtures.ts",
-    "eval": "tsx scripts/eval-bot-live.ts"
+    "eval": "tsx scripts/eval-bot-live.ts",
+    "snapshot": "tsx scripts/admin-snapshot.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",
