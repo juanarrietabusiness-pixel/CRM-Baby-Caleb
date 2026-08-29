@@ -320,7 +320,7 @@ export async function renderThreadLive(env: Env, convId: string): Promise<string
 
   return `
   ${header}
-  <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column-reverse;gap:12px;padding:16px;background:var(--bg)">
+  <div data-keep-scroll="hilo" style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column-reverse;gap:12px;padding:16px;background:var(--bg)">
     ${bubbles || emptyState("message-circle", "Sin mensajes todavía")}
   </div>`;
 }
@@ -334,8 +334,8 @@ function renderComposer(convId: string): string {
     <div id="suggestion-box"></div>
     <form hx-post="/admin/conversations/${id}/reply" hx-target="#send-status" hx-swap="innerHTML"
           hx-on::after-request="if(event.detail.xhr.getResponseHeader('X-Sent')==='1')this.reset()"
-          style="display:flex;align-items:flex-end;gap:9px">
-      <textarea name="text" id="reply-text" rows="2" required
+          class="row-wrap" style="display:flex;align-items:flex-end;gap:9px">
+      <textarea name="text" id="reply-text" rows="2" required class="row-grow"
                 placeholder="Responde como humano — se envía por el canal del cliente y el bot se pausa…"
                 style="flex:1;background:var(--bg);border:1px solid var(--line);color:var(--cream);padding:10px 12px;font-size:12.5px;resize:none;outline:none"></textarea>
       <button type="button" hx-post="/admin/conversations/${id}/suggest" hx-target="#suggestion-box" hx-swap="innerHTML"

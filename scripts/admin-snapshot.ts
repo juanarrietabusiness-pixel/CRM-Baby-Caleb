@@ -169,6 +169,24 @@ async function seed(db: Db): Promise<void> {
     ]);
   }
 
+  // Historial largo en la conversación que las capturas abren. Sin esto el hilo
+  // cabe entero en pantalla y no hay forma de comprobar que un refresco respeta
+  // dónde estabas leyendo — que es justo lo que se rompía en el teléfono.
+  const larga = "telegram:5512";
+  for (let i = 20; i >= 1; i--) {
+    const at = NOW - 3 * DAY + (20 - i) * 7 * MIN;
+    await msgs.append(larga, "user", `Consulta anterior número ${i}: ¿me confirmas el precio?`, {
+      createdAt: at,
+    });
+    await msgs.append(larga, "assistant", `Claro, te confirmo: la revisión número ${i} queda en $150.000 con informe incluido.`, {
+      createdAt: at + 60_000,
+      modelUsed: "claude-haiku-4-5-20251001",
+      inputTokens: 850,
+      outputTokens: 60,
+      cachedInputTokens: 400,
+    });
+  }
+
   // One conversation paused: the owner took over. Exercises the takeover UI.
   await db.run("UPDATE conversations SET paused_until = ? WHERE id = ?", [
     NOW + 2 * HOUR,
