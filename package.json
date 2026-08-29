@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "version:write": "node -e \"require('fs').writeFileSync('.bot-version', require('./package.json').version + '\\n')\"",
     "deploy-check": "tsx scripts/deploy-check.ts",
-    "predeploy": "pnpm deploy-check && pnpm version:write",
+    "predeploy": "pnpm css:build && pnpm icons:build && pnpm deploy-check && pnpm version:write",
     "deploy": "wrangler deploy",
     "deploy:ci": "node scripts/ci-deploy.mjs",
     "typecheck": "tsc --noEmit",
@@ -16,7 +16,12 @@
     "db:apply": "node scripts/db-apply.mjs",
     "db:apply:remote": "node scripts/db-apply.mjs --remote",
     "kb:reindex": "tsx scripts/generate-fixtures.ts",
-    "eval": "tsx scripts/eval-bot-live.ts"
+    "eval": "tsx scripts/eval-bot-live.ts",
+    "snapshot": "tsx scripts/admin-snapshot.ts",
+    "css:build": "node scripts/build-admin-css.mjs",
+    "css:check": "node scripts/build-admin-css.mjs --check",
+    "icons:build": "node scripts/build-icons.mjs",
+    "icons:check": "node scripts/build-icons.mjs --check"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",
@@ -32,7 +37,10 @@
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
     "@types/node": "latest",
+    "htmx.org": "2.0.4",
+    "lucide-static": "^1.35.0",
     "miniflare": "latest",
+    "tailwindcss": "^3.4.19",
     "tsx": "latest",
     "typescript": "^5",
     "vitest": "latest",

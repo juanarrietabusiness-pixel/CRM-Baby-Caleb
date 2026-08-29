@@ -38,15 +38,15 @@ function areaChart(points: { label: string; value: number }[], width = 640, heig
   const last = points[points.length - 1];
 
   return `
-  <div class="overflow-x-auto">
-    <svg viewBox="0 0 ${width} ${height}" class="w-full" style="min-width:480px" role="img" aria-label="Mensajes por día">
+  <div>
+    <svg viewBox="0 0 ${width} ${height}" class="w-full chart" preserveAspectRatio="none" role="img" aria-label="Mensajes por día">
       <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" stroke="var(--line)" stroke-width="1"/>
       <path d="${area}" fill="${ACCENT}" opacity="0.14"/>
       <polyline points="${line}" fill="none" stroke="${ACCENT}" stroke-width="2" stroke-linejoin="round"/>
       <circle cx="${x(points.length - 1)}" cy="${y(last.value)}" r="3.5" fill="${ACCENT}"/>
       <text x="${x(points.length - 1)}" y="${y(last.value) - 8}" text-anchor="end" font-size="12" fill="var(--cream)" font-family="'JetBrains Mono',monospace" font-weight="600">${last.value}</text>
-      <text x="${pad}" y="${height - 1}" font-size="10" fill="var(--dim)" font-family="'JetBrains Mono',monospace">${esc(points[0].label)}</text>
-      <text x="${width - pad}" y="${height - 1}" text-anchor="end" font-size="10" fill="var(--dim)" font-family="'JetBrains Mono',monospace">${esc(last.label)}</text>
+      <text x="${pad}" y="${height - 1}" font-size="12" fill="var(--dim)" font-family="'JetBrains Mono',monospace">${esc(points[0].label)}</text>
+      <text x="${width - pad}" y="${height - 1}" text-anchor="end" font-size="12" fill="var(--dim)" font-family="'JetBrains Mono',monospace">${esc(last.label)}</text>
     </svg>
   </div>`;
 }
@@ -72,8 +72,8 @@ function heatmap(cells: Map<string, number>): string {
   ).join("");
 
   return `
-  <div class="overflow-x-auto">
-    <table class="border-separate" style="border-spacing:2px">
+  <div class="scroll-x">
+    <table class="heatmap border-separate" style="border-spacing:2px">
       <tbody>${rows}<tr><td></td>${hourLabels}</tr></tbody>
     </table>
   </div>`;
@@ -87,7 +87,7 @@ function funnel(stages: { label: string; value: number }[]): string {
     .map((s) => {
       const pct = Math.round((s.value / base) * 100);
       return `
-    <div class="grid grid-cols-[120px_1fr_66px] gap-[10px] items-center text-[12.5px]">
+    <div class="funnel-row grid grid-cols-[120px_1fr_66px] gap-[10px] items-center text-[12.5px]">
       <span class="text-muted">${esc(s.label)}</span>
       <div style="height:22px;background:var(--panel2);border:1px solid var(--line);overflow:hidden">
         <div style="width:${Math.max(pct, s.value > 0 ? 3 : 0)}%;height:100%;background:var(--accent);opacity:.85"></div>

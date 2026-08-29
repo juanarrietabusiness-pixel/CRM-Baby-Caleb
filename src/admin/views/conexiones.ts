@@ -95,7 +95,10 @@ function channelStatuses(env: Env): ChannelStatus[] {
     {
       id: "meta",
       name: "Instagram + Messenger (Meta)",
-      icon: "instagram",
+      // lucide quitó los íconos de MARCA, así que "instagram" dejaba un hueco
+      // en la tarjeta. Se usa el mismo sustituto que ya eligió el canvas del
+      // agente para este canal (ver CHANNEL_ICON en agente.ts).
+      icon: "camera",
       desc: "DMs de Instagram y Messenger con la API oficial de Meta.",
       ok: metaMissing.length === 0,
       missing: metaMissing,
