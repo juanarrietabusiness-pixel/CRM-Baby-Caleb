@@ -45,8 +45,8 @@ function areaChart(points: { label: string; value: number }[], width = 640, heig
       <polyline points="${line}" fill="none" stroke="${ACCENT}" stroke-width="2" stroke-linejoin="round"/>
       <circle cx="${x(points.length - 1)}" cy="${y(last.value)}" r="3.5" fill="${ACCENT}"/>
       <text x="${x(points.length - 1)}" y="${y(last.value) - 8}" text-anchor="end" font-size="12" fill="var(--cream)" font-family="'JetBrains Mono',monospace" font-weight="600">${last.value}</text>
-      <text x="${pad}" y="${height - 1}" font-size="10" fill="var(--dim)" font-family="'JetBrains Mono',monospace">${esc(points[0].label)}</text>
-      <text x="${width - pad}" y="${height - 1}" text-anchor="end" font-size="10" fill="var(--dim)" font-family="'JetBrains Mono',monospace">${esc(last.label)}</text>
+      <text x="${pad}" y="${height - 1}" font-size="12" fill="var(--dim)" font-family="'JetBrains Mono',monospace">${esc(points[0].label)}</text>
+      <text x="${width - pad}" y="${height - 1}" text-anchor="end" font-size="12" fill="var(--dim)" font-family="'JetBrains Mono',monospace">${esc(last.label)}</text>
     </svg>
   </div>`;
 }

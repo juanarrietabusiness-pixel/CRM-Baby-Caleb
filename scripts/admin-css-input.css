@@ -1,0 +1,4 @@
+/* Entrada del generador. Ver tailwind.config.cjs y scripts/build-admin-css.mjs. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
