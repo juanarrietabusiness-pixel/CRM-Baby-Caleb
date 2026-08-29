@@ -498,6 +498,8 @@ inventar una variante por vista.
 | Una gráfica que se estira | `class="chart"` + `preserveAspectRatio="none"` | Sin `min-width`. El trazo se compensa con `vector-effect`. |
 | Un contenedor que sí se desplaza de lado | `class="scroll-x"` | Con degradado al final para avisar de que sigue. Solo cuando no hay forma honesta de que quepa (el mapa de 24 horas). |
 | Decirle algo al armazón desde una vista | `layout({ …, bodyClass: "…" })` | Pone una clase en el `<body>`. Hoy lo usa la bandeja para apartar la barra inferior con el hilo abierto. |
+| Una fila donde un hijo debe crecer | `class="row-wrap"` en la fila y `class="row-grow"` en el hijo | En móvil la fila envuelve y el hijo se lleva una línea entera. Sin esto, los hermanos de ancho fijo lo aplastan: pasó en el `<summary>` del catálogo (nombre en 0 px) y en el compositor del chat (campo en 90 px de 336). |
+| Que un refresco no te devuelva al final | `data-keep-scroll="una-clave"` en el contenedor que se desplaza | El armazón guarda y restaura su posición a través de cada intercambio de htmx. Lo usa el hilo del chat, que se refresca solo cada 5 segundos. |
 
 Los modales ya suben como hoja desde abajo en móvil sin que la vista haga nada:
 basta con seguir usando `.modal-backdrop` / `.modal-card` (§4).

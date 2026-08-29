@@ -338,9 +338,17 @@ const GLOBAL_STYLE = `
        hasta cero, y con overflow-wrap:anywhere eso deja el nombre partido letra
        a letra en una columna de 506 px de alto. Que envuelva: el nombre se
        queda con la primera línea y las insignias bajan. */
-    details > summary{flex-wrap:wrap}
-    /* Y el hijo flexible se lleva una línea entera: con solo envolver seguía
-       compitiendo con las insignias y quedaba en 28 px, dos letras por línea. */
+    /* ---- Fila que envuelve, con el hijo flexible en su propia línea ----
+       El mismo fallo ha salido tres veces en este trabajo: una fila flex donde
+       los hermanos de ancho fijo aplastan al hijo flexible. En el <summary> del
+       catálogo dejó el nombre en 0 px, partido letra a letra; en el compositor
+       del chat dejó el campo de respuesta en 90 px de los 336 de la fila.
+       Envolver solo no basta —el hijo sigue compitiendo por la primera línea—,
+       hay que darle la línea entera.
+       Se pide con .row-wrap en la fila y .row-grow en el hijo que debe crecer.
+       Los <summary> lo llevan de oficio: siempre tienen esa forma. */
+    .row-wrap,details > summary{flex-wrap:wrap}
+    .row-wrap > .row-grow,
     details > summary > [style*="flex:1"]{flex:1 0 100% !important}
 
     /* ---- Modales como hoja ----
@@ -459,6 +467,10 @@ const GLOBAL_STYLE = `
     input[style],textarea[style],select[style],button[style]{font-size:16px !important}
     input,textarea,select{min-height:44px}
     textarea{min-height:64px}
+    /* El campo de respuesta arranca en dos líneas (rows="2"), pero su texto de
+       ayuda ocupa tres a 16 px y quedaba cortado a media palabra. En em, no en
+       píxeles: si algún día cambia el tamaño de letra, la caja lo sigue. */
+    #reply-text{min-height:6.2em}
   }
 
   @media (prefers-reduced-motion:reduce){
@@ -506,6 +518,31 @@ const GLOBAL_SCRIPT = `
   }
   document.addEventListener("DOMContentLoaded", function () { drawIcons(); });
   if (document.readyState !== "loading") drawIcons();
+  // ---- Que un refresco no te devuelva al final ----
+  //
+  // El hilo del chat se refresca solo cada 5 segundos reemplazando su contenido
+  // entero, y con él el contenedor con scroll. Si habías subido a releer algo,
+  // volvías al final cada 5 segundos: en escritorio se nota poco, en un
+  // teléfono donde caben tres mensajes hace imposible leer el historial.
+  //
+  // Cualquier elemento con data-keep-scroll conserva su posición a través del
+  // intercambio. Se guarda por su valor, no por su identidad en el DOM, porque
+  // después del intercambio el elemento es otro.
+  var keptScroll = {};
+  document.body.addEventListener("htmx:beforeSwap", function (e) {
+    var nodes = (e.target || document).querySelectorAll("[data-keep-scroll]");
+    for (var i = 0; i < nodes.length; i++) {
+      keptScroll[nodes[i].getAttribute("data-keep-scroll")] = nodes[i].scrollTop;
+    }
+  });
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    var nodes = (e.target || document).querySelectorAll("[data-keep-scroll]");
+    for (var i = 0; i < nodes.length; i++) {
+      var key = nodes[i].getAttribute("data-keep-scroll");
+      if (keptScroll[key] !== undefined) nodes[i].scrollTop = keptScroll[key];
+    }
+  });
+
   document.body.addEventListener("htmx:afterSwap", function (e) { drawIcons(e.target); });
   document.body.addEventListener("htmx:oobAfterSwap", function (e) { drawIcons(e.target); });
   // ---- El cajón de navegación (móvil) ----
