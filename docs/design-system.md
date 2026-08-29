@@ -484,6 +484,37 @@ business. Run it before your change and after it:
 - serve the folder and look at it at 390, 768 and 1440 px — the desktop width is
   there to prove you did not move it.
 
+### 7l. Los patrones, y sus clases
+
+La §7 dejó de ser solo reglas: el shell ya trae las piezas. Úsalas en vez de
+inventar una variante por vista.
+
+| Quieres | Escribe | Qué hace |
+|---|---|---|
+| Que algo solo salga en el teléfono | `class="m-only"` | Oculto por defecto. **No le pongas `display` en el `style` en línea** — gana a la clase y se cuela en escritorio. Si necesita flex, dale una regla propia dentro del bloque de móvil. |
+| Que algo solo salga en escritorio | `class="d-only"` | Oculto bajo 767 px. |
+| Una rejilla que en móvil se apila | `class="datagrid"` en el envoltorio, `class="datarow-cards"` en la fila, y cada celda envuelta en `<span class="cell" data-label="…">` | En escritorio el envoltorio desaparece con `display:contents` y la rejilla no se entera. En móvil cada celda se lee como par etiqueta/valor. La celda con `data-label=""` es la identificadora: sin etiqueta y con peso de titular. |
+| Una `<table>` de verdad que en móvil se apila | `class="tablecards"` en la tabla y `data-label` en cada `<td>` | Igual, para tablas reales — ahí `display:contents` no sirve. |
+| Una gráfica que se estira | `class="chart"` + `preserveAspectRatio="none"` | Sin `min-width`. El trazo se compensa con `vector-effect`. |
+| Un contenedor que sí se desplaza de lado | `class="scroll-x"` | Con degradado al final para avisar de que sigue. Solo cuando no hay forma honesta de que quepa (el mapa de 24 horas). |
+| Decirle algo al armazón desde una vista | `layout({ …, bodyClass: "…" })` | Pone una clase en el `<body>`. Hoy lo usa la bandeja para apartar la barra inferior con el hilo abierto. |
+
+Los modales ya suben como hoja desde abajo en móvil sin que la vista haga nada:
+basta con seguir usando `.modal-backdrop` / `.modal-card` (§4).
+
+### 7m. Una trampa que ya costó dos veces
+
+El CSS y el JavaScript del shell viven dentro de **template literals de
+TypeScript**. Ahí dentro:
+
+- un backtick **cierra la cadena** — no escribas `` `así` `` en un comentario;
+- `\[` es una secuencia de escape y el backslash desaparece, así que un selector
+  de clase de Tailwind (`.text-\[11px\]`) necesita **doble** backslash en el
+  fuente. Con uno solo el selector sale inválido y **la regla entera se cae**,
+  incluidos los selectores buenos de la misma lista.
+
+El typecheck caza lo primero. Lo segundo no lo caza nadie: se ve en las capturas.
+
 ### 7k. PROHIBIDO (móvil)
 
 - ❌ A pixel `min-width` on anything a phone has to show.
@@ -495,3 +526,5 @@ business. Run it before your change and after it:
 - ❌ Hiding a whole feature on mobile because it was hard. Say it is
   desktop-only, or make a mobile version — do not ship an empty box.
 - ❌ Changing the desktop layout to make the phone easier.
+- ❌ `display` en el `style` en línea de algo que lleve `.m-only` o `.d-only`.
+  Gana a la clase y el elemento se cuela en el tamaño equivocado.

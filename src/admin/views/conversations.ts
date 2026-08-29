@@ -259,6 +259,10 @@ export async function renderThreadLive(env: Env, convId: string): Promise<string
 
   const header = `
   <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)">
+    <a href="/admin/conversations" class="inbox-back tap" aria-label="Volver a la lista de conversaciones"
+       style="width:40px;height:40px;margin:-6px 0 -6px -8px;flex:none;color:var(--muted);border-radius:11px">
+      <i data-lucide="arrow-left" width="21" height="21"></i>
+    </a>
     <span style="font-family:var(--font-display);font-weight:600;font-size:14px;color:var(--cream)">${escapeHtml(conv.display_name ?? conv.channel_user_id)}</span>
     <span style="${smallPill("var(--info)")}">${escapeHtml(channelLabel(conv.channel))}</span>
     ${statusPill}
@@ -415,13 +419,13 @@ export async function renderInbox(env: Env, p: InboxParams): Promise<string> {
   }
 
   const body = `
-    <div class="flex flex-wrap items-center gap-2" style="margin-bottom:14px">
+    <div class="inbox-filters flex flex-wrap items-center gap-2" style="margin-bottom:14px">
       ${filterPill(inboxUrl({ selectedId: p.selectedId }), `Todas · ${totalConvs}`, !p.filter, "var(--accent)")}
       ${filterPill(inboxUrl({ filter: "leads", selectedId: p.selectedId }), `${ico("banknote")} Leads · ${totalLeads}`, p.filter === "leads", "var(--accent)")}
       ${filterPill(inboxUrl({ filter: "atencion", selectedId: p.selectedId }), `${ico("bell")} Atención · ${needAttention}`, p.filter === "atencion", "var(--bad)")}
       ${filterPill(inboxUrl({ filter: "molestos", selectedId: p.selectedId }), `${ico("angry")} Molestos · ${nMolestos}`, p.filter === "molestos", "var(--bad)")}
       ${filterPill(inboxUrl({ filter: "contentos", selectedId: p.selectedId }), `${ico("smile")} Contentos · ${nContentos}`, p.filter === "contentos", "var(--ok)")}
-      <form method="GET" action="/admin/conversations" class="ml-auto" style="display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);padding:7px 12px;min-width:220px">
+      <form method="GET" action="/admin/conversations" class="ml-auto inbox-search" style="display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:7px 12px;min-width:220px">
         <i data-lucide="search" width="14" height="14" style="color:var(--dim)"></i>
         ${p.filter ? `<input type="hidden" name="f" value="${escapeHtml(p.filter)}">` : ""}
         ${p.selectedId ? `<input type="hidden" name="c" value="${escapeHtml(p.selectedId)}">` : ""}
@@ -430,17 +434,25 @@ export async function renderInbox(env: Env, p: InboxParams): Promise<string> {
       </form>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-[320px_1fr] overflow-hidden" style="border:1px solid var(--line);background:var(--panel);height:calc(100vh - 200px);min-height:480px">
-      <div class="border-r border-line flex flex-col" style="min-height:0">
+    <div class="inbox${p.selectedId ? " sel" : ""} grid grid-cols-1 md:grid-cols-[320px_1fr] overflow-hidden" style="border:1px solid var(--line);background:var(--panel);height:calc(100dvh - 200px);min-height:480px">
+      <div class="inbox-list border-r border-line flex flex-col" style="min-height:0">
         <div id="conv-list" class="overflow-y-auto flex-1"
              hx-get="${listPollUrl}" hx-trigger="every 10s" hx-swap="innerHTML">
           ${list}
         </div>
       </div>
-      <div class="flex flex-col" style="min-height:0;background:var(--bg)">
+      <div class="inbox-thread flex flex-col" style="min-height:0;background:var(--bg)">
         ${rightPane}
       </div>
     </div>`;
 
-  return layout({ title: "Conversaciones", activeTab: "conversations", body, env });
+  // thread-open: en el teléfono, con una conversación abierta el sitio de abajo
+  // lo necesita el campo de respuesta, así que la barra inferior se aparta.
+  return layout({
+    title: "Conversaciones",
+    activeTab: "conversations",
+    body,
+    env,
+    bodyClass: p.selectedId ? "thread-open" : undefined,
+  });
 }

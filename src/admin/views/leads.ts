@@ -12,6 +12,12 @@ function esc(v: string | null | undefined): string {
 
 interface Col {
   h: string;
+  /**
+   * Etiqueta corta para las tarjetas de móvil. Cadena vacía = sin etiqueta
+   * (la primera columna es el identificador y hace de titular). Si no se
+   * indica, se usa `h`, que a veces es demasiado larga para una tarjeta.
+   */
+  m?: string;
   w: string;
   cell: (l: Lead, meta: Record<string, string>) => string;
 }
@@ -27,7 +33,7 @@ export async function renderLeads(env: Env): Promise<string> {
   // (leídas de metadata) o bien el "Resumen" genérico + estado (re-etiquetado).
   const cols: Col[] = [
     { h: "Fecha", w: "94px", cell: (l) => `<span class="text-dim">${new Date(l.created_at).toLocaleDateString("es-MX")}</span>` },
-    { h: "Nombre", w: "minmax(120px,1.1fr)", cell: (l) => `<span class="text-cream" style="display:flex;align-items:center;gap:7px"><i data-lucide="chevron-right" width="13" height="13" class="chev" style="flex:none;transition:transform .12s ease"></i>${esc(l.name) || "(sin nombre)"}</span>` },
+    { h: "Nombre", m: "", w: "minmax(120px,1.1fr)", cell: (l) => `<span class="text-cream" style="display:flex;align-items:center;gap:7px"><i data-lucide="chevron-right" width="13" height="13" class="chev" style="flex:none;transition:transform .12s ease"></i>${esc(l.name) || "(sin nombre)"}</span>` },
     { h: "Contacto", w: "minmax(110px,1fr)", cell: (l) => `<span class="text-muted">${esc(l.contact) || "—"}</span>` },
   ];
   if (niche.columns.length) {
@@ -35,7 +41,7 @@ export async function renderLeads(env: Env): Promise<string> {
       cols.push({ h: c.label, w: "minmax(78px,.85fr)", cell: (_l, meta) => `<span class="text-muted truncate">${esc(meta[c.key]) || "—"}</span>` });
     }
   } else {
-    cols.push({ h: "Resumen · click para ver detalle", w: "minmax(200px,1.8fr)", cell: (l) => `<span class="text-muted truncate">${esc(l.intent)}</span>` });
+    cols.push({ h: "Resumen · click para ver detalle", m: "Resumen", w: "minmax(200px,1.8fr)", cell: (l) => `<span class="text-muted truncate">${esc(l.intent)}</span>` });
   }
   cols.push({
     h: "Estado",
@@ -67,9 +73,9 @@ export async function renderLeads(env: Env): Promise<string> {
         .map(([k, v]) => `<span class="text-muted" style="font-size:12px"><span class="text-dim">${esc(k)}:</span> ${esc(v)}</span>`)
         .join("");
       return `<div class="lead" style="border-top:1px solid var(--line)">
-        <div class="leadrow" onclick="var d=this.parentNode.querySelector('.lead-detail');var open=d.style.display==='block';d.style.display=open?'none':'block';this.querySelector('.chev').style.transform=open?'rotate(0deg)':'rotate(90deg)'"
-             style="display:grid;grid-template-columns:${gridCols};gap:12px;padding:13px 18px;font-size:12.5px;align-items:center;cursor:pointer">
-          ${cols.map((c) => c.cell(l, meta)).join("")}
+        <div onclick="var d=this.parentNode.querySelector('.lead-detail');var open=d.style.display==='block';d.style.display=open?'none':'block';this.querySelector('.chev').style.transform=open?'rotate(0deg)':'rotate(90deg)'"
+             style="display:grid;grid-template-columns:${gridCols};gap:12px;padding:13px 18px;font-size:12.5px;align-items:center;cursor:pointer" class="leadrow datarow-cards">
+          ${cols.map((c) => `<span class="cell" data-label="${esc(c.m ?? c.h)}">${c.cell(l, meta)}</span>`).join("")}
         </div>
         <div class="lead-detail" style="display:none;padding:4px 18px 20px 18px;background:var(--bg)">
           <div style="max-width:760px;display:flex;flex-direction:column;gap:14px;padding-top:14px">
@@ -108,8 +114,8 @@ export async function renderLeads(env: Env): Promise<string> {
       </a>
     </div>
     <div class="bg-panel border border-line" style="overflow-x:auto">
-      <div style="min-width:${minWidth}px">
-        <div style="display:grid;grid-template-columns:${gridCols};gap:12px;padding:10px 18px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">
+      <div class="datagrid" style="min-width:${minWidth}px">
+        <div class="datagrid-head" style="display:grid;grid-template-columns:${gridCols};gap:12px;padding:10px 18px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">
           ${header}
         </div>
         ${list.length ? rows : empty}

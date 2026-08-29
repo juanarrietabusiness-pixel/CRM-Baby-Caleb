@@ -213,6 +213,48 @@ interface NodeSpec {
   on?: boolean;
 }
 
+/**
+ * El mismo flujo, en lista, para el teléfono.
+ *
+ * El lienzo posiciona los nodos en absoluto sobre un ancho calculado: en 390 px
+ * no hay forma de leerlo, y un lector de pantalla tampoco puede recorrerlo — el
+ * orden del DOM no es el orden del flujo. Así que en móvil se sirve esta lista,
+ * construida del MISMO array de nodos, y el lienzo se aparta. Cada fila abre el
+ * mismo modal de configuración (mismo hx-get), así que no hay dos caminos que
+ * mantener.
+ *
+ * Los nodos vienen agrupados por filas del lienzo (entrada → cerebro → tools);
+ * el orden del array ya es ese, así que la lista se lee de arriba abajo como el
+ * flujo se lee de arriba abajo.
+ */
+function nodeListHtml(nodes: NodeSpec[]): string {
+  const rows = nodes
+    .map(
+      (n) => `
+    <div class="node-row" hx-get="/admin/agente/node/${encodeURIComponent(n.id)}"
+         hx-target="#modal-root" hx-swap="innerHTML" role="button" tabindex="0"
+         style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-top:1px solid var(--line);cursor:pointer;${n.off ? "opacity:.55;" : ""}">
+      <span style="width:34px;height:34px;flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;border:1px solid ${n.accent};background:${n.on ? "rgba(87,201,138,.18)" : "var(--panel2)"}">
+        <i data-lucide="${n.icon}" width="17" height="17" style="color:${n.accent}"></i>
+      </span>
+      <span style="min-width:0;flex:1;display:flex;flex-direction:column;gap:2px">
+        <span class="font-display" style="font-weight:700;font-size:15px;color:var(--cream)">${esc(n.title)}</span>
+        <span style="font-size:13px;color:var(--muted);line-height:1.4">${n.caption}</span>
+      </span>
+      ${
+        n.off
+          ? `<span class="pill" style="flex:none;font-size:12px;color:var(--dim);border:1px solid var(--linelit);padding:2px 9px;border-radius:999px">OFF</span>`
+          : n.on
+            ? `<span class="pill" style="flex:none;font-size:12px;font-weight:600;color:var(--ok);border:1px solid var(--ok);padding:2px 9px;border-radius:999px;background:rgba(87,201,138,.12)">ACTIVO</span>`
+            : ""
+      }
+      <i data-lucide="chevron-right" width="17" height="17" style="color:var(--dim);flex:none"></i>
+    </div>`,
+    )
+    .join("");
+  return `<div class="m-only border border-line bg-panel" style="border-radius:14px;overflow:hidden">${rows}</div>`;
+}
+
 function nodeHtml(n: NodeSpec): string {
   return `
   <div class="node-card absolute cursor-pointer"
@@ -392,12 +434,13 @@ export async function renderAgenteCanvas(env: Env): Promise<string> {
   });
 
   return `
-  <div class="overflow-x-auto border border-line bg-panel">
+  <div class="d-only overflow-x-auto border border-line bg-panel">
     <div class="relative" style="min-width:${width}px;height:${height}px;background:radial-gradient(circle,var(--line) 1px,transparent 1px) 0 0/22px 22px">
       <svg class="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">${paths.join("")}</svg>
       ${nodes.map(nodeHtml).join("")}
     </div>
-  </div>`;
+  </div>
+  ${nodeListHtml(nodes)}`;
 }
 
 // --- Page ---------------------------------------------------------------------

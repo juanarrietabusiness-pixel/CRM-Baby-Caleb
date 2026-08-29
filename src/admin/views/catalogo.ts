@@ -48,8 +48,8 @@ function filaBodega(s: { branch: string; stockQty: number }): string {
   const color =
     s.stockQty === 0 ? "var(--bad)" : s.stockQty < STOCK_BAJO ? "var(--warn)" : "var(--muted)";
   return `<tr style="border-top:1px solid var(--line)">
-    <td style="padding:6px 10px;font-size:11.5px;color:var(--muted)">${esc(s.branch)}</td>
-    <td style="padding:6px 10px;font-family:var(--font-mono);font-size:11.5px;color:${color};text-align:right">
+    <td data-label="Bodega" style="padding:6px 10px;font-size:11.5px;color:var(--muted)">${esc(s.branch)}</td>
+    <td data-label="Stock" style="padding:6px 10px;font-family:var(--font-mono);font-size:11.5px;color:${color};text-align:right">
       ${s.stockQty.toLocaleString("es-PA")}
     </td>
   </tr>`;
@@ -100,7 +100,7 @@ function productBlock(p: CatalogProduct, q: string): string {
           ${
             sinBodega
               ? `<span class="text-dim text-[11.5px]">Sin bodegas asignadas todavía.</span>`
-              : `<table style="width:100%;border-collapse:collapse">
+              : `<table class="tablecards" style="width:100%;border-collapse:collapse">
                   <thead><tr style="text-align:left;color:var(--dim);font-size:10px;letter-spacing:.06em;text-transform:uppercase">
                     <th style="padding:6px 10px">Bodega</th>
                     <th style="padding:6px 10px;text-align:right">Stock</th>

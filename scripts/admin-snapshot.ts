@@ -23,10 +23,6 @@
  * clock floored to the current hour (see NOW). Two runs of the same commit
  * inside the same hour produce byte-identical files, so any diff is a real diff.
  *
- * Known gap: the seed does not populate the catalog, so that tab renders its
- * empty state. Empty states matter on a phone too, but if you are working on
- * the catalog views, seed it first.
- *
  * Usage:  pnpm snapshot [--out <dir>]
  */
 import { mkdirSync, writeFileSync, rmSync, cpSync, existsSync } from "node:fs";
@@ -267,6 +263,22 @@ async function seed(db: Db): Promise<void> {
     payload: { question: "¿Abren los sábados?" },
     evidence: "El bot respondió de memoria, sin una fuente que lo respalde.",
   });
+
+  // El catálogo, para que esa pestaña no se rinda vacía. Dos productos en dos
+  // bodegas cada uno: es lo mínimo que hace visible la tabla de existencias.
+  const items = [
+    ["NAT-RN", "Pañal Natural recién nacido", 480, 990, 42, "Bodega Ciudad de Panamá"],
+    ["NAT-RN", "Pañal Natural recién nacido", 480, 990, 6, "Bodega Panamá Oeste"],
+    ["MOON-FUL", "Body Moon manga larga", 1250, 2490, 18, "Bodega Ciudad de Panamá"],
+    ["MOON-FUL", "Body Moon manga larga", 1250, 2490, 0, "Bodega Panamá Oeste"],
+  ] as const;
+  for (const [code, name, cost, sale, stock, branch] of items) {
+    await db.run(
+      `INSERT INTO catalog_items (code, name, cost_price, sale_price, stock_qty, branch, active, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [code, name, cost, sale, stock, branch, NOW],
+    );
+  }
 }
 
 async function main(): Promise<void> {
