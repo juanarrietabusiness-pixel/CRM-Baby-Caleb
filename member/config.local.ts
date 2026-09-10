@@ -1,38 +1,101 @@
 // member/config.local.ts
-// Business-specific configuration. Edited by the member (or by the skill
-// /configurar-mi-chatbot). NEVER overwritten on template update.
+// Configuración del negocio. La edita la dueña (o el skill
+// /configurar-mi-chatbot). NUNCA se sobreescribe al actualizar la plantilla.
 //
-// This is a stub with example values. Replace with your real business info.
+// ─────────────────────────────────────────────────────────────────────────────
+// REGLA DE ORO DE ESTE ARCHIVO — lea docs/FUENTES_DE_VERDAD.md antes de tocarlo
+//
+// Aquí NO van precios, ni unidades por caja, ni existencias. Nada de eso.
+// Todo lo que sea "qué vendemos, a cuánto y si hay" vive en UN solo lugar:
+// la tabla `catalog_items` de D1, que el bot lee con la tool catalogQuery.
+//
+// El motivo es concreto: lo que se escriba aquí se inyecta en el system prompt
+// COMPLETO y en CADA turno. Un precio escrito aquí le gana al catálogo sin que
+// nadie se entere, porque el modelo lo lee antes de decidir si llama la tool.
+// Ese es exactamente el "se superponen los datos" que se venía sintiendo.
+//
+// Lo que sí va aquí: identidad, trato, horarios de atención, cobertura,
+// métodos de pago (el nombre del método, no la tarifa) y los límites duros.
+// Las políticas largas (tarifario de delivery, Ferguson, uso del producto)
+// viven en member/kb/ y el bot las consulta con searchKb.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Fuente: PREGUNTAS_BABY_CALEB_usted.docx, entregado por la dueña
+// (Yulilka Godoy) en 2026-09. Ese documento es la verdad absoluta: donde
+// contradiga a cualquier otra cosa del repo, manda el documento.
 
 export const memberConfig = {
-  businessName: "Mi Negocio Ejemplo",
-  botName: "Asistente",
+  businessName: "Baby Caleb",
+  botName: "Baby Caleb",
   language: "es" as "es" | "en",
   tier: "pro" as "free" | "pro",
-  timezone: "America/Mexico_City",
-  contactEmail: "contacto@minegocio.example",
+  timezone: "America/Panama",
+  contactEmail: "babycalebpanama@gmail.com",
 };
 
 export type MemberConfig = typeof memberConfig;
 
-// Business context consumed by src/businessContext.ts to render the
-// <business_context> section of the system prompt. Edit freely.
+// Contexto del negocio que consume src/businessContext.ts para armar la
+// sección <business_context> del system prompt.
+//
+// `services` va VACÍO a propósito: renderBusinessContext() lo imprimiría como
+// "Servicios y precios: X: $Y" y sería una segunda lista de precios compitiendo
+// con el catálogo. Los precios salen de catalogQuery y de ningún otro lado.
 export const businessConfig = {
-  hours: "Lun-Sáb 10am-8pm. Domingo cerrado.",
-  services: [
-    { name: "Corte", price: 250 },
-    { name: "Barba", price: 200 },
-    { name: "Corte + Barba", price: 400 },
+  hours:
+    "Tienda online, atención todos los días. Entregas con motorizado en Ciudad de Panamá " +
+    "hasta las 5:00 p.m. Sábados solo con agenda previa; domingos no hay entregas. " +
+    "Retiro en persona de 7:00 a.m. a 5:00 p.m., avisando con un día de anticipación.",
+  services: [] as { name: string; price: number; description?: string }[],
+  location:
+    "Somos tienda online, no hay local. Entregamos por delivery en Ciudad de Panamá y " +
+    "Panamá Oeste, y al interior por Ferguson. Quien prefiera retirar lo hace en Altos de " +
+    "Curundú, después de la Estación de Policía.",
+  paymentMethods: [
+    "Yappy Comercial @babycalebpanama (aparece en el directorio de Yappy)",
+    "efectivo al motorizado por el saldo restante",
+    "transferencia bancaria enviando el comprobante",
   ],
-  location: "Av. Constitución 145, Centro, Monterrey",
-  paymentMethods: ["efectivo", "transferencia", "tarjeta"],
-  contactPhone: "81 1234 5678",
+  contactPhone: "+507 6757-5065",
   customFields: {
-    // member can add any string keys
+    // El trato es de USTED. Decisión del 2026-09: el chatbot de atención habla
+    // de usted, tal como responde la dueña en el documento; el marketing de la
+    // agencia (Instagram, posts) sigue tuteando. No se mezclan.
+    Trato:
+      "Hable SIEMPRE de usted ('le dejamos', 'su bebé', 'indíquenos'). Nunca tutee, " +
+      "aunque la clienta tutee primero.",
+    "Qué vendemos":
+      "Pañales hipoalergénicos Nateen (de cierre y de pants), toallitas de agua Dany Baby " +
+      "y fulares portabebé Moon. Nada más. Las marcas, tallas, precios y existencias se " +
+      "consultan SIEMPRE con catalogQuery — nunca de memoria.",
+    "No manejamos":
+      "Pañales Dany Baby (solo wipes de esa marca) ni wipes Nateen. Si preguntan por " +
+      "cualquiera de los dos, dígalo claro y ofrezca la alternativa que sí hay.",
+    "Venta por caja":
+      "Solo se venden cajas completas de una talla. No hay paquetes sueltos, no hay precio " +
+      "de mayorista ni para revendedores.",
+    Abono:
+      "Ningún pedido se agenda sin un abono mínimo de $5.00 al Yappy Comercial " +
+      "@babycalebpanama y su comprobante. El resto se paga cuando el motorizado entrega.",
+    Delivery:
+      "El delivery SIEMPRE es aparte del precio del producto y depende de la zona. " +
+      "Nunca estime una tarifa: pregunte a dónde va el envío y consulte searchKb.",
+    Descuentos:
+      "No hay descuento publicado por volumen. Si piden varias cajas, pregunte cuántas y " +
+      "pase el caso a una persona para que lo evalúe. Nunca ofrezca un porcentaje usted.",
+    Canales:
+      "WhatsApp +507 6757-5065 (wa.me/message/2W4DYVYOCPMFK1) · Instagram @babycalebpanama · " +
+      "Facebook Baby Caleb · babycalebpanama@gmail.com · web babycaleb.netlify.app.",
+    "Atención humana":
+      "Detrás del WhatsApp hay una persona del equipo, no un call center. Es parte de lo que " +
+      "la marca ofrece, así que pasar una conversación a una persona NUNCA es un mal resultado.",
+    "Instrucción crítica":
+      "Si la clienta manda una imagen, un audio, un video o un comprobante de pago, " +
+      "escale a un humano de inmediato con handoffHuman. Sin excepción.",
   } as Record<string, string>,
 };
 
-// Product catalog consumed by src/tools/catalogQuery.ts (Pro tier).
-// Member fills via skill. Example:
-//   { name: "Pan dulce", price: 25, description: "Concha tradicional", sku: "PD-01" }
+// Catálogo heredado de la plantilla. NO se usa: catalogQuery lee D1
+// (`catalog_items`). Se deja vacío para que nadie lo llene por costumbre y
+// cree una tercera lista de precios. Ver src/db/seed-catalog.sql.
 export const catalog: { name: string; price: number; description?: string; sku?: string }[] = [];

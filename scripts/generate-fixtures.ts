@@ -24,6 +24,7 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { resolve, dirname, relative, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { chunkContent } from "../src/kb/chunk";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
@@ -112,10 +113,23 @@ function fixturesFromJson(file: string, rel: string): KbFixture[] {
   return [{ id: slug(rel), source: rel, title: rel, content: raw }];
 }
 
+/**
+ * Un .md se trocea con el MISMO `chunkContent` que usa /admin/kb. Antes se
+ * subía el archivo entero como un vector: un documento de 5,000 caracteres se
+ * parecía un poco a todas las preguntas y mucho a ninguna, así que searchKb
+ * devolvía el manual completo con un score mediocre. Cada trozo lleva el
+ * título del documento, que es lo que searchKb muestra como `title`.
+ */
 function fixturesFromText(file: string, rel: string): KbFixture[] {
   const content = readFileSync(file, "utf8").trim();
   if (!content) return [];
-  return [{ id: slug(rel), source: rel, title: firstHeadingOrName(content, rel), content }];
+  const title = firstHeadingOrName(content, rel);
+  return chunkContent(content).map((chunk, i) => ({
+    id: `${slug(rel)}#${i}`,
+    source: rel,
+    title,
+    content: chunk,
+  }));
 }
 
 export function buildFixtures(kbDir: string = KB_DIR): KbFixture[] {

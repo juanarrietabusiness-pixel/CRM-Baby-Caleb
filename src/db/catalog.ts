@@ -36,6 +36,37 @@ export interface CatalogProduct {
 }
 
 const PUBLIC_COLS = "code, name, sale_price, stock_qty, branch, active, updated_at";
+
+/**
+ * Tope de filas que trae una búsqueda. Son filas (producto × bodega), no
+ * productos: con tres bodegas esto son ~666 productos activos, muy por encima
+ * de lo que maneja el negocio. Es una red contra un catálogo desbocado, no un
+ * límite de uso.
+ */
+const MAX_FILAS_BUSQUEDA = 2_000;
+
+/** Quita tildes y pasa a minúsculas para comparar "panal" con "Pañal". */
+function plano(texto: string): string {
+  return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+const ESCAPAR_REGEX = /[.*+?^${}()|[\]\\]/g;
+
+/**
+ * ¿Aparecen TODAS las palabras, completas, en el texto?
+ *
+ * "Completa" quiere decir que no esté pegada a otra letra o número: así "XL"
+ * no coincide con "XXL" ni con "3XL", y "M" no coincide con "Moon". El guion
+ * sí corta palabra, para que buscar "NAT-M" o "M" funcione en el código.
+ */
+function coincide(texto: string, palabras: string[]): boolean {
+  const heno = plano(texto);
+  return palabras.every((palabra) => {
+    const aguja = plano(palabra).replace(ESCAPAR_REGEX, "\\$&");
+    if (!aguja) return true;
+    return new RegExp(`(?<![\\p{L}\\p{N}])${aguja}(?![\\p{L}\\p{N}])`, "u").test(heno);
+  });
+}
 const ADMIN_COLS = `${PUBLIC_COLS}, cost_price`;
 
 /** Agrupa filas (producto × bodega) en productos. Conserva el orden de entrada. */
@@ -71,21 +102,34 @@ export class CatalogRepo {
   /**
    * Busca por código o por nombre entre los productos ACTIVOS.
    *
-   * `limit` cuenta productos, no filas: se traen más filas de la base porque
-   * cada producto ocupa una por bodega, y se recorta después de agrupar.
+   * Cada PALABRA de la búsqueda tiene que aparecer completa en el nombre o en
+   * el código. Dos precisiones que parecen detalle y no lo son:
+   *
+   *  · Palabra completa, no subcadena. Buscando "XL" la subcadena encuentra
+   *    también "XXL" y el "3XL" del fular; buscando "M", encuentra "Moon".
+   *    El modelo recibía tres productos donde había uno y elegía precio.
+   *  · Sin tildes. La clienta escribe "panales talla m" y el catálogo dice
+   *    "Pañal". El LIKE de SQLite no dobla la ñ ni las tildes.
+   *
+   * Por eso el filtrado ocurre en JS y no en el WHERE: es un catálogo de un
+   * negocio, decenas de productos, y ya se traía el conjunto activo entero
+   * para las preguntas generales. La precisión vale mucho más que el ahorro.
+   *
+   * Si no hay coincidencia devuelve [] y quien llama decide el plan B (hoy
+   * catalogQuery ofrece el catálogo completo, que es la conducta de siempre).
+   *
+   * `limit` cuenta productos, no filas.
    */
   async search(query: string, limit = 8): Promise<CatalogProduct[]> {
-    const q = `%${query.trim()}%`;
+    const palabras = query.trim().split(/\s+/).filter(Boolean).slice(0, 8);
+    if (palabras.length === 0) return [];
+
     const rows = await this.db.all<CatalogRow>(
-      `SELECT ${PUBLIC_COLS} FROM catalog_items
-       WHERE active = 1 AND (name LIKE ? OR code LIKE ?)
-       ORDER BY name, branch
-       LIMIT ?`,
-      [q, q, limit * 8],
+      `SELECT ${PUBLIC_COLS} FROM catalog_items WHERE active = 1 ORDER BY name, branch LIMIT ?`,
+      [MAX_FILAS_BUSQUEDA],
     );
-    // Se castea a AdminCatalogRow para reusar agrupar(); cost_price viene
-    // undefined porque no se seleccionó, y agrupar() lo deja en null.
-    return agrupar(rows as AdminCatalogRow[]).slice(0, limit);
+    const productos = agrupar(rows as AdminCatalogRow[]);
+    return productos.filter((p) => coincide(`${p.name} ${p.code}`, palabras)).slice(0, limit);
   }
 
   /** Todos los activos — para cuando la clienta pregunta "¿qué tienen?". */

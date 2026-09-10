@@ -13,7 +13,9 @@
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { reindexKb, type KbChunk } from "./reindex";
+import { chunkContent, MAX_CHUNKS } from "./chunk";
 import kbFixtures from "../../scripts/kb-fixtures.json";
+import kbRetirados from "../../member/kb-retirados.json";
 
 export interface KbDoc {
   id: string;
@@ -24,8 +26,10 @@ export interface KbDoc {
 
 /** Max content length per doc — bounds the chunk count (≤ MAX_CHUNKS). */
 export const MAX_DOC_CHARS = 24_000;
-const CHUNK_CHARS = 1_200;
-export const MAX_CHUNKS = 24;
+
+// El troceado vive en ./chunk para que scripts/generate-fixtures.ts use el
+// MISMO, y los .md de member/kb/ entren al índice igual que los del panel.
+export { chunkContent, MAX_CHUNKS } from "./chunk";
 
 export const FIXTURE_CHUNKS = kbFixtures as KbChunk[];
 
@@ -52,28 +56,6 @@ export class KbDocsRepo {
   async delete(id: string): Promise<void> {
     await this.db.run("DELETE FROM kb_docs WHERE id = ?", [id]);
   }
-}
-
-/** Split content into ~CHUNK_CHARS pieces on paragraph boundaries. */
-export function chunkContent(content: string): string[] {
-  const paras = content.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  const chunks: string[] = [];
-  let current = "";
-  const push = () => {
-    if (current.trim()) chunks.push(current.trim());
-    current = "";
-  };
-  for (const p of paras) {
-    if (p.length > CHUNK_CHARS) {
-      push();
-      for (let i = 0; i < p.length; i += CHUNK_CHARS) chunks.push(p.slice(i, i + CHUNK_CHARS));
-      continue;
-    }
-    if (current.length + p.length + 2 > CHUNK_CHARS) push();
-    current = current ? `${current}\n\n${p}` : p;
-  }
-  push();
-  return chunks.slice(0, MAX_CHUNKS);
 }
 
 function vectorIds(docId: string): string[] {
@@ -107,8 +89,35 @@ export async function dashboardChunks(env: Env): Promise<KbChunk[]> {
   return docs.flatMap(docChunks);
 }
 
-/** Global reindex: repo fixtures + every dashboard doc. */
-export async function reindexAll(env: Env): Promise<{ indexed: number }> {
+/** Ids de documentos retirados (member/kb-retirados.json). */
+export const RETIRED_DOC_IDS: string[] = (kbRetirados as { ids?: string[] }).ids ?? [];
+
+/**
+ * Borra del índice los vectores de los documentos retirados.
+ *
+ * Borrar la fila de `kb_docs` no borra nada de Vectorize: los vectores viven
+ * como `dash:<id>#0`…`#23` y solo la ruta de borrado del panel llama a
+ * `removeDocVectors`. Un reindex hace `upsert`, que nunca borra. Así que un
+ * documento borrado por SQL seguiría contestando para siempre, sin dejar rastro
+ * de dónde salió la respuesta — que es la peor forma de estar equivocado.
+ *
+ * Si un id retirado VUELVE a existir en kb_docs, no se toca: alguien lo recreó
+ * a propósito desde el panel y ahí manda el panel.
+ */
+export async function purgeRetiredDocVectors(env: Env): Promise<{ purged: string[] }> {
+  if (RETIRED_DOC_IDS.length === 0) return { purged: [] };
+  const vivos = new Set((await new KbDocsRepo(new Db(env.DB)).list()).map((d) => d.id));
+  const aPurgar = RETIRED_DOC_IDS.filter((id) => !vivos.has(id));
+  for (const id of aPurgar) await env.KB.deleteByIds(vectorIds(id));
+  return { purged: aPurgar };
+}
+
+/** Global reindex: repo fixtures + every dashboard doc, minus the retired ones. */
+export async function reindexAll(env: Env): Promise<{ indexed: number; purged: string[] }> {
+  // Purgar ANTES de indexar: si un retirado reapareciera en kb_docs, la purga
+  // lo respeta y el indexado de abajo lo vuelve a escribir igual.
+  const { purged } = await purgeRetiredDocVectors(env);
   const chunks = [...FIXTURE_CHUNKS, ...(await dashboardChunks(env))];
-  return reindexKb(env, chunks);
+  const { indexed } = await reindexKb(env, chunks);
+  return { indexed, purged };
 }

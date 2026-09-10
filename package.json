@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "db:apply": "node scripts/db-apply.mjs",
     "db:apply:remote": "node scripts/db-apply.mjs --remote",
+    "auditar": "tsx scripts/auditar-verdad.ts",
     "kb:reindex": "tsx scripts/generate-fixtures.ts",
     "eval": "tsx scripts/eval-bot-live.ts",
     "snapshot": "tsx scripts/admin-snapshot.ts",

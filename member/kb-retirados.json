@@ -1,0 +1,24 @@
+{
+  "$comentario": [
+    "Documentos de conocimiento RETIRADOS. Ids que alguna vez existieron en la",
+    "tabla kb_docs (los que se escriben desde /admin/kb) y ya no deben contestar.",
+    "",
+    "Existe porque borrar la fila de D1 NO borra sus vectores: el índice guarda",
+    "dash:<id>#0 hasta #23 por documento, y un reindex general hace upsert, nunca",
+    "delete. Sin esta lista, el texto viejo se queda contestando para siempre y",
+    "sin rastro de dónde salió. Cada reindex borra los vectores de estos ids.",
+    "",
+    "Un id que vuelva a existir en kb_docs se respeta y NO se purga: si alguien",
+    "recrea el documento desde el panel, gana el panel.",
+    "",
+    "Para retirar otro documento: bórrelo desde /admin/kb (esa ruta ya limpia sus",
+    "vectores) o, si se borró por SQL, agregue su id aquí y corra el reindex."
+  ],
+  "ids": [
+    "compra-delivery-y-pagos",
+    "contacto-y-la-marca",
+    "guia-tallas",
+    "por-que-hipoalergenicos",
+    "productos-y-marcas"
+  ]
+}

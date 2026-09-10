@@ -43,6 +43,8 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 - `src/db/catalog.ts` + `src/catalog/validation.ts` — el catálogo (D1, tabla `catalog_items`):
   código, nombre, costo, venta, stock y bodega. El costo **nunca** sale hacia el bot y la
   cantidad exacta de stock tampoco — ver `docs/PLAN_CATALOGO_BABY_CALEB.md`.
+- `member/kb/` — la base de conocimiento versionada (políticas, tarifas de envío, pagos,
+  uso del producto, cuándo escalar). `pnpm kb:reindex` la vuelca a `scripts/kb-fixtures.json`.
 - `src/niches/` — el "niche pack" genérico (Starter). Personaliza tono/columnas del panel.
 - `skill/` — asistentes para el usuario.
 
@@ -65,6 +67,31 @@ inventes colores fuera de sus tokens.
 
 Los iconos de `public/` se regeneran del logo del sitio con
 `node scripts/brand-icons.mjs <ruta-al-logo.png>` — no los edites a mano.
+
+## Un dato, un solo dueño
+
+**Antes de escribir cualquier dato del negocio, lea `docs/FUENTES_DE_VERDAD.md`.** Es
+corto y es contrato. En resumen: el precio, la existencia y la cantidad por caja viven
+SOLO en `catalog_items` (D1) y el bot los ve solo con `catalogQuery`; las políticas, las
+tarifas de envío y las formas de pago viven SOLO en `member/kb/` y las ve con `searchKb`;
+el trato y los límites duros viven en `member/config.local.ts`.
+
+Nunca escriba un precio de producto en `member/kb/` ni en `member/config.local.ts`. Lo que
+va al `<business_context>` se inyecta entero en el prompt en cada turno, así que el modelo
+lo lee **antes** de decidir si consulta el catálogo: un precio ahí le gana a D1 en silencio.
+Hay tests en `test/babycaleb/` que fallan si esa regla se rompe. Y como los tests
+vigilan los archivos pero el bot lee D1, **`pnpm auditar`** compara la base en vivo
+contra el documento de la dueña (solo lectura). El dueño de este bot **no usa la
+terminal**: la auditoría también corre desde la pestaña Actions ("Auditar la verdad"),
+y el despliegue entero —pruebas, esquema, Worker y reindexado de la base de
+conocimiento— lo hace `.github/workflows/deploy.yml` con cada merge a `main`.
+No le indiques comandos de terminal como único camino.
+
+La verdad del negocio es el documento de la dueña (**PREGUNTAS_BABY_CALEB_usted.docx**,
+2026-09), transcrito en `test/babycaleb/verdad-del-cliente.ts`. Cuando llegue un documento
+nuevo: se corrige ahí primero, y los tests que se pongan rojos son los sitios del repo que
+hay que tocar. El bot habla de **usted**, siempre — el tuteo es del marketing de la
+agencia, no de la atención.
 
 ## Estado del proyecto
 

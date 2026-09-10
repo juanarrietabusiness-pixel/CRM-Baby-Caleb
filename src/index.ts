@@ -8,7 +8,7 @@ import { parseMetaEvents, verifyMetaSignature } from "./channels/meta";
 import { parseWhatsAppEvents, serveWhatsAppMedia } from "./channels/whatsapp";
 import { adminApp } from "./admin/routes";
 import { purgeOldMessages } from "./crons/purgeOldMessages";
-import { reindexKb } from "./kb/reindex";
+import { reindexAll } from "./kb/docs";
 import { analyzeConversations } from "./insights/analyzer";
 import { Db } from "./db/client";
 import { SettingsRepo, SETTING_KEYS } from "./db/settings";
@@ -231,17 +231,24 @@ app.route("/admin", adminApp);
 // mounted at /api/* for a future hosted control plane (health + metrics).
 app.route("/api", apiApp);
 
-// KB reindex — embeds scripts/kb-fixtures.json into Vectorize. Guarded by the
-// KB_REINDEX_TOKEN secret via the X-Reindex-Token header. Trigger after deploy:
-//   curl -X POST https://<worker>/kb/reindex -H "X-Reindex-Token: <token>"
+// KB reindex — rehace el índice de Vectorize. Protegido por el secret
+// KB_REINDEX_TOKEN vía la cabecera X-Reindex-Token. Lo dispara el deploy
+// (.github/workflows/deploy.yml) después de publicar el Worker.
+//
+// Llama a reindexAll, NO a reindexKb: reindexKb solo sube los .md versionados
+// en member/kb/ e ignoraba tanto los documentos escritos desde /admin/kb como
+// la purga de los retirados. Es decir, este endpoint —el que corre después de
+// cada deploy— dejaba fuera justo lo que hay que limpiar. El botón "reindexar"
+// del panel sí usaba reindexAll, así que los dos caminos daban índices
+// distintos según por dónde se entrara.
 app.post("/kb/reindex", async (c) => {
   const provided = c.req.header("X-Reindex-Token") ?? "";
   const expected = c.env.KB_REINDEX_TOKEN ?? "";
   if (!expected || !tokensMatch(provided, expected)) {
     return c.json({ ok: false, error: "unauthorized" }, 401);
   }
-  const r = await reindexKb(c.env);
-  return c.json({ ok: true, indexed: r.indexed }, 200);
+  const r = await reindexAll(c.env);
+  return c.json({ ok: true, indexed: r.indexed, purged: r.purged }, 200);
 });
 
 app.notFound((c) => c.text("not found", 404));

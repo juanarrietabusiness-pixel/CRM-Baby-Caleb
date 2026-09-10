@@ -1,0 +1,69 @@
+# Auditoría de la verdad — compara la base EN VIVO contra el documento de la
+# clienta (transcrito en test/babycaleb/verdad-del-cliente.ts).
+#
+# Existe porque las pruebas vigilan los ARCHIVOS del repo, y el bot no lee
+# archivos: lee D1. Un precio se puede cambiar desde /admin sin que ningún test
+# se entere. Esto mira la base de verdad.
+#
+# Solo LEE. No modifica nada.
+#
+# Cómo correrla sin terminal: pestaña Actions -> "Auditar la verdad" -> botón
+# "Run workflow". El resultado sale en el resumen del run.
+#
+# Necesita los mismos secrets que el deploy: CLOUDFLARE_API_TOKEN y
+# CLOUDFLARE_ACCOUNT_ID.
+name: Auditar la verdad
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Lunes 12:00 UTC (7:00 a.m. en Panamá). Semanal y no diaria a propósito:
+    # un aviso que llega todos los días se deja de leer a la semana.
+    - cron: "0 12 * * 1"
+
+jobs:
+  auditar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+
+      - name: Comparar la base con el documento
+        id: auditoria
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          pnpm auditar 2>&1 | tee auditoria.txt && CODIGO=0 || CODIGO=$?
+          echo "codigo=$CODIGO" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # El informe va al resumen del run: se lee desde el navegador, sin abrir
+      # los logs ni saber qué es un log.
+      - name: Publicar el informe
+        run: |
+          {
+            echo "## Auditoría de la verdad"
+            echo ""
+            echo '```'
+            cat auditoria.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Marcar en rojo si el bot está diciendo algo falso
+        run: |
+          # Código 1 = hay problemas (el bot dice algo falso). Código 2 = faltan
+          # credenciales de Cloudflare, que no es culpa de los datos.
+          case "${{ steps.auditoria.outputs.codigo }}" in
+            0) echo "La base dice lo mismo que el documento." ;;
+            2) echo "::error::Faltan las credenciales de Cloudflare (revise los secrets del repositorio)."; exit 1 ;;
+            *) echo "::error::La base contradice el documento. El detalle está en el resumen de este run."; exit 1 ;;
+          esac
