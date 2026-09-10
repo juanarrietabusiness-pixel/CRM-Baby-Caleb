@@ -195,14 +195,55 @@ describe("el trato es de usted", () => {
     expect(KB).toMatch(/nunca tutee/i);
   });
 
+  /**
+   * El eslogan de la marca. Es lo único que tutea y se cita tal cual, porque es
+   * la promesa registrada: "En Baby Caleb Panamá pensamos en cada etapa de tu
+   * bebé". La excepción es esta frase exacta y nada más — se recorta antes de
+   * buscar tuteos para que el resto de la regla siga en pie.
+   */
+  const ESLOGAN = "pensamos en cada etapa de tu bebé";
+
+  /**
+   * Un tuteo, buscado como palabra completa y con fronteras que entienden
+   * acentos.
+   *
+   * Esto antes se escribía /\btu bebé\b/i y NO COMPROBABA NADA: en JavaScript
+   * \b es una frontera ASCII, y después de la "é" —que ya es un carácter no
+   * ASCII— no hay ninguna transición que marcar, así que el patrón no puede
+   * coincidir nunca. Un test que no puede fallar es peor que no tener test:
+   * da luz verde. Por eso abajo hay una prueba que comprueba el comprobador.
+   */
+  const tuteo = (frase: string) =>
+    new RegExp(`(?<![\\p{L}\\p{N}])${frase}(?![\\p{L}\\p{N}])`, "iu");
+
+  const TUTEOS = ["tu bebé", "tus", "escríbenos", "tienes", "puedes", "quieres", "contigo"];
+
+  it("los patrones de tuteo sí detectan un tuteo (comprobar el comprobador)", () => {
+    // Sin esto, un patrón roto pasa por bueno y el test entero es decorativo.
+    expect(tuteo("tu bebé").test("cuidamos a tu bebé.")).toBe(true);
+    expect(tuteo("tienes").test("si tienes dudas")).toBe(true);
+    expect(tuteo("tus").test("para tus compras")).toBe(true);
+    // Y no confunde una palabra que lo contenga.
+    expect(tuteo("tus").test("los estatus del pedido")).toBe(false);
+    expect(tuteo("tu bebé").test("su bebé")).toBe(false);
+  });
+
   it("los documentos no tutean", () => {
-    // "tu bebé" / "escríbenos" son del ADN de marketing, que sí tutea. En el
-    // guion de atención serían una fuga de registro.
-    const tuteos = [/\btu bebé\b/i, /\bescríbenos\b/i, /\btus\b/i, /\btienes\b/i];
+    // El tuteo es del marketing de la agencia. En el guion de atención sería
+    // una fuga de registro: la dueña responde de usted en todo el documento.
     for (const c of chunks) {
-      for (const t of tuteos) {
-        expect(c.content, `${c.id} tutea: ${t}`).not.toMatch(t);
+      const sinEslogan = c.content.replace(ESLOGAN, "");
+      for (const frase of TUTEOS) {
+        expect(sinEslogan, `${c.id} tutea: "${frase}"`).not.toMatch(tuteo(frase));
       }
     }
+  });
+
+  it("el eslogan es la única excepción, y está donde debe", () => {
+    const conEslogan = chunks.filter((c) => c.content.includes(ESLOGAN));
+    expect(conEslogan).toHaveLength(1);
+    expect(conEslogan[0].id).toMatch(/^05-el-negocio/);
+    // Y queda dicho que es una cita, para que el bot no lo tome de licencia.
+    expect(conEslogan[0].content).toMatch(/es el eslogan y se\s+cita tal cual/);
   });
 });

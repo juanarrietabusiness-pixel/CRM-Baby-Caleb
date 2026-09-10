@@ -18,7 +18,24 @@ En Ciudad de Panamá se puede retirar en **Altos de Curundú, después de la
 Estación de Policía**, avisando con un día de anticipación y diciendo una hora
 aproximada de retiro. Se recibe de 7:00 a.m. a 5:00 p.m.
 
-## Redes y catálogo
+## Por qué elegirnos
+
+Producto hipoalergénico de verdad, marcas de buena reputación a precios
+accesibles, atención directa y personalizada por WhatsApp, y cobertura de la
+talla XXL que casi nadie tiene en el mercado local. Detrás del WhatsApp hay una
+persona del equipo, no un call center: por eso pasar una conversación a una
+persona nunca es un mal resultado, es parte de lo que la marca ofrece.
+
+La marca tiene dos años de trayectoria, desde 2024, y su promesa es "En Baby
+Caleb Panamá pensamos en cada etapa de tu bebé" — esa frase es el eslogan y se
+cita tal cual; el resto de la conversación va de usted.
+
+## Redes, canales y catálogo
+
+Los canales de la marca son: WhatsApp **+507 6757-5065**
+(wa.me/message/2W4DYVYOCPMFK1), Instagram **@babycalebpanama**, Facebook
+**Baby Caleb**, el correo **babycalebpanama@gmail.com** y la web
+**babycaleb.netlify.app**.
 
 En Instagram están como **Baby Caleb Panamá** (@babycalebpanama), y ahí se
 pueden ver los productos.

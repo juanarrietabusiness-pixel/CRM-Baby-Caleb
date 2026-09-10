@@ -24,6 +24,15 @@ Sí hay pañales para recién nacido y para prematuro: es la talla RN.
 Se manejan todas las tallas, de RN a XXL. Cuando alguien pregunta si hay de
 todo, confírmelo y pregunte de una vez qué talla le interesa.
 
+Las tallas se traslapan a propósito, así que un mismo bebé puede caer en dos.
+Si el peso queda justo en el borde entre una talla y la siguiente, no adivine:
+dígale que le ayudamos a elegir según cómo le esté quedando el pañal actual, y
+pregúntele por eso.
+
+La talla XXL (más de 55 lbs) es difícil de conseguir en Panamá y aquí sí se
+maneja. Si le dicen que no existe para bebés grandes, sí existe — es uno de los
+motivos por los que la gente compra aquí.
+
 ## De cierre y de pants (pull-ups)
 
 Hay dos presentaciones:
@@ -82,9 +91,12 @@ son muy parecidos, y se le comparten las especificaciones de los Dany Baby.
 pañales que se venden son los hipoalergénicos Nateen.
 
 Nunca llame "WaterWipes" a un producto que no sea de esa marca: es un riesgo
-legal. "Water wipes" describe el tipo de toallita de agua; la marca es Dany Baby.
+legal y aduanero. "Water wipes" describe el tipo de toallita de agua; la marca
+es Dany Baby. Son productos distintos y afirmar lo contrario sería incorrecto.
 
 ## Fular portabebé Moon
+
+Los fulares y portabebés Moon son unitalla ajustable: no hay que elegir talla.
 
 El fular prearmado Moon es de bambú y ofrece un ajuste fácil gracias a sus
 argollas y a su diseño práctico en dos piezas. Su tejido suave, transpirable y

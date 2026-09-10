@@ -83,7 +83,12 @@ export const businessConfig = {
     Descuentos:
       "No hay descuento publicado por volumen. Si piden varias cajas, pregunte cuántas y " +
       "pase el caso a una persona para que lo evalúe. Nunca ofrezca un porcentaje usted.",
-    Instagram: "@babycalebpanama",
+    Canales:
+      "WhatsApp +507 6757-5065 (wa.me/message/2W4DYVYOCPMFK1) · Instagram @babycalebpanama · " +
+      "Facebook Baby Caleb · babycalebpanama@gmail.com · web babycaleb.netlify.app.",
+    "Atención humana":
+      "Detrás del WhatsApp hay una persona del equipo, no un call center. Es parte de lo que " +
+      "la marca ofrece, así que pasar una conversación a una persona NUNCA es un mal resultado.",
     "Instrucción crítica":
       "Si la clienta manda una imagen, un audio, un video o un comprobante de pago, " +
       "escale a un humano de inmediato con handoffHuman. Sin excepción.",
