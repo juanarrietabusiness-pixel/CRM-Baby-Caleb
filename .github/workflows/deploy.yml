@@ -8,6 +8,8 @@
 # Actions):
 #   CLOUDFLARE_API_TOKEN   — token de la cuenta donde vive el bot
 #   CLOUDFLARE_ACCOUNT_ID  — id de esa misma cuenta
+#   KB_REINDEX_TOKEN       — el MISMO valor que el secret del Worker; sin él la
+#                            base de conocimiento no se actualiza al desplegar
 #
 # `workflow_dispatch` permite dispararlo a mano desde la pestaña Actions
 # eligiendo la rama — útil para probar antes de mergear a main.
@@ -65,3 +67,43 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Desplegar NO actualiza lo que el bot sabe. Los textos de member/kb/
+      # viajan dentro del Worker, pero el índice de Vectorize —que es lo que
+      # searchKb consulta de verdad— solo cambia cuando alguien llama a esta
+      # ruta. Sin este paso, el bot sigue contestando con el conocimiento
+      # anterior después de un deploy correcto y en verde: la peor combinación,
+      # porque todo parece bien.
+      #
+      # También es el paso que borra del índice los documentos retirados
+      # (member/kb-retirados.json).
+      - name: Reindexar la base de conocimiento
+        env:
+          KB_REINDEX_TOKEN: ${{ secrets.KB_REINDEX_TOKEN }}
+        run: |
+          if [ -z "$KB_REINDEX_TOKEN" ]; then
+            echo "::error::Falta el secret KB_REINDEX_TOKEN del repositorio."
+            echo "El Worker quedó desplegado, pero el bot sigue con el conocimiento anterior."
+            echo ""
+            echo "Cómo arreglarlo (todo desde el navegador):"
+            echo "  1. Es el MISMO valor que el secret KB_REINDEX_TOKEN del Worker en Cloudflare."
+            echo "  2. Aquí en GitHub: Settings -> Secrets and variables -> Actions -> New repository secret."
+            echo "  3. Nombre: KB_REINDEX_TOKEN. Valor: ese mismo token."
+            echo "  4. Vuelva a lanzar este workflow desde la pestaña Actions."
+            exit 1
+          fi
+          URL="$(grep -oP 'DASHBOARD_BASE_URL\s*=\s*"\K[^"]+' wrangler.toml)"
+          if [ -z "$URL" ]; then
+            echo "::error::No encontré DASHBOARD_BASE_URL en wrangler.toml."
+            exit 1
+          fi
+          echo "Reindexando en $URL/kb/reindex"
+          # --fail-with-body: sin esto curl devuelve 0 ante un 401 y el deploy
+          # pasaría en verde con el índice sin tocar.
+          RESP="$(curl -sS --fail-with-body --retry 3 --retry-delay 5 --max-time 120 \
+                    -X POST "$URL/kb/reindex" -H "X-Reindex-Token: $KB_REINDEX_TOKEN")"
+          echo "$RESP"
+          case "$RESP" in
+            *'"ok":true'*) echo "Base de conocimiento actualizada." ;;
+            *) echo "::error::El reindexado no confirmó ok:true."; exit 1 ;;
+          esac

@@ -81,7 +81,11 @@ va al `<business_context>` se inyecta entero en el prompt en cada turno, así qu
 lo lee **antes** de decidir si consulta el catálogo: un precio ahí le gana a D1 en silencio.
 Hay tests en `test/babycaleb/` que fallan si esa regla se rompe. Y como los tests
 vigilan los archivos pero el bot lee D1, **`pnpm auditar`** compara la base en vivo
-contra el documento de la dueña (solo lectura; necesita `CLOUDFLARE_API_TOKEN`).
+contra el documento de la dueña (solo lectura). El dueño de este bot **no usa la
+terminal**: la auditoría también corre desde la pestaña Actions ("Auditar la verdad"),
+y el despliegue entero —pruebas, esquema, Worker y reindexado de la base de
+conocimiento— lo hace `.github/workflows/deploy.yml` con cada merge a `main`.
+No le indiques comandos de terminal como único camino.
 
 La verdad del negocio es el documento de la dueña (**PREGUNTAS_BABY_CALEB_usted.docx**,
 2026-09), transcrito en `test/babycaleb/verdad-del-cliente.ts`. Cuando llegue un documento

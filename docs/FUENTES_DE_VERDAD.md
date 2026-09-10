@@ -99,24 +99,28 @@ Ahora el prompt lo dice explícito:
 por eso vive en la base, no en el repo. La dueña lo hace sola, sin desplegar.
 
 **Una política, una tarifa de envío, una respuesta nueva** → edite el `.md` que
-corresponda en `member/kb/`, y luego:
+corresponda en `member/kb/` y **haga merge a `main`**. Nada más.
 
-```bash
-pnpm kb:reindex        # regenera scripts/kb-fixtures.json desde member/kb/
-pnpm test              # los tests de test/babycaleb/ verifican el contenido
-pnpm run deploy
-curl -X POST https://<worker>/kb/reindex -H "X-Reindex-Token: $KB_REINDEX_TOKEN"
-```
+GitHub Actions se encarga del resto (`.github/workflows/deploy.yml`): corre las
+pruebas, aplica el esquema, publica el Worker y **reindexa la base de
+conocimiento**. No hace falta abrir una terminal en ningún momento.
 
-El último paso es el que realmente sube los vectores. Sin él, el archivo cambió
-y el bot sigue contestando lo de antes.
+> Ese último paso —el reindexado— es el que de verdad sube los vectores, y
+> durante un tiempo no estuvo en el workflow: el deploy salía verde y el bot
+> seguía contestando con el conocimiento anterior. La peor combinación, porque
+> todo parecía bien. Si el paso falla por falta del secret `KB_REINDEX_TOKEN`,
+> el propio run le dice qué hacer.
+
+Con una terminal, si la tiene, el equivalente es `pnpm kb:reindex && pnpm test`
+antes de subir; pero el despliegue sigue saliendo del repositorio, no de una
+máquina.
 
 > Se puede editar la KB desde `/admin/kb` y se indexa al instante. Sirve para
 > una urgencia. Pero lo que se escribe ahí **no está en git**: nadie lo revisa,
 > nadie ve el diff, y la próxima vez que alguien corra el reindex general
 > conviven las dos versiones. Para algo permanente, va en `member/kb/`.
 
-**El catálogo desde cero** → `src/db/seed-catalog.sql`. Ojo: **borra el stock
+**El catálogo desde cero** → `src/db/seed-catalog.sql`, aplicado con wrangler. Ojo: **borra el stock
 cargado**. Para corregir precios en una base que ya está en producción sin
 perder existencias, use `src/db/verdad-2026-09.sql`, que es idempotente.
 
@@ -128,9 +132,9 @@ Los tests vigilan los **archivos del repo**. El bot no lee archivos: lee D1.
 Entre los dos hay un paso manual —aplicar el `.sql`, guardar en el panel— y
 todo lo que depende de que alguien se acuerde, algún día no se hace.
 
-```bash
-pnpm auditar     # solo lee, nunca escribe
-```
+**Sin terminal:** pestaña **Actions** → **"Auditar la verdad"** → botón
+**"Run workflow"**. El informe sale en el resumen del run, y además corre sola
+todos los lunes. Con terminal, es `pnpm auditar`. Solo lee, nunca escribe.
 
 Contesta tres preguntas, en orden de qué tan callado es el daño:
 
@@ -150,18 +154,12 @@ Contesta tres preguntas, en orden de qué tan callado es el daño:
 Distingue **problemas** (el bot dice algo falso — sale con código 1) de
 **avisos** (el bot se calla o se queda corto). Sirve igual en CI que a mano.
 
-**Necesita credenciales de Cloudflare.** En una sesión remota, sin navegador,
-la única vía es un token de API:
-
-```bash
-export CLOUDFLARE_API_TOKEN=...    # NUNCA lo pegue en un chat
-export CLOUDFLARE_ACCOUNT_ID=...
-```
-
-El token se crea en <https://dash.cloudflare.com/profile/api-tokens> con
-permisos de cuenta **D1:Edit · Workers Scripts:Edit · Vectorize:Edit ·
-Account Settings:Read**. En una computadora con navegador basta
-`wrangler login`.
+**Necesita credenciales de Cloudflare.** Desde Actions ya las tiene: son los
+mismos secrets `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID` que usa el
+deploy. Corriéndola a mano en una terminal, se exportan como variables de
+entorno (nunca se pegan en un chat); el token se crea en
+<https://dash.cloudflare.com/profile/api-tokens> con permisos de cuenta
+**D1:Edit · Workers Scripts:Edit · Vectorize:Edit · Account Settings:Read**.
 
 ## 6. Los tests que cierran la brecha
 
