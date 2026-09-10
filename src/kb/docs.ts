@@ -13,6 +13,7 @@
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { reindexKb, type KbChunk } from "./reindex";
+import { chunkContent, MAX_CHUNKS } from "./chunk";
 import kbFixtures from "../../scripts/kb-fixtures.json";
 
 export interface KbDoc {
@@ -24,8 +25,10 @@ export interface KbDoc {
 
 /** Max content length per doc — bounds the chunk count (≤ MAX_CHUNKS). */
 export const MAX_DOC_CHARS = 24_000;
-const CHUNK_CHARS = 1_200;
-export const MAX_CHUNKS = 24;
+
+// El troceado vive en ./chunk para que scripts/generate-fixtures.ts use el
+// MISMO, y los .md de member/kb/ entren al índice igual que los del panel.
+export { chunkContent, MAX_CHUNKS } from "./chunk";
 
 export const FIXTURE_CHUNKS = kbFixtures as KbChunk[];
 
@@ -52,28 +55,6 @@ export class KbDocsRepo {
   async delete(id: string): Promise<void> {
     await this.db.run("DELETE FROM kb_docs WHERE id = ?", [id]);
   }
-}
-
-/** Split content into ~CHUNK_CHARS pieces on paragraph boundaries. */
-export function chunkContent(content: string): string[] {
-  const paras = content.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  const chunks: string[] = [];
-  let current = "";
-  const push = () => {
-    if (current.trim()) chunks.push(current.trim());
-    current = "";
-  };
-  for (const p of paras) {
-    if (p.length > CHUNK_CHARS) {
-      push();
-      for (let i = 0; i < p.length; i += CHUNK_CHARS) chunks.push(p.slice(i, i + CHUNK_CHARS));
-      continue;
-    }
-    if (current.length + p.length + 2 > CHUNK_CHARS) push();
-    current = current ? `${current}\n\n${p}` : p;
-  }
-  push();
-  return chunks.slice(0, MAX_CHUNKS);
 }
 
 function vectorIds(docId: string): string[] {

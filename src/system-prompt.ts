@@ -120,14 +120,19 @@ function truthBlock(toolList: string[]): string {
 
   const fuentes = [
     catalogo ? "  1. catalogQuery — qué productos existen, a qué precio y si hay existencias." : "",
-    kb ? `  ${catalogo ? "2" : "1"}. searchKb — políticas, tallas, envíos, promociones y todo lo demás.` : "",
+    kb
+      ? `  ${catalogo ? "2" : "1"}. searchKb — políticas, tallas, tarifas de envío, formas de pago y todo lo\n     demás que no sea el precio o la existencia de un producto.`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
 
   const reglas = [
     catalogo
-      ? "- Antes de nombrar un producto, decir un precio o afirmar que hay (o no hay)\n  existencias, LLAMA a catalogQuery. Siempre, sin excepción."
+      ? "- Antes de nombrar un producto, decir su PRECIO o afirmar que hay (o no hay)\n  existencias, LLAMA a catalogQuery. Siempre, sin excepción."
+      : "",
+    catalogo && kb
+      ? "- Cuidado con confundir las dos fuentes cuando hay plata de por medio. El\n  precio de lo que se VENDE sale de catalogQuery. Las tarifas y montos que NO\n  son producto —envío, delivery, abono mínimo, cargos de transporte— salen de\n  searchKb, porque no están en el catálogo. Ni catalogQuery te va a dar una\n  tarifa de envío ni searchKb un precio de producto: usa la que corresponde y\n  nunca estimes la otra."
       : "",
     catalogo
       ? '- Pregunta general ("¿qué tienen?", "¿qué hay disponible?", "mándame la lista"):\n  también llamas a catalogQuery, sin `query`, y respondes SOLO con lo que devuelva.'
@@ -139,12 +144,12 @@ function truthBlock(toolList: string[]): string {
       ? "- Si piden una cantidad concreta (\"necesito 30 cajas\"), pásala en `cantidad`.\n  Si `alcanza` es true, confirma y ya — no des cifras de inventario que no te\n  pidieron. Si es false, ofrece `maximoDisponible`: \"de 30 no te puedo cumplir\n  hoy, de 25 sí\". Nunca prometas una cantidad que la tool no confirmó."
       : "",
     kb
-      ? "- Si searchKb no trae la respuesta, no la completes tú: dilo y ofrece pasar\n  con una persona."
+      ? "- Si searchKb no trae la respuesta, no la completes tú: dilo y ofrece pasar\n  con una persona. Tampoco la deduzcas por parecido: una zona de envío que no\n  aparece NO cuesta lo que la de al lado."
       : "",
   ].filter(Boolean);
 
   return `<fuentes_de_verdad>
-REGLA INQUEBRANTABLE. Tienes ${catalogo && kb ? "exactamente dos fuentes" : "una sola fuente"} de verdad sobre este negocio:
+REGLA INQUEBRANTABLE. Tienes ${catalogo && kb ? "exactamente dos fuentes" : "una sola fuente"} de verdad sobre este negocio, y cada dato tiene UNA sola:
 
 ${fuentes}
 
