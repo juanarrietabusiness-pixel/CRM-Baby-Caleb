@@ -102,6 +102,37 @@ export const OPERACION = {
 };
 
 /**
+ * Ajustes del panel (D1 `settings`) que el documento decide, y que por eso no
+ * pueden quedar a criterio de quien abra la pestaña Config.
+ *
+ * `escalation_keywords` traía "factura" y el documento dice justo lo contrario:
+ * la factura la resuelve el bot pidiendo nombre y dirección de entrega. Y le
+ * faltaba entera la categoría más importante del documento —pagos y
+ * comprobantes—, que es la primera de su lista de escaladas.
+ */
+export const AJUSTES = {
+  tono: "cálido y servicial, tratando siempre de usted",
+  /** Palabras que NO deben escalar porque el documento las contesta. */
+  noEscalan: ["factura", "franquicia", "prensa", "entrevista", "reunión", "socio", "alianza"],
+  /** Palabras que SÍ tienen que estar, uno por categoría del documento. */
+  escalan: [
+    "quiero pagar",
+    "ya pagué",
+    "comprobante",
+    "yappy",
+    "nequi",
+    "número de cuenta",
+    "cancelar mi pedido",
+    "cambiar la talla",
+    "devolución",
+    "reembolso",
+    "queja",
+    "no me llegó",
+    "hablar con una persona",
+  ],
+};
+
+/**
  * Los disparadores de escalada del documento (§ "CUÁNDO EL CHATBOT ESCALA A
  * HUMANO"). Cada uno tiene que estar cubierto por la base de conocimiento.
  */

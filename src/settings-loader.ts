@@ -26,6 +26,32 @@ export interface AgentConfig {
   llm: LlmOverrides;
 }
 
+/**
+ * El contexto del negocio que RIGE de verdad: el del panel (D1) y, solo si está
+ * vacío, el del repo (member/config.local.ts).
+ *
+ * Existe porque no todo el que necesita el contexto pasa por resolveAgentConfig.
+ * El flywheel que redacta borradores de KB y el sugeridor de respuestas del panel
+ * llamaban a renderBusinessContext() a secas, o sea SIEMPRE al archivo del repo,
+ * ignorando lo que la dueña hubiera guardado en Config.
+ *
+ * En Baby Caleb eso se vio en producción: D1 tenía el contexto correcto y el
+ * flywheel igual redactó entradas diciendo que el negocio era una barbería en
+ * Monterrey —el ejemplo de la plantilla— y las dejó en la pestaña Mejoras, a un
+ * clic de entrar a la base de conocimiento. El bot nunca lo dijo, pero lo habría
+ * dicho en cuanto alguien aprobara la sugerencia.
+ */
+export async function effectiveBusinessContext(env: Env): Promise<string> {
+  try {
+    const settings = await new SettingsRepo(new Db(env.DB)).all();
+    const guardado = settings[SETTING_KEYS.businessContext];
+    if (guardado !== undefined && guardado.trim() !== "") return guardado;
+  } catch {
+    // settings no disponible — se usa el del repo, como siempre
+  }
+  return renderBusinessContext();
+}
+
 /** Extract the BYO-LLM overrides from a settings snapshot. */
 export function llmOverridesFrom(settings: Record<string, string>): LlmOverrides {
   const pick = (key: string): string | undefined => {

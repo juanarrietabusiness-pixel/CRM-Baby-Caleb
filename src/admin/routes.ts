@@ -14,7 +14,7 @@ import { parsePeerBots } from "./projects";
 import { Hono } from "hono";
 import { generateText } from "ai";
 import { createModel } from "../llm/provider";
-import { loadLlmOverrides } from "../settings-loader";
+import { loadLlmOverrides, effectiveBusinessContext } from "../settings-loader";
 import type { Env } from "../env";
 import { checkBasicCredentials, timingSafeEqual } from "./auth";
 import {
@@ -866,7 +866,7 @@ adminApp.post("/conversations/:id/suggest", async (c) => {
     content:
       "Eres asistente del dueño. Sugiere UN solo mensaje corto en español que el dueño podría enviar al cliente para resolver la última consulta. NO incluyas preámbulo, solo la frase a copy/paste.",
   });
-  const sys = systemPromptFromEnv(c.env, [], renderBusinessContext());
+  const sys = systemPromptFromEnv(c.env, [], await effectiveBusinessContext(c.env));
   const result = await generateText({
     model,
     system: sys,

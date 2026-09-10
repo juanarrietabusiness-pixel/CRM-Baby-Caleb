@@ -15,6 +15,7 @@ import { Db } from "../db/client";
 import { reindexKb, type KbChunk } from "./reindex";
 import { chunkContent, MAX_CHUNKS } from "./chunk";
 import kbFixtures from "../../scripts/kb-fixtures.json";
+import kbRetirados from "../../member/kb-retirados.json";
 
 export interface KbDoc {
   id: string;
@@ -88,8 +89,35 @@ export async function dashboardChunks(env: Env): Promise<KbChunk[]> {
   return docs.flatMap(docChunks);
 }
 
-/** Global reindex: repo fixtures + every dashboard doc. */
-export async function reindexAll(env: Env): Promise<{ indexed: number }> {
+/** Ids de documentos retirados (member/kb-retirados.json). */
+export const RETIRED_DOC_IDS: string[] = (kbRetirados as { ids?: string[] }).ids ?? [];
+
+/**
+ * Borra del índice los vectores de los documentos retirados.
+ *
+ * Borrar la fila de `kb_docs` no borra nada de Vectorize: los vectores viven
+ * como `dash:<id>#0`…`#23` y solo la ruta de borrado del panel llama a
+ * `removeDocVectors`. Un reindex hace `upsert`, que nunca borra. Así que un
+ * documento borrado por SQL seguiría contestando para siempre, sin dejar rastro
+ * de dónde salió la respuesta — que es la peor forma de estar equivocado.
+ *
+ * Si un id retirado VUELVE a existir en kb_docs, no se toca: alguien lo recreó
+ * a propósito desde el panel y ahí manda el panel.
+ */
+export async function purgeRetiredDocVectors(env: Env): Promise<{ purged: string[] }> {
+  if (RETIRED_DOC_IDS.length === 0) return { purged: [] };
+  const vivos = new Set((await new KbDocsRepo(new Db(env.DB)).list()).map((d) => d.id));
+  const aPurgar = RETIRED_DOC_IDS.filter((id) => !vivos.has(id));
+  for (const id of aPurgar) await env.KB.deleteByIds(vectorIds(id));
+  return { purged: aPurgar };
+}
+
+/** Global reindex: repo fixtures + every dashboard doc, minus the retired ones. */
+export async function reindexAll(env: Env): Promise<{ indexed: number; purged: string[] }> {
+  // Purgar ANTES de indexar: si un retirado reapareciera en kb_docs, la purga
+  // lo respeta y el indexado de abajo lo vuelve a escribir igual.
+  const { purged } = await purgeRetiredDocVectors(env);
   const chunks = [...FIXTURE_CHUNKS, ...(await dashboardChunks(env))];
-  return reindexKb(env, chunks);
+  const { indexed } = await reindexKb(env, chunks);
+  return { indexed, purged };
 }

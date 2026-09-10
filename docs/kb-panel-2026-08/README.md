@@ -28,13 +28,19 @@ en `member/kb/`, en trato de usted:
 | Nunca decir una marca que no es · no exagerar · no minimizar una preocupación de salud · no dar consejo médico | `04-uso-del-producto.md` |
 | Por qué elegirnos · canales completos · el eslogan como cita | `05-el-negocio.md` |
 
-## Cómo se retiran (importante)
+## Cómo se retiraron
 
-**Desde `/admin/kb`, borrándolos uno por uno.** No con SQL.
+Las filas se borraron de `kb_docs` el 2026-09-10. Pero borrar la fila **no borra
+los vectores**: el índice guarda `dash:<id>#0` … `#23` por documento, solo la
+ruta del panel llama a `removeDocVectors`, y un reindex hace `upsert`, que nunca
+borra. Un documento borrado por SQL seguiría contestando para siempre y sin
+rastro de dónde salió la respuesta — la peor forma de estar equivocado, porque
+no se puede depurar.
 
-Borrar la fila de `kb_docs` a mano deja **huérfanos los vectores** en Vectorize:
-el índice guarda `dash:<id>#0` … `#23` por documento, y solo la ruta del panel
-llama a `removeDocVectors`. Un reindex general tampoco los limpia, porque hace
-`upsert` por id y nunca borra. Es decir: si se borra la fila por SQL, el
-contenido viejo se queda contestando para siempre y sin dejar rastro de dónde
-salió.
+Por eso sus ids quedaron en **`member/kb-retirados.json`**, y `reindexAll()`
+purga sus vectores en cada reindex (`purgeRetiredDocVectors`). Es idempotente, y
+si alguien vuelve a crear uno de esos ids desde `/admin/kb`, la purga lo respeta:
+ahí manda el panel.
+
+**Los vectores siguen en el índice hasta el próximo `POST /kb/reindex`.** Ese es
+el paso que los retira de verdad.

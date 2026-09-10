@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PRODUCTOS, DESCATALOGADOS } from "../test/babycaleb/verdad-del-cliente";
+import { PRODUCTOS, DESCATALOGADOS, AJUSTES } from "../test/babycaleb/verdad-del-cliente";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -153,6 +153,31 @@ for (const t of ["catalogQuery", "searchKb", "handoffHuman"]) {
 if (!apagadas.some((t) => ["catalogQuery", "searchKb", "handoffHuman"].includes(t)))
   ok("Las tres tools que importan están encendidas.");
 
+const keywords = (settings["escalation_keywords"] ?? "").toLowerCase();
+const sobran = AJUSTES.noEscalan.filter((k) => keywords.includes(k.toLowerCase()));
+const faltan = AJUSTES.escalan.filter((k) => !keywords.includes(k.toLowerCase()));
+if (sobran.length) {
+  mal(
+    `escalation_keywords manda a escalar cosas que el documento SÍ contesta: ${sobran.join(", ")}.\n` +
+      "    Cada una es una conversación que el bot pasa a una persona sin necesidad.",
+  );
+  problemas++;
+}
+if (faltan.length) {
+  mal(
+    `escalation_keywords no cubre disparadores del documento: ${faltan.join(", ")}.\n` +
+      "    Los de pago y comprobante son la primera categoría de su lista de escaladas.",
+  );
+  problemas++;
+}
+if (!sobran.length && !faltan.length) ok("escalation_keywords coincide con las escaladas del documento.");
+
+const tono = (settings["tone"] ?? "").trim();
+if (tono !== AJUSTES.tono) {
+  ojo(`El tono dice "${tono}" y el documento pide "${AJUSTES.tono}".`);
+  avisos++;
+} else ok("El tono es el del documento, con el trato de usted dentro.");
+
 if ((settings["bot_paused"] ?? "") === "1") {
   ojo("El bot está EN PAUSA desde el panel: no está contestando a nadie.");
   avisos++;
@@ -228,6 +253,40 @@ for (const f of intrusos) {
   ojo(`${f.code} ("${f.name}") está en la base y no en el documento. ¿Producto nuevo sin registrar?`);
   avisos++;
 }
+
+// ── 2b. Borradores del flywheel esperando aprobación ──────────────────────
+console.log("\n2b · Sugerencias pendientes en la pestaña Mejoras");
+const sugerencias = consultar<{ id: string; title: string; payload: string }>(
+  db,
+  "SELECT id, title, payload FROM improvement_suggestions WHERE status = 'proposed'",
+);
+const envenenadas = sugerencias.filter((s) =>
+  /barber[íi]a|Monterrey|81 1234 5678|COMPLETA AQU[ÍI]|Av\. Constituci[óo]n/i.test(s.payload),
+);
+if (envenenadas.length) {
+  mal(
+    `${envenenadas.length} sugerencia(s) pendientes arrastran el negocio de EJEMPLO de la\n` +
+      "    plantilla (la barbería de Monterrey) o traen un [COMPLETA AQUÍ] sin rellenar.\n" +
+      "    Están a un clic de entrar a la base de conocimiento desde /admin/mejoras.\n" +
+      `    ${envenenadas.map((s) => `"${s.title}"`).join(" · ")}`,
+  );
+  problemas++;
+} else if (sugerencias.length) {
+  ojo(`${sugerencias.length} sugerencia(s) pendientes de revisar, ninguna con rastro de la plantilla.`);
+  avisos++;
+} else ok("Ninguna sugerencia pendiente.");
+
+const factosConPrecio = consultar<{ n: number }>(
+  db,
+  "SELECT COUNT(*) AS n FROM customer_facts WHERE fact LIKE '%$%'",
+);
+if ((factosConPrecio[0]?.n ?? 0) > 0) {
+  mal(
+    `${factosConPrecio[0].n} dato(s) recordados de clientes llevan un precio dentro. Se inyectan\n` +
+      "    en la conversación como bloque <cliente> y no se actualizan cuando cambie el catálogo.",
+  );
+  problemas++;
+} else ok("Ningún dato recordado de cliente lleva precios congelados.");
 
 // ── 3. kb_docs del panel contra member/kb/ ────────────────────────────────
 console.log("\n3 · Documentos de conocimiento escritos desde el panel");
