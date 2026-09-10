@@ -79,7 +79,9 @@ el trato y los límites duros viven en `member/config.local.ts`.
 Nunca escriba un precio de producto en `member/kb/` ni en `member/config.local.ts`. Lo que
 va al `<business_context>` se inyecta entero en el prompt en cada turno, así que el modelo
 lo lee **antes** de decidir si consulta el catálogo: un precio ahí le gana a D1 en silencio.
-Hay tests en `test/babycaleb/` que fallan si esa regla se rompe.
+Hay tests en `test/babycaleb/` que fallan si esa regla se rompe. Y como los tests
+vigilan los archivos pero el bot lee D1, **`pnpm auditar`** compara la base en vivo
+contra el documento de la dueña (solo lectura; necesita `CLOUDFLARE_API_TOKEN`).
 
 La verdad del negocio es el documento de la dueña (**PREGUNTAS_BABY_CALEB_usted.docx**,
 2026-09), transcrito en `test/babycaleb/verdad-del-cliente.ts`. Cuando llegue un documento

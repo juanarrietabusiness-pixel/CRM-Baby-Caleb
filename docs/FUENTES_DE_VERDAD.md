@@ -122,7 +122,48 @@ perder existencias, use `src/db/verdad-2026-09.sql`, que es idempotente.
 
 ---
 
-## 5. Los tests que cierran la brecha
+## 5. Comprobar la base EN VIVO: `pnpm auditar`
+
+Los tests vigilan los **archivos del repo**. El bot no lee archivos: lee D1.
+Entre los dos hay un paso manual —aplicar el `.sql`, guardar en el panel— y
+todo lo que depende de que alguien se acuerde, algún día no se hace.
+
+```bash
+pnpm auditar     # solo lee, nunca escribe
+```
+
+Contesta tres preguntas, en orden de qué tan callado es el daño:
+
+1. **¿Hay algo en `settings` que le esté ganando al catálogo?** Un
+   `system_prompt_override` guardado anula el bloque `<fuentes_de_verdad>`
+   entero; un `business_context` viejo mete precios en el prompt de cada turno;
+   una tool apagada deja al bot sin fuente. También avisa si el flywheel
+   aprendió una lección con cifras de dinero dentro: esas van al prompt y no se
+   actualizan cuando cambie el catálogo.
+2. **¿Los precios de `catalog_items` son los del documento?** Producto por
+   producto, y avisa de los que están inactivos o con stock en cero (el bot los
+   ofrece como agotados) y de los que están en la base pero no en el documento.
+3. **¿Hay documentos escritos desde `/admin/kb`?** No están en git: nadie los
+   revisa, nadie ve el diff, y conviven en el mismo índice con los de
+   `member/kb/`.
+
+Distingue **problemas** (el bot dice algo falso — sale con código 1) de
+**avisos** (el bot se calla o se queda corto). Sirve igual en CI que a mano.
+
+**Necesita credenciales de Cloudflare.** En una sesión remota, sin navegador,
+la única vía es un token de API:
+
+```bash
+export CLOUDFLARE_API_TOKEN=...    # NUNCA lo pegue en un chat
+export CLOUDFLARE_ACCOUNT_ID=...
+```
+
+El token se crea en <https://dash.cloudflare.com/profile/api-tokens> con
+permisos de cuenta **D1:Edit · Workers Scripts:Edit · Vectorize:Edit ·
+Account Settings:Read**. En una computadora con navegador basta
+`wrangler login`.
+
+## 6. Los tests que cierran la brecha
 
 En `test/babycaleb/`. El fallo que importa aquí no es un crash: es que el bot
 cotice $45 donde son $50 y nadie se entere hasta que una clienta reclame. Por
@@ -146,6 +187,10 @@ contra código.
   bot igual arranca diciendo la verdad.
 - **`busqueda-catalogo.test.ts`** — preguntar por la talla M devuelve **un**
   producto y no doce; "XL" no arrastra "XXL"; y se encuentra sin tildes.
+- **`auditoria.test.ts`** — que `pnpm auditar` reconozca la falta de
+  credenciales (para dar la instrucción útil en vez de un volcado), que
+  encuentre el JSON entre los avisos de colores de wrangler, y que **solo haga
+  `SELECT`**: una auditoría que modifique la base no es una auditoría.
 
 Lo que **ya estaba cubierto** antes de este trabajo y sigue verde, sin tocarlo:
 que `catalogQuery` nunca devuelva el costo, que nunca devuelva la cantidad
