@@ -8,6 +8,10 @@ export const SETTING_KEYS = {
   botName: "bot_name",
   tone: "tone",
   formaDeTrato: "forma_de_trato", // usted | tu | vos — cómo se dirige el bot a la clienta
+  // "1" = toda imagen/audio/archivo entrante crea ticket y NO llega al modelo.
+  // Para negocios donde un archivo siempre lo revisa una persona (comprobantes
+  // de pago, por ejemplo). Ver src/agent.ts.
+  escalarMedia: "escalar_media",
   bufferSeconds: "buffer_seconds",
   maxChunks: "max_chunks",
   interChunkDelayMs: "inter_chunk_delay_ms",

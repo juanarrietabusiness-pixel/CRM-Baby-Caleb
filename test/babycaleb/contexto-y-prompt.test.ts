@@ -86,8 +86,14 @@ describe("el contexto sí trae lo que no está en ninguna otra parte", () => {
     expect(contexto).toMatch(/wipes nateen/i);
   });
 
-  it("que las imágenes y comprobantes escalan siempre", () => {
-    expect(contexto).toMatch(/imagen.*escale|escale.*imagen/is);
+  it("que las imágenes y comprobantes los revisa una persona, siempre", () => {
+    // Antes decía "escale" a secas. Ahora dice algo más fuerte y además
+    // cierto: el archivo ni siquiera le llega al bot, y el ticket ya está
+    // creado. Y prohíbe lo único que no puede pasar nunca — dar por bueno un
+    // pago que nadie verificó.
+    expect(contexto).toMatch(/imagen/i);
+    expect(contexto).toMatch(/retiene el archivo y abre el ticket solo/i);
+    expect(contexto).toMatch(/NUNCA dé por confirmado un pago a partir de un archivo/i);
   });
 
   it("que el delivery se consulta, nunca se estima", () => {

@@ -22,6 +22,8 @@ export interface AgentConfig {
   temperature?: number;
   /** Monthly AI budget (USD). undefined = no cap. */
   monthlyBudgetUsd?: number;
+  /** Todo archivo entrante crea ticket y NO se le muestra al modelo. */
+  escalarMedia: boolean;
   /** BYO-LLM del dashboard (proveedor / API key / modelo). */
   llm: LlmOverrides;
 }
@@ -164,6 +166,7 @@ export async function resolveAgentConfig(env: Env, toolNames: string[]): Promise
   const interChunkDelayMs = clamp(parseIntOr(get(SETTING_KEYS.interChunkDelayMs), 1000), 0, 5000);
   const modelOverride = normalizeModelOverride(get(SETTING_KEYS.modelOverride));
   const botPaused = get(SETTING_KEYS.botPaused) === "1";
+  const escalarMedia = get(SETTING_KEYS.escalarMedia) === "1";
 
   const tempRaw = get(SETTING_KEYS.temperature);
   let temperature: number | undefined;
@@ -186,6 +189,7 @@ export async function resolveAgentConfig(env: Env, toolNames: string[]): Promise
     interChunkDelayMs,
     modelOverride,
     botPaused,
+    escalarMedia,
     enabledToolNames,
     temperature,
     monthlyBudgetUsd,
