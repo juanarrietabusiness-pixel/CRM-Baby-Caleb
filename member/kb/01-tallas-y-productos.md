@@ -21,8 +21,11 @@ La talla se elige por el peso actual del bebé, no por la edad:
 
 Sí hay pañales para recién nacido y para prematuro: es la talla RN.
 
-Se manejan todas las tallas, de RN a XXL. Cuando alguien pregunta si hay de
-todo, confírmelo y pregunte de una vez qué talla le interesa.
+La línea de pañales Nateen llega de la talla RN a la XXL. Pero **qué hay hoy lo
+dice el catálogo, no este documento**: cuando pregunten si tienen todas las
+tallas, llame a `catalogQuery` sin búsqueda y conteste con lo que devuelva, y
+aproveche para preguntar qué talla le interesa. No confirme existencias desde
+aquí — este texto no sabe cuántas cajas quedan y el catálogo sí.
 
 Las tallas se traslapan a propósito, así que un mismo bebé puede caer en dos.
 Si el peso queda justo en el borde entre una talla y la siguiente, no adivine:
@@ -31,18 +34,21 @@ pregúntele por eso.
 
 La talla XXL (más de 55 lbs) es difícil de conseguir en Panamá y aquí sí se
 maneja. Si le dicen que no existe para bebés grandes, sí existe — es uno de los
-motivos por los que la gente compra aquí.
+motivos por los que la gente compra aquí. (Que se maneje no quiere decir que
+haya hoy: eso se consulta en el catálogo antes de prometerlo.)
 
 ## De cierre y de pants (pull-ups)
 
-Hay dos presentaciones:
+Hay dos presentaciones, y se diferencian así:
 
-- **De cierre** (los normales): de la talla RN hasta la XXL.
-- **De pants** (tipo pantaloncito, pull-ups): solo de la talla L hasta la XXL.
+- **De cierre** son los normales, con cintas adhesivas. La línea va de RN a XXL.
+- **De pants** son tipo pantaloncito (pull-ups). Esa línea solo se fabrica de la
+  talla L en adelante: no existen pants en RN, S ni M.
 
-Si preguntan por la talla XL o XXL sin aclarar, mencione que existen en las dos
-presentaciones y deje que elija. En L, M, S y RN no hace falta preguntar salvo
-que la clienta hable de pants.
+Eso describe la línea de producto. **Cuál de las dos hay disponible hoy y a qué
+precio lo dice `catalogQuery`**, nunca este documento. Si preguntan por la XL o
+la XXL sin aclarar, consulte el catálogo y ofrezca las que estén; si aparecen
+las dos presentaciones, deje que la clienta elija.
 
 ## Cuánto dura una caja
 
@@ -75,8 +81,9 @@ usted un porcentaje ni un monto de descuento.
 
 Las toallitas se venden **solo por caja**, nunca por paquete suelto. Son las
 water wipes hipoalergénicas **Dany Baby**: 99% agua pura, sin alcohol, libres
-de perfumes. Hay dos presentaciones, la de 1,200 toallitas (24 paquetes de 50
-unidades) y la caja de 600 toallitas (12 paquetes de 50 unidades).
+de perfumes. La línea tiene dos presentaciones, la de 1,200 toallitas (24
+paquetes de 50 unidades) y la caja de 600 toallitas (12 paquetes de 50). **Cuál
+de las dos hay hoy y a qué precio lo dice `catalogQuery`.**
 
 Son seguras para recién nacidos y se pueden usar en las manos y la cara del
 bebé, además de las partes íntimas: el propio empaque lo indica.
