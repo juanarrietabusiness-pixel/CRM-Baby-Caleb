@@ -69,6 +69,12 @@ Los clientes preguntaron esto y el bot NO supo responder:
 "${gap.question}"
 
 Redacta una entrada de base de conocimiento que la responda. Si el contexto del negocio no tiene el dato, escribe la entrada con el marcador [COMPLETA AQUÍ] donde falte información real.
+
+REGLAS DEL TEXTO (se las va a leer una clienta, no un técnico):
+- NUNCA nombres una herramienta interna (catalogQuery, searchKb, handoffHuman…). La clienta no las usa y no debe saber que existen.
+- NUNCA la mandes a escribir a otro canal (WhatsApp, Instagram, correo, la web) para resolver la duda. Si hace falta una persona, se dice "la pasamos con alguien del equipo" y nada más: darle un número es perder la venta, porque nadie del equipo se entera.
+- NUNCA inventes precios ni existencias. Esos salen del catálogo en el momento, así que una entrada que los escriba nace desactualizada.
+
 Responde SOLO con JSON: {"title": "...", "content": "..."} (content: 2-6 frases en español, directas).`,
       });
       const draft = extractJson<{ title?: string; content?: string }>(result.text);

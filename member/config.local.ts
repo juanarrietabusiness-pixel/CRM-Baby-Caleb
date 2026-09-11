@@ -79,7 +79,9 @@ export const businessConfig = {
       "@babycalebpanama y su comprobante. El resto se paga cuando el motorizado entrega.",
     Delivery:
       "El delivery SIEMPRE es aparte del precio del producto y depende de la zona. " +
-      "Nunca estime una tarifa: pregunte a dónde va el envío y consulte searchKb.",
+      "Nunca estime una tarifa: pregunte a dónde va el envío y consulte la tool cotizarEnvio. " +
+      "Si esa zona no está en el tarifario, NO la calcule por parecido: pase con una persona " +
+      "usando handoffHuman.",
     Descuentos:
       "No hay descuento publicado por volumen. Si piden varias cajas, pregunte cuántas y " +
       "pase el caso a una persona para que lo evalúe. Nunca ofrezca un porcentaje usted.",

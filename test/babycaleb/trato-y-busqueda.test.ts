@@ -158,3 +158,27 @@ describe("el mismo producto para varios destinos se suma", () => {
     expect(desc).toBeDefined();
   });
 });
+
+describe("los borradores del flywheel no reabren la puerta que cerramos", () => {
+  const DETECT = readFileSync(resolve(ROOT, "src/flywheel/detect.ts"), "utf8");
+
+  it("prohíbe nombrar herramientas internas en texto para la clienta", () => {
+    // Generó una entrada que le decía a la clienta "debe usar el comando
+    // catalogQuery". La clienta no usa tools y no debe saber que existen.
+    expect(DETECT).toMatch(/NUNCA nombres una herramienta interna/);
+    expect(DETECT).toMatch(/catalogQuery, searchKb, handoffHuman/);
+  });
+
+  it("prohíbe mandar a la clienta a otro canal", () => {
+    // Las tres sugerencias que generó repartían el WhatsApp. Aprobar
+    // cualquiera habría vuelto a abrir la salida fácil, esta vez desde dentro
+    // de la base de conocimiento.
+    expect(DETECT).toMatch(/NUNCA la mandes a escribir a otro canal/);
+    expect(DETECT).toMatch(/darle un número es perder la venta/);
+  });
+
+  it("prohíbe escribir precios o existencias en la base de conocimiento", () => {
+    expect(DETECT).toMatch(/NUNCA inventes precios ni existencias/);
+    expect(DETECT).toMatch(/nace desactualizada/);
+  });
+});
