@@ -814,6 +814,26 @@ adminApp.post("/conversations/:id/pause", async (c) => {
   return c.html(await renderThreadLive(c.env, id));
 });
 
+/**
+ * Borrar una conversación entera. Irreversible, por eso va detrás de una
+ * confirmación escrita en la vista y no de un botón suelto.
+ *
+ * Existe por dos motivos que pidió el dueño. Uno: para probar el bot en limpio
+ * — el agente mete los últimos 20 mensajes en cada respuesta, así que una
+ * conversación larga arrastra su propio estilo, y el bot llega a copiarse a sí
+ * mismo. Dos: su clienta va a querer borrar chats para no acumularlos, igual
+ * que en cualquier bandeja.
+ *
+ * Los leads y los tickets NO se borran: se desligan. Un pedido existió aunque
+ * se borre el chat.
+ */
+adminApp.post("/conversations/:id/delete", async (c) => {
+  const id = c.req.param("id");
+  const convs = new ConversationsRepo(new Db(c.env.DB));
+  await convs.deleteConversation(id);
+  return c.redirect("/admin/conversations");
+});
+
 // Return a paused conversation back to the bot. Clears paused_until AND appends
 // an owner-authored summary of the human handoff to the message history, so the
 // bot resumes with context about what the owner already resolved.

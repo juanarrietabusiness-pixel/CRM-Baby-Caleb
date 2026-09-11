@@ -257,6 +257,32 @@ export async function renderThreadLive(env: Env, convId: string): Promise<string
       ⏸ Pausar bot aquí
     </button>`;
 
+  /**
+   * Borrar el chat. Va en un <details> y no en un botón suelto porque es
+   * irreversible: hay que abrirlo y confirmar, que es un gesto deliberado y no
+   * un dedo que resbala en el teléfono. El texto dice exactamente qué se va y
+   * qué se queda, para que nadie descubra después que borró un pedido.
+   */
+  const borrar = `
+    <details style="position:relative">
+      <summary class="chip tap" style="cursor:pointer;list-style:none;font-size:11px;color:var(--muted);background:var(--panel2);border:1px solid var(--linelit);padding:6px 11px;display:inline-flex;align-items:center;gap:6px;min-height:32px">
+        ${ico("trash-2")} Borrar chat
+      </summary>
+      <form method="POST" action="/admin/conversations/${encodeURIComponent(convId)}/delete"
+            style="position:absolute;right:0;z-index:10;margin-top:8px;width:min(300px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--linelit);box-shadow:0 18px 48px rgba(0,0,0,.55);padding:12px">
+        <p style="font-size:11px;color:var(--muted);margin:0 0 6px;line-height:1.5">
+          Se borran los mensajes de este chat y lo que el bot había aprendido de esta persona.
+          <strong style="color:var(--cream)">No se puede deshacer.</strong>
+        </p>
+        <p style="font-size:11px;color:var(--muted);margin:0 0 10px;line-height:1.5">
+          Sus leads y sus tickets <strong style="color:var(--cream)">no se borran</strong>: siguen en el panel.
+        </p>
+        <button class="bigbtn tap" style="width:100%;background:var(--danger,#b3261e);border:1px solid var(--danger,#b3261e);color:#fff;padding:10px;font-size:12px;font-weight:700;font-family:var(--font-display);cursor:pointer;min-height:44px">
+          Sí, borrar este chat
+        </button>
+      </form>
+    </details>`;
+
   const header = `
   <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)">
     <a href="/admin/conversations" class="inbox-back tap" aria-label="Volver a la lista de conversaciones"
@@ -269,6 +295,7 @@ export async function renderThreadLive(env: Env, convId: string): Promise<string
     ${sentBadge}
     ${openTicket > 0 ? `<span style="${statusBadge("var(--accent-2)")}">${ico("bell")} ticket abierto</span>` : ""}
     ${controls}
+    ${borrar}
   </div>`;
 
   // Messages, DESC in the DOM + column-reverse = pinned to bottom.
