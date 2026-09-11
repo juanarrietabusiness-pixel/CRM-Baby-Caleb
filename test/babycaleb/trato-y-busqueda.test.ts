@@ -15,6 +15,8 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderSystemPrompt } from "../../src/system-prompt";
+import { renderBusinessContext } from "../../src/businessContext";
+import { cotizarEnvioTool } from "../../src/tools/cotizarEnvio";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SEARCH_KB = readFileSync(resolve(ROOT, "src/tools/searchKb.ts"), "utf8");
@@ -61,10 +63,32 @@ describe("la forma de trato es una decisión del negocio, no del modelo", () => 
     expect(prompt("vos")).toMatch(/usa el voseo/i);
   });
 
+  it("la regla se repite al FINAL, que es lo último que lee el modelo", () => {
+    // Con la regla solo arriba, el bot tuteó y voseó en una conversación real
+    // teniendo el bloque completo en el prompt. Los modelos pequeños pesan
+    // mucho más lo último que leyeron, y este bot corre en Haiku por decisión
+    // del dueño: arriba se establece la regla, al final se recuerda.
+    const p = prompt("usted");
+    expect(p).toContain("<ultimo_recordatorio>");
+    expect(p.trimEnd().endsWith("</ultimo_recordatorio>")).toBe(true);
+    expect(p.indexOf("<ultimo_recordatorio>")).toBeGreaterThan(p.indexOf("</anti_patterns>"));
+  });
+
+  it("enseña con frases corregidas, no solo con reglas", () => {
+    // Un modelo pequeño copia patrones mejor de lo que sigue reglas abstractas.
+    // Los ejemplos son las frases exactas que el bot dijo mal en producción.
+    const p = prompt("usted");
+    expect(p).toContain('MAL: "¿Te sirven las 30 cajas?"');
+    expect(p).toContain('BIEN: "¿Le sirven las 30 cajas?"');
+    expect(p).toContain('MAL: "Aquí está el estado de tu pedido"');
+    expect(p).toMatch(/ANTES DE ENVIAR CADA MENSAJE, reléelo/);
+  });
+
   it("sin forma de trato declarada, el prompt no dice nada", () => {
     // La plantilla la usan negocios de varios países: imponer un trato por
     // defecto sería peor que no decir nada.
     expect(prompt()).not.toContain("<forma_de_trato>");
+    expect(prompt()).not.toContain("<ultimo_recordatorio>");
   });
 });
 
@@ -90,5 +114,47 @@ describe("searchKb ya no descarta respuestas buenas", () => {
 
   it("trae más fragmentos, porque la respuesta puede caer en el trozo vecino", () => {
     expect(SEARCH_KB).toMatch(/topK:\s*8/);
+  });
+});
+
+describe("escalar es llamar handoffHuman, no repartir el teléfono", () => {
+  const contexto = renderBusinessContext();
+
+  it("el contexto no ofrece los canales como salida fácil", () => {
+    // Estuvo aquí con los teléfonos completos y se volvió la vía de escape:
+    // ante un pedido de 70 cajas a una zona sin tarifa, el bot pegó el
+    // WhatsApp y el Instagram en vez de escalar. Cero tickets: la dueña nunca
+    // supo del pedido.
+    expect(contexto).toMatch(/NUNCA los ofrezca para quitarse una conversación/i);
+    expect(contexto).toMatch(/eso se hace con handoffHuman/i);
+    expect(contexto).toMatch(/Mandar a la clienta a otro canal por su cuenta es perder la venta/i);
+  });
+
+  it("los datos se dan si los piden, no para despedirse", () => {
+    expect(contexto).toMatch(/Si le PIDEN los datos de contacto/i);
+    expect(contexto).toMatch(/no dar un número y despedirse/i);
+  });
+
+  it("cotizarEnvio manda a escalar, no a otro canal", async () => {
+    const tool = cotizarEnvioTool({} as never);
+    const r = (await (tool as never as { execute: Function }).execute({
+      zona: "Marbella",
+    })) as { encontrada: boolean; mensaje: string };
+    expect(r.encontrada).toBe(false);
+    expect(r.mensaje).toMatch(/LLAMA A handoffHuman AHORA/);
+    expect(r.mensaje).toMatch(/NO le des el WhatsApp, el Instagram ni el correo/);
+  });
+});
+
+describe("el mismo producto para varios destinos se suma", () => {
+  it("catalogQuery avisa de no consultar por separado", async () => {
+    // Pidieron 40 cajas de talla L para una zona y 20 para otra. El bot
+    // consultó dos veces y prometió las dos: 60 cajas de un inventario de 30.
+    const { catalogQueryTool } = await import("../../src/tools/catalogQuery");
+    const desc = (catalogQueryTool({} as never) as { inputSchema?: unknown }) as never;
+    const fuente = readFileSync(resolve(ROOT, "src/tools/catalogQuery.ts"), "utf8");
+    expect(fuente).toMatch(/SUMA las cantidades y consulta UNA sola vez/);
+    expect(fuente).toMatch(/prometas dos veces las mismas cajas/);
+    expect(desc).toBeDefined();
   });
 });

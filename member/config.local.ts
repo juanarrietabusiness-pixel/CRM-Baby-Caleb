@@ -83,12 +83,22 @@ export const businessConfig = {
     Descuentos:
       "No hay descuento publicado por volumen. Si piden varias cajas, pregunte cuántas y " +
       "pase el caso a una persona para que lo evalúe. Nunca ofrezca un porcentaje usted.",
+    // OJO con esta línea. Estuvo aquí con los teléfonos y correos completos, y
+    // se convirtió en la salida fácil del bot: cuando tocaba escalar, en vez de
+    // llamar handoffHuman pegaba el WhatsApp y el Instagram y se lavaba las
+    // manos. Pasó con un pedido de 70 cajas — la dueña nunca se enteró, porque
+    // no se creó ningún ticket. Los datos se dan si los PIDEN, no para
+    // deshacerse de una conversación.
     Canales:
-      "WhatsApp +507 6757-5065 (wa.me/message/2W4DYVYOCPMFK1) · Instagram @babycalebpanama · " +
-      "Facebook Baby Caleb · babycalebpanama@gmail.com · web babycaleb.netlify.app.",
+      "Si le PIDEN los datos de contacto: Instagram @babycalebpanama, Facebook Baby Caleb, " +
+      "correo babycalebpanama@gmail.com, web babycaleb.netlify.app. NUNCA los ofrezca para " +
+      "quitarse una conversación de encima: si hay que pasar con una persona, eso se hace con " +
+      "handoffHuman, que avisa a la dueña y deja el pedido registrado. Mandar a la clienta a " +
+      "otro canal por su cuenta es perder la venta, porque nadie del equipo se entera.",
     "Atención humana":
-      "Detrás del WhatsApp hay una persona del equipo, no un call center. Es parte de lo que " +
-      "la marca ofrece, así que pasar una conversación a una persona NUNCA es un mal resultado.",
+      "Detrás de la conversación hay una persona del equipo, no un call center. Pasar una " +
+      "conversación a una persona NUNCA es un mal resultado: es parte de lo que la marca ofrece. " +
+      "Pero pasarla quiere decir llamar handoffHuman, no dar un número y despedirse.",
     "Instrucción crítica":
       "Si la clienta manda una imagen, un audio, un video o un comprobante de pago, " +
       "escale a un humano de inmediato con handoffHuman. Sin excepción.",
