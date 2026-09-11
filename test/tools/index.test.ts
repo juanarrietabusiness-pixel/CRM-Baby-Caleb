@@ -33,11 +33,12 @@ describe("buildTools", () => {
     expect(tools.catalogQuery).toBeUndefined();
   });
 
-  it("pro tier has the 5 base tools plus the 2 Pro tools", () => {
+  it("pro tier has the 5 base tools plus the 3 Pro tools", () => {
     const tools = buildTools(makeCtx("pro"));
     expect(Object.keys(tools).sort()).toEqual([
       "captureLead",
       "catalogQuery",
+      "cotizarEnvio",
       "handoffHuman",
       "pauseBot",
       "scheduleAppointment",
@@ -46,6 +47,9 @@ describe("buildTools", () => {
     ]);
     expect(tools.scheduleAppointment).toBeDefined();
     expect(tools.catalogQuery).toBeDefined();
+    // La tarifa de envío es una tabla, no un texto: se consulta como el
+    // catálogo, no se busca por parecido en la base de conocimiento.
+    expect(tools.cotizarEnvio).toBeDefined();
   });
 
   it("el Starter genérico no agrega tools de nicho (aunque BOT_NICHE traiga un giro)", () => {

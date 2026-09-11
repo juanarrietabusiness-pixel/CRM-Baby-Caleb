@@ -8,6 +8,7 @@ export interface SystemPromptInput {
   toolList: string[];               // names of available tools
   nichoPlaybook?: string;           // injected by skill at deploy time
   tone?: string;                    // owner-chosen tone (e.g. "cálido y cercano")
+  formaDeTrato?: FormaDeTrato;      // usted | tu | vos — decisión del negocio, no del modelo
   extraEscalationKeywords?: string[]; // extra words that trigger a human handoff
   lessons?: string[];               // flywheel: rules distilled from owner takeovers
 }
@@ -26,6 +27,7 @@ reply in {{LANGUAGE}} anyway. Acknowledge the switch once at the start
 Frustration keywords + diagnostic playbooks below may be Spanish — match
 their semantic equivalents in any language.
 </output_language>
+{{FORMA_DE_TRATO}}
 
 <role>
 Eres {{BOT_NAME}}, el asistente de {{BUSINESS_NAME}}. Tu misión: ayudar al
@@ -93,6 +95,7 @@ NO escales cuando:
 <anti_patterns>
 NUNCA:
 - "Como modelo de lenguaje..." — eres {{BOT_NAME}}.
+- Cambiar la forma de trato porque el cliente te habla de otra manera.
 - Decir que eres humano, o esquivar la pregunta de si eres un bot.
 - Inventar precios/horarios/servicios fuera de business_context.
 - Nombrar un producto, un precio o una existencia que no salió de una tool.
@@ -162,6 +165,52 @@ ${reglas.join("\n")}
 </fuentes_de_verdad>`;
 }
 
+export type FormaDeTrato = "usted" | "tu" | "vos";
+
+/**
+ * Cómo se dirige el bot a quien le escribe. Va pegado a <output_language>, que
+ * es el bloque que el modelo sí respeta, y por la misma razón: es una decisión
+ * del NEGOCIO, no un matiz de estilo que el modelo pueda ajustar según cómo le
+ * hablen.
+ *
+ * Nace de un caso real. El trato de usted estaba escrito en el contexto del
+ * negocio —una línea entre otras quince— y el bot igual contestaba "mejor lo
+ * hablás con el equipo" y "¿te sirven las 30 cajas?". La dueña trata de usted a
+ * todas sus clientas; el bot tuteaba y voseaba en la misma conversación.
+ *
+ * El modelo arrastra el registro de la conversación si la regla no es
+ * inequívoca. Aquí lo es: incluye las formas verbales, porque decir "usa usted"
+ * no basta — "te sirven" se cuela igual.
+ */
+const TRATO: Record<FormaDeTrato, string> = {
+  usted: `<forma_de_trato>
+IGUAL DE OBLIGATORIO QUE EL IDIOMA.
+
+Trata a quien te escribe de USTED, siempre, en el 100% de tus mensajes.
+Aunque la clienta te tutee. Aunque la conversación se vuelva de confianza.
+Aunque estés confirmando un pedido.
+
+Concretamente: "le dejamos", "su bebé", "indíquenos", "me indica", "usted",
+"le sirve", "le confirmo", "escríbanos", "dígame", "puede", "prefiere".
+
+NUNCA: "te", "tu", "tus", "tienes", "puedes", "prefieres", "escríbenos",
+"te sirve", "contigo", ni ninguna forma de voseo ("vos", "tenés", "hablás",
+"querés"). Si te sale una de estas, la frase está mal y hay que rehacerla.
+</forma_de_trato>`,
+  tu: `<forma_de_trato>
+IGUAL DE OBLIGATORIO QUE EL IDIOMA.
+
+Tutea a quien te escribe: "tu bebé", "escríbenos", "¿te sirve?". Nunca uses
+"usted" ni voseo ("vos", "tenés"), aunque la clienta lo use contigo.
+</forma_de_trato>`,
+  vos: `<forma_de_trato>
+IGUAL DE OBLIGATORIO QUE EL IDIOMA.
+
+Usa el voseo: "vos", "tenés", "querés", "escribinos". Nunca "usted" ni el
+tuteo de "tú", aunque la clienta los use.
+</forma_de_trato>`,
+};
+
 export function renderSystemPrompt(input: SystemPromptInput): string {
   const toolList = input.toolList.map((t) => `- ${t}`).join("\n");
 
@@ -194,12 +243,14 @@ ${lessons.map((l) => `- ${l}`).join("\n")}
     .replaceAll("{{FUENTES_DE_VERDAD}}", truthBlock(input.toolList))
     .replaceAll("{{NICHO_PLAYBOOK}}", input.nichoPlaybook ?? "")
     .replaceAll("{{LECCIONES}}", lessonsBlock)
+    .replaceAll("{{FORMA_DE_TRATO}}", input.formaDeTrato ? `\n${TRATO[input.formaDeTrato]}\n` : "")
     .replaceAll("{{TONE_LINE}}", toneLine)
     .replaceAll("{{EXTRA_ESCALATION}}", extraEscalation);
 }
 
 export interface SystemPromptOverrides {
   tone?: string;
+  formaDeTrato?: FormaDeTrato;
   extraEscalationKeywords?: string[];
   botName?: string;
   lessons?: string[];
@@ -220,6 +271,7 @@ export function systemPromptFromEnv(
     toolList: toolNames,
     nichoPlaybook,
     tone: overrides?.tone,
+    formaDeTrato: overrides?.formaDeTrato,
     extraEscalationKeywords: overrides?.extraEscalationKeywords,
     lessons: overrides?.lessons,
   });

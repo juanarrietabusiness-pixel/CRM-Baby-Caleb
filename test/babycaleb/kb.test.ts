@@ -14,6 +14,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildFixtures } from "../../scripts/generate-fixtures";
 import { CHUNK_CHARS } from "../../src/kb/chunk";
+import { ZONAS_CIUDAD_PANAMA } from "../../member/zonas-envio";
 import {
   PRODUCTOS,
   TALLAS,
@@ -97,12 +98,24 @@ describe("tallas y presentaciones", () => {
 });
 
 describe("envíos y delivery", () => {
-  it.each(TARIFAS_DELIVERY)("%s cuesta %s", (zona, tarifa) => {
-    const i = KB.indexOf(zona);
-    expect(i, `falta la zona ${zona}`).toBeGreaterThan(-1);
-    // La tarifa va pegada al nombre de la zona; si estuviera lejos, el trozo
-    // que recupere searchKb podría traer la zona sin su precio.
-    expect(KB.slice(i, i + zona.length + 6)).toContain(tarifa);
+  it.each(TARIFAS_DELIVERY)("%s cuesta %s, y sale de cotizarEnvio", (zona, tarifa) => {
+    // El tarifario se mudó del KB a member/zonas-envio.ts. Vivía aquí y falló
+    // en producción: buscar una tabla de 50 nombres propios por parecido de
+    // redacción es una lotería, y el bot negó la tarifa de Tocumen teniéndola.
+    const z = ZONAS_CIUDAD_PANAMA.find((x) => x.nombre === zona);
+    expect(z, `falta la zona ${zona} en el tarifario`).toBeDefined();
+    expect(`$${z!.tarifaCents / 100}`).toBe(tarifa);
+  });
+
+  it("las tarifas NO están duplicadas en la base de conocimiento", () => {
+    for (const [zona, tarifa] of TARIFAS_DELIVERY) {
+      expect(KB, `"${zona} ${tarifa}" quedó duplicado en el KB`).not.toContain(`${zona} ${tarifa}`);
+    }
+  });
+
+  it("el KB manda a consultar la tool en vez de recitar precios", () => {
+    expect(KB).toContain("cotizarEnvio");
+    expect(KB).toMatch(/El tarifario zona por zona vive en la tool/i);
   });
 
   it("el delivery nunca va incluido en el precio del producto", () => {

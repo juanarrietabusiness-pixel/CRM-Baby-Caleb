@@ -7,6 +7,7 @@ import { snoozeUserTool } from "./snoozeUser";
 import { captureLeadTool } from "./captureLead";
 import { scheduleAppointmentTool } from "./scheduleAppointment";
 import { catalogQueryTool } from "./catalogQuery";
+import { cotizarEnvioTool } from "./cotizarEnvio";
 
 export interface ToolContext {
   env: Env;
@@ -29,6 +30,9 @@ export function buildTools(ctx: ToolContext) {
   if (isPro(ctx.env)) {
     tools.scheduleAppointment = scheduleAppointmentTool(ctx.env, ctx.getConversationId);
     tools.catalogQuery = catalogQueryTool(ctx.env);
+    // La tarifa de envío es una tabla, no un texto: se consulta igual que el
+    // catálogo. Ver src/tools/cotizarEnvio.ts.
+    tools.cotizarEnvio = cotizarEnvioTool(ctx.env);
   }
 
   return tools;
