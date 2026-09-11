@@ -103,7 +103,7 @@ NUNCA:
 - Compartir contacto del dueño sin que el cliente lo pida.
 - Confirmar acción que no ejecutaste.
 - Ignorar la directiva <output_language>. Es la #1 prioridad.
-</anti_patterns>`;
+</anti_patterns>{{TRATO_RECORDATORIO}}`;
 
 /**
  * Bloque <fuentes_de_verdad>: el catálogo y el KB son lo ÚNICO que el bot sabe
@@ -182,6 +182,35 @@ export type FormaDeTrato = "usted" | "tu" | "vos";
  * inequívoca. Aquí lo es: incluye las formas verbales, porque decir "usa usted"
  * no basta — "te sirven" se cuela igual.
  */
+/**
+ * El mismo recordatorio, al final del prompt.
+ *
+ * No es redundancia por si acaso: los modelos pequeños pesan mucho más lo
+ * último que leyeron, y este bot corre en Haiku por decisión del dueño. Con la
+ * regla solo arriba, el bot tuteó y voseó en una conversación real teniendo el
+ * bloque completo en el prompt. Arriba establece la regla; aquí es lo último
+ * que ve antes de escribir.
+ */
+const TRATO_RECORDATORIO: Record<FormaDeTrato, string> = {
+  usted: `
+
+<ultimo_recordatorio>
+Antes de escribir: de USTED. "su pedido", "¿le sirve?", "necesita", "recuerde".
+Ni un solo "te", "tu", "tienes", "puedes" ni "contacta". Reléelo y corrígelo.
+</ultimo_recordatorio>`,
+  tu: `
+
+<ultimo_recordatorio>
+Antes de escribir: tutea. "tu pedido", "¿te sirve?", "necesitas". Nunca "usted".
+</ultimo_recordatorio>`,
+  vos: `
+
+<ultimo_recordatorio>
+Antes de escribir: voseo. "tu pedido", "¿te sirve?", "necesitás", "tenés".
+Nunca "usted".
+</ultimo_recordatorio>`,
+};
+
 const TRATO: Record<FormaDeTrato, string> = {
   usted: `<forma_de_trato>
 IGUAL DE OBLIGATORIO QUE EL IDIOMA.
@@ -196,6 +225,27 @@ Concretamente: "le dejamos", "su bebé", "indíquenos", "me indica", "usted",
 NUNCA: "te", "tu", "tus", "tienes", "puedes", "prefieres", "escríbenos",
 "te sirve", "contigo", ni ninguna forma de voseo ("vos", "tenés", "hablás",
 "querés"). Si te sale una de estas, la frase está mal y hay que rehacerla.
+
+Así se corrige, frase por frase:
+
+  MAL: "Aquí está el estado de tu pedido"
+  BIEN: "Aquí está el estado de su pedido"
+
+  MAL: "¿Te sirven las 30 cajas?"
+  BIEN: "¿Le sirven las 30 cajas?"
+
+  MAL: "¿Qué talla específica necesitas?"
+  BIEN: "¿Qué talla específica necesita?"
+
+  MAL: "Recuerda que necesitamos que confirmes"
+  BIEN: "Recuerde que necesitamos que confirme"
+
+  MAL: "contacta al equipo" · "mejor lo hablás con ellos"
+  BIEN: "la paso con una persona del equipo"
+
+ANTES DE ENVIAR CADA MENSAJE, reléelo y busca "te", "tu", "tus" y los verbos
+terminados en -as/-es de segunda persona. Si encuentras uno, corrígelo. Este
+repaso no es opcional.
 </forma_de_trato>`,
   tu: `<forma_de_trato>
 IGUAL DE OBLIGATORIO QUE EL IDIOMA.
@@ -244,6 +294,10 @@ ${lessons.map((l) => `- ${l}`).join("\n")}
     .replaceAll("{{NICHO_PLAYBOOK}}", input.nichoPlaybook ?? "")
     .replaceAll("{{LECCIONES}}", lessonsBlock)
     .replaceAll("{{FORMA_DE_TRATO}}", input.formaDeTrato ? `\n${TRATO[input.formaDeTrato]}\n` : "")
+    .replaceAll(
+      "{{TRATO_RECORDATORIO}}",
+      input.formaDeTrato ? TRATO_RECORDATORIO[input.formaDeTrato] : "",
+    )
     .replaceAll("{{TONE_LINE}}", toneLine)
     .replaceAll("{{EXTRA_ESCALATION}}", extraEscalation);
 }

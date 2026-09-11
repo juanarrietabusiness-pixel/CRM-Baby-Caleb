@@ -57,7 +57,10 @@ export function catalogQueryTool(env: Env) {
         .positive()
         .optional()
         .describe(
-          "Cuántas unidades pide la clienta. Solo cuando dio un número ('30 cajas'): la tool responde si alcanza.",
+          "Cuántas unidades pide la clienta. Solo cuando dio un número ('30 cajas'): la tool responde " +
+          "si alcanza. Si pide el MISMO producto para varios destinos ('40 para Tocumen y 20 para " +
+          "Marbella'), SUMA las cantidades y consulta UNA sola vez con el total: el inventario es uno " +
+          "solo y preguntar por separado hace que prometas dos veces las mismas cajas.",
         ),
     }),
     execute: async ({ query, cantidad }) => {

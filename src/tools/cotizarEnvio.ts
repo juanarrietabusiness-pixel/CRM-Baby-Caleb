@@ -81,9 +81,10 @@ export function cotizarEnvioTool(_env: Env) {
       return {
         encontrada: false as const,
         mensaje:
-          "Esa zona no está en el tarifario. NO la calcules por parecido con otra ni des un rango: " +
-          "dile que va a confirmar el costo del envío con el equipo y pasa la conversación a una " +
-          "persona con handoffHuman.",
+          "Esa zona no está en el tarifario. NO la calcules por parecido con otra ni des un rango. " +
+          "LLAMA A handoffHuman AHORA: dile que confirma el costo del envío con el equipo y que la " +
+          "están pasando con una persona. NO le des el WhatsApp, el Instagram ni el correo para que " +
+          "escriba por su cuenta — eso deja el pedido sin registrar y nadie del equipo se entera.",
         cargoFergusonSiEsInterior: fmtUSD(CARGO_FERGUSON_CENTS),
         notaInterior:
           "Si la zona es de otra provincia (Colón, Los Santos, Veraguas, Changuinola…), el envío va por " +
