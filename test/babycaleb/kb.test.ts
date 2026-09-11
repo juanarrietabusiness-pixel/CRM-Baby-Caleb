@@ -199,7 +199,17 @@ describe("escalada a humano — los 18 disparadores del documento", () => {
   });
 
   it("cualquier archivo entrante escala, sin excepción", () => {
-    expect(KB).toMatch(/sin excepción.*no puede ver ni interpretar archivos/is);
+    expect(KB).toMatch(/cualquier.*imagen, video, audio o documento, escale/is);
+    expect(KB).toMatch(/sin excepción/i);
+  });
+
+  it("la razón que se le da al bot es cierta, no una premisa falsa", () => {
+    // Decía "el bot no puede ver ni interpretar archivos". Era falso: sí
+    // podía. Ahora es cierto porque el sistema retiene el archivo — y una
+    // regla que el modelo no puede desmentir es una regla que respeta.
+    expect(KB).not.toMatch(/el bot no puede ver ni interpretar archivos/i);
+    expect(KB).toMatch(/El archivo no le llega al bot/i);
+    expect(KB).toMatch(/Nunca dé por confirmado un pago a partir de un archivo/i);
   });
 });
 

@@ -15,6 +15,8 @@ import { selectModel } from "./upgrade/modelSelector";
 import type { Tier } from "./upgrade/modelSelector";
 import { monthIaCostUsd, applyBudgetGuard } from "./budget";
 import { CustomerFactsRepo } from "./db/facts";
+import { TicketsRepo } from "./db/tickets";
+import { notifyOwner } from "./tools/handoffHuman";
 import { createModel } from "./llm/provider";
 import { costOfUsage } from "./pricing";
 import type { ChannelId } from "./channels/shared";
@@ -213,6 +215,16 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
 
     // Load history (last 20)
     const history = await msgs.lastN(convId, 20);
+
+    // Tools y config ANTES de armar los mensajes: la config decide si al
+    // modelo se le enseña o no un archivo entrante.
+    const tools = buildTools({
+      env: this.env,
+      getConversationId: () => convId,
+    });
+    const toolNames = Object.keys(tools);
+    const cfg = await resolveAgentConfig(this.env, toolNames);
+
     const aiMessages: any[] = history.slice(0, -1).map((m) => ({
       role: (m.role === "tool"
         ? "user"
@@ -221,31 +233,68 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
           : m.role) as "user" | "assistant",
       content: m.content,
     }));
-    // Build the LAST user message multimodal-aware: if it carries an
-    // [IMAGE_URL: ...] marker AND we're on the Pro tier, attach the image.
+
+    /**
+     * El último mensaje, con imagen o sin ella.
+     *
+     * Con `escalar_media` encendido, la imagen NO se le pasa al modelo — y eso
+     * es deliberado, no una omisión. El negocio que lo enciende es el que
+     * recibe comprobantes de pago: si el modelo ve la captura del Yappy, puede
+     * contestar "veo su pago, coordino la entrega" y dar por bueno un pago que
+     * nadie verificó.
+     *
+     * La instrucción de escalar ya existía en la base de conocimiento, pero
+     * decía "el bot no puede ver ni interpretar archivos". Era falso: sí podía.
+     * Una regla que el modelo puede comprobar que es falsa es una regla débil.
+     * Ahora es cierta, porque el dato no llega.
+     */
     const lastUserMsg = history[history.length - 1];
+    let mediaEscalada = false;
     if (lastUserMsg) {
       const imgMatch = lastUserMsg.content.match(/\[IMAGE_URL: (.+?)\]/);
-      if (imgMatch && isPro(this.env)) {
-        const imageUrl = imgMatch[1];
-        const cleanText = lastUserMsg.content
-          .replace(/\n?\[IMAGE_URL: .+?\]/, "")
-          .trim();
-        aiMessages.push(buildMultimodalUserMessage(cleanText, imageUrl));
+      const cleanText = lastUserMsg.content.replace(/\n?\[IMAGE_URL: .+?\]/, "").trim();
+      if (imgMatch && isPro(this.env) && !cfg.escalarMedia) {
+        aiMessages.push(buildMultimodalUserMessage(cleanText, imgMatch[1]));
+      } else if (imgMatch && cfg.escalarMedia) {
+        mediaEscalada = true;
+        aiMessages.push({
+          role: "user",
+          content:
+            `${cleanText || "(sin texto)"}\n\n[La clienta adjuntó un archivo. NO puedes verlo: ` +
+            "ya se creó un ticket y una persona del equipo lo va a revisar. Dígale con calidez " +
+            "que lo está pasando con alguien del equipo para revisarlo. NUNCA des por confirmado " +
+            "un pago ni describas el archivo: no lo tienes.]",
+        });
       } else {
         aiMessages.push({ role: "user", content: lastUserMsg.content });
       }
     }
 
-    // Build tools registry (tier-gated in buildTools)
-    const tools = buildTools({
-      env: this.env,
-      getConversationId: () => convId,
-    });
-    const toolNames = Object.keys(tools);
-
-    // Resolve effective config (D1 settings overlaid on env defaults).
-    const cfg = await resolveAgentConfig(this.env, toolNames);
+    /**
+     * El ticket se crea AQUÍ, no se le pide al modelo que llame handoffHuman.
+     *
+     * Es la parte que le importa al negocio —que la dueña se entere— y no puede
+     * depender de que el modelo obedezca. Ya se vio: con la orden escrita en el
+     * prompt, el bot repartió el WhatsApp y no creó ni un ticket.
+     */
+    if (mediaEscalada) {
+      try {
+        const ticketId = await new TicketsRepo(db).create({
+          conversationId: convId,
+          category: "other",
+          summary: "La clienta envió un archivo (imagen, audio o documento). Requiere revisión humana.",
+          transcript: "",
+        });
+        await convs.setOpenTicket(convId, ticketId);
+        await notifyOwner(this.env, {
+          reason: "archivo recibido",
+          summary: "La clienta envió un archivo que el bot no puede revisar.",
+          ticketId,
+        });
+      } catch (e) {
+        console.error("[SupportAgent] no se pudo crear el ticket del archivo:", e);
+      }
+    }
 
     // Honor the dashboard's tool toggles: the prompt already only advertises
     // enabled tools (settings-loader), so the registry must match.
