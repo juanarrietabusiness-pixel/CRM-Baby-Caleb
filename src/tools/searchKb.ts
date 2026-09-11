@@ -46,12 +46,30 @@ export function searchKbTool(env: Env) {
         // así que una respuesta puede caer en el trozo vecino al que más se
         // parece a la pregunta. Traer tres más cuesta nada y evita el fallo
         // silencioso de que el dato exista y el bot conteste que no lo tiene.
-        const matches = await env.KB.query(vec, { topK: 8 });
-        const results: SearchKbResult[] = (matches.matches ?? []).map((m: any) => ({
-          title: (m.metadata?.title as string) ?? "",
-          content: (m.metadata?.content as string) ?? "",
-          score: m.score ?? 0,
-        }));
+        //
+        // returnMetadata: "all" NO es opcional. En Vectorize el valor por
+        // defecto es "none": sin esta línea, `query` devuelve los ocho ids con
+        // su score y NINGÚN metadato, así que el `.map()` de abajo producía
+        // title: "" y content: "" ocho veces. La base de conocimiento entera
+        // era ilegible en tiempo de ejecución: el bot llamaba la tool, recibía
+        // ocho cadenas vacías y contestaba "no tengo ese dato" sobre cosas que
+        // sí están escritas. Explica por qué el catálogo (que lee D1) siempre
+        // funcionó y el resto del negocio no.
+        //
+        // Tiene que ser "all" y no "indexed": el contenido llega a ~1,200
+        // caracteres y los metadatos indexados se truncan a 64 bytes; además
+        // no hay ningún índice de metadatos creado sobre `content`.
+        const matches = await env.KB.query(vec, { topK: 8, returnMetadata: "all" });
+        const results: SearchKbResult[] = (matches.matches ?? [])
+          .map((m: any) => ({
+            title: (m.metadata?.title as string) ?? "",
+            content: (m.metadata?.content as string) ?? "",
+            score: m.score ?? 0,
+          }))
+          // Un fragmento sin contenido no es una respuesta vacía: es un fallo de
+          // recuperación disfrazado. Entregárselo al modelo lo empuja a decir
+          // "no tengo ese dato" con toda seguridad. Mejor que no lo vea.
+          .filter((r: SearchKbResult) => r.content.trim() !== "");
         return { results };
       } catch (e: any) {
         return { error: "transient" as const, message: String(e?.message ?? e) };

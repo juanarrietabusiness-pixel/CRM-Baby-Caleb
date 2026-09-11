@@ -178,6 +178,35 @@ if (tono !== AJUSTES.tono) {
   avisos++;
 } else ok("El tono es el del documento, con el trato de usted dentro.");
 
+/**
+ * Los dos interruptores que más pesan y que NO se pueden poner desde el panel:
+ * hay que escribirlos a mano en D1. Si alguno se borra o nunca se puso, el bot
+ * pierde su guardarraíl más fuerte y nada más lo avisa.
+ *
+ *  • Sin forma_de_trato, el prompt omite ENTEROS el bloque <forma_de_trato> y
+ *    el <ultimo_recordatorio>: queda solo la línea del business_context, que es
+ *    exactamente el mecanismo que ya falló en producción.
+ *  • Sin escalar_media, la imagen SÍ se le pasa al modelo y NO se crea ticket:
+ *    el bot puede leer una captura de Yappy y dar un pago por confirmado.
+ */
+const trato = (settings["forma_de_trato"] ?? "").trim();
+if (trato !== "usted") {
+  mal(
+    `forma_de_trato dice "${trato || "(vacío)"}" y el documento exige "usted".\n` +
+      "    Sin ese valor el prompt se queda sin el bloque de trato y sin el recordatorio final.",
+  );
+  problemas++;
+} else ok("forma_de_trato = usted: el prompt lleva el bloque de trato y su recordatorio.");
+
+if ((settings["escalar_media"] ?? "") !== "1") {
+  mal(
+    "escalar_media está apagado: una imagen le llega al modelo y NO se abre ticket.\n" +
+      "    El documento dice que cualquier archivo escala sin excepción, y la base de\n" +
+      "    conocimiento le promete a la clienta que una persona lo revisa.",
+  );
+  problemas++;
+} else ok("escalar_media encendido: los archivos no llegan al modelo y abren ticket solos.");
+
 if ((settings["bot_paused"] ?? "") === "1") {
   ojo("El bot está EN PAUSA desde el panel: no está contestando a nadie.");
   avisos++;

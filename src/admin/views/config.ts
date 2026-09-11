@@ -214,12 +214,18 @@ export function renderConfig(
         ${renderTextArea({
           name: SETTING_KEYS.businessContext,
           label: "Información del negocio",
-          help: "Horarios, servicios, precios, ubicación. El bot responde con esto. Editable en vivo — se aplica al guardar, sin re-desplegar.",
+          // OJO: aquí decía "Horarios, servicios, precios, ubicación" y el
+          // ejemplo traía "Corte $150, barba $100". Este texto se inyecta
+          // ENTERO en el prompt en cada turno, así que el modelo lo lee ANTES
+          // de decidir si consulta el catálogo: un precio escrito aquí le gana
+          // a la base en silencio y se queda congelado. Los precios se editan
+          // en la pestaña Catálogo, que es su único dueño.
+          help: "Horarios, ubicación, cómo trabajan, qué NO hacen. Los precios y las existencias NO van aquí: esos se editan en la pestaña Catálogo. El bot responde con esto. Editable en vivo — se aplica al guardar, sin re-desplegar.",
           // Pre-llenado: si el panel aún no tiene override, muestra lo que el
           // onboarding cargó en member/config.local (renderBusinessContext) para
           // que el miembro VEA y edite sus horarios aquí desde el día 1.
           value: settings[SETTING_KEYS.businessContext] || renderBusinessContext(),
-          placeholder: "Ej. Abrimos lunes a sábado de 9 a 7. Corte $150, barba $100. Estamos en Av. Reforma 123.",
+          placeholder: "Ej. Atendemos todos los días. Somos tienda online, entregamos por delivery. No manejamos pagos contra entrega sin abono.",
           rows: 6,
         })}
 

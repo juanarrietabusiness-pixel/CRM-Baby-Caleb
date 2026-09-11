@@ -114,14 +114,19 @@ describe("<fuentes_de_verdad> separa el precio del producto de la tarifa de env�
     expect(prompt).toContain("cada dato tiene UNA sola");
   });
 
-  it("el precio del producto es de catalogQuery y la tarifa de envío de searchKb", () => {
+  it("cada monto tiene su fuente, y la tarifa de envío es cotizarEnvio", () => {
     // Sin esta distinción el prompt se contradecía solo: exigía catalogQuery
-    // "antes de decir un precio", pero el tarifario de delivery vive en el KB
-    // y no tiene forma de salir del catálogo. El bot quedaba entre inventar la
-    // tarifa o negarse a darla.
+    // "antes de decir un precio", pero el tarifario de delivery no tiene forma
+    // de salir del catálogo. El bot quedaba entre inventar la tarifa o negarse.
+    //
+    // Y decía que la tarifa salía de searchKb, que ya era falso: el tarifario
+    // se movió a member/zonas-envio.ts + cotizarEnvio justamente porque buscar
+    // ~50 nombres propios por parecido de redacción falló en producción (una
+    // clienta pidió el envío a Tocumen y el bot dijo no tenerlo).
     const bloque = prompt.split("<fuentes_de_verdad>")[1].split("</fuentes_de_verdad>")[0];
-    expect(bloque).toMatch(/tarifas de envío/i);
-    expect(bloque).toMatch(/ni catalogQuery te va a dar una\s+tarifa de envío/i);
+    expect(bloque).toMatch(/TARIFA DE ENVÍO/i);
+    expect(bloque).toMatch(/sale\s+de cotizarEnvio/i);
+    expect(bloque).toMatch(/nunca por parecido con otra zona/i);
     expect(bloque).toMatch(/no la deduzcas por parecido|NO cuesta lo que la de al lado/i);
   });
 });

@@ -10,7 +10,14 @@ import { isPro } from "../config";
 export function handoffHumanTool(env: Env, getConversationId: () => string | null) {
   return tool({
     description:
-      "Crea un ticket para el dueño + le manda email. Usalo cuando el bot no puede resolver o el cliente pide humano explícitamente.",
+      "Crea un ticket para la dueña y le avisa. Es la ÚNICA forma correcta de pasar " +
+      "una conversación con una persona: dar un WhatsApp, un Instagram o un correo NO " +
+      "es escalar, es perder la venta, porque nadie del equipo se entera. " +
+      "Úsela cuando: le hablen de pagar, digan que ya pagaron o manden un comprobante; " +
+      "pidan cancelar o cambiar un pedido; pidan cambio de talla, devolución o reembolso; " +
+      "pongan una queja o digan que no les llegó algo; pidan descuento por volumen o " +
+      "pregunten por una cantidad grande; pidan una zona de envío que no está en el " +
+      "tarifario; pidan hablar con una persona; o usted no pueda resolver con las tools.",
     inputSchema: z.object({
       reason: z.string().describe("Categoría corta del problema"),
       summary: z.string().max(300).describe("Resumen en 1 frase del contexto"),

@@ -52,7 +52,7 @@ vez de *"prompt automático"*.
 | Si hay o no hay | `catalog_items` | `catalogQuery` (etiqueta, no número) | ningún lado |
 | Costo interno | `catalog_items.cost_price` | **nunca** — no sale de la base | ningún lado |
 | Rangos de peso por talla | `member/kb/01-…` | `searchKb` | catálogo |
-| Tarifas de delivery por zona | `member/kb/02-…` | `searchKb` | catálogo |
+| Tarifas de delivery por zona | `member/zonas-envio.ts` | `cotizarEnvio` | KB y catálogo |
 | Formas de pago, abono mínimo | `member/kb/03-…` | `searchKb` | catálogo |
 | Uso del producto | `member/kb/04-…` | `searchKb` | — |
 | Cuándo escalar | `member/kb/06-…` + prompt | `searchKb` / `handoffHuman` | — |
@@ -88,6 +88,10 @@ Ahora el prompt lo dice explícito:
 - **Precio de lo que se vende** → `catalogQuery`.
 - **Tarifas y montos que no son producto** (envío, delivery, abono mínimo,
   cargo de Ferguson) → `searchKb`.
+- **La tarifa de delivery por zona NO**: vive en `member/zonas-envio.ts` y sale de
+  `cotizarEnvio`. Son ~50 nombres propios; buscarlos por parecido de redacción
+  ya falló en producción (una clienta pidió el envío a Tocumen y el bot dijo no
+  tenerlo). Nunca escriba una tarifa de zona en `member/kb/`.
 - Y una zona que no está en la lista **no cuesta lo que la de al lado**: se
   pasa con una persona.
 

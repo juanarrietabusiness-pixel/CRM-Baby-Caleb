@@ -43,7 +43,7 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 - `src/db/catalog.ts` + `src/catalog/validation.ts` — el catálogo (D1, tabla `catalog_items`):
   código, nombre, costo, venta, stock y bodega. El costo **nunca** sale hacia el bot y la
   cantidad exacta de stock tampoco — ver `docs/PLAN_CATALOGO_BABY_CALEB.md`.
-- `member/kb/` — la base de conocimiento versionada (políticas, tarifas de envío, pagos,
+- `member/kb/` — la base de conocimiento versionada (políticas, pagos,
   uso del producto, cuándo escalar). `pnpm kb:reindex` la vuelca a `scripts/kb-fixtures.json`.
 - `src/niches/` — el "niche pack" genérico (Starter). Personaliza tono/columnas del panel.
 - `skill/` — asistentes para el usuario.
@@ -72,8 +72,9 @@ Los iconos de `public/` se regeneran del logo del sitio con
 
 **Antes de escribir cualquier dato del negocio, lea `docs/FUENTES_DE_VERDAD.md`.** Es
 corto y es contrato. En resumen: el precio, la existencia y la cantidad por caja viven
-SOLO en `catalog_items` (D1) y el bot los ve solo con `catalogQuery`; las políticas, las
-tarifas de envío y las formas de pago viven SOLO en `member/kb/` y las ve con `searchKb`;
+SOLO en `catalog_items` (D1) y el bot los ve solo con `catalogQuery`; las políticas y
+las formas de pago viven SOLO en `member/kb/` y las ve con `searchKb`; las tarifas de
+envío por zona viven SOLO en `member/zonas-envio.ts` y las ve con `cotizarEnvio`;
 el trato y los límites duros viven en `member/config.local.ts`.
 
 Nunca escriba un precio de producto en `member/kb/` ni en `member/config.local.ts`. Lo que

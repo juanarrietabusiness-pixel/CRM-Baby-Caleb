@@ -73,3 +73,41 @@ describe("la razón que se le da al bot ahora es cierta", () => {
     expect(CONFIG).toMatch(/usted NO lo recibe y no lo puede describir/);
   });
 });
+
+/**
+ * La segunda mitad del mismo agujero, encontrada en la auditoría en paralelo.
+ *
+ * El arreglo anterior tapó la ruta de la IMAGEN y dejó abiertas las otras dos,
+ * mientras el KB y el business_context le prometían a la clienta que "cualquier
+ * imagen, video, audio o documento" se retiene y abre ticket solo:
+ *
+ *  • El audio se transcribía con Whisper y entraba al modelo como si la clienta
+ *    lo hubiera escrito. La escalada miraba solo [IMAGE_URL: …], así que no se
+ *    creaba ticket ni se avisaba a la dueña. Una nota de voz diciendo "ya le
+ *    hice el Yappy" la contestaba el bot solo.
+ *  • Un documento o un video no llegaban siquiera a existir: los adaptadores
+ *    los descartaban y el turno moría en `if (!combined) return`. Ni mensaje
+ *    guardado, ni ticket, ni respuesta — la clienta en visto. Y el comprobante
+ *    de una transferencia bancaria llega en PDF muy seguido.
+ */
+describe("el audio y los documentos escalan igual que la imagen", () => {
+  it("una nota de voz queda marcada como archivo", () => {
+    expect(AGENT).toMatch(/\[ARCHIVO: audio\]/);
+  });
+
+  it("la escalada mira el archivo, no solo la imagen", () => {
+    expect(AGENT).toMatch(/\(imgMatch \|\| fileMatch\) && cfg\.escalarMedia/);
+  });
+
+  it("con escalar_media, la transcripción del audio NO se le pasa al modelo", () => {
+    // El contenido de una nota de voz ES el archivo. Pasárselo transcrito sería
+    // exactamente lo que la base de conocimiento jura que no pasa.
+    expect(AGENT).toMatch(/fileMatch\?\.\[1\] === "audio" \? "\(nota de voz\)"/);
+  });
+
+  it("las marcas internas nunca viajan al modelo, tampoco en el historial", () => {
+    // Incluye la URL firmada del proxy de media, que el modelo podría llegar a
+    // escribirle a la clienta.
+    expect(AGENT).toMatch(/content: limpiarMarcas\(m\.content\)/);
+  });
+});

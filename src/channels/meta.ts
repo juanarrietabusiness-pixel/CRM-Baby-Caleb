@@ -56,13 +56,22 @@ export function parseMetaEvents(body: MetaWebhookBody): IncomingMessage[] {
       if (!sender) continue;
       const audio = m.attachments?.find((a) => a.type === "audio");
       const image = m.attachments?.find((a) => a.type === "image");
-      if (!m.text && !audio && !image) continue; // ignora recibos/postbacks sin contenido
+      // Cualquier otro adjunto (file, video, …) no se puede leer, pero tampoco
+      // se puede tirar: antes caía en el `continue` de abajo y la clienta
+      // quedaba en visto. Genera mensaje para que se abra el ticket.
+      const otro = m.attachments?.find(
+        (a) => a.type && a.type !== "audio" && a.type !== "image",
+      );
+      if (!m.text && !audio && !image && !otro) continue; // recibos/postbacks sin contenido
       out.push({
         channel,
         channelUserId: String(sender),
         text: m.text || undefined,
         audioUrl: audio?.payload?.url,
         imageUrl: image?.payload?.url,
+        fileKind: !audio && !image && otro
+          ? otro.type === "video" ? "video" : "documento"
+          : undefined,
         isOwnerMessage: false,
         receivedAt: Date.now(),
         rawPayload: ev,

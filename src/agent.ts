@@ -19,7 +19,7 @@ import { TicketsRepo } from "./db/tickets";
 import { notifyOwner } from "./tools/handoffHuman";
 import { createModel } from "./llm/provider";
 import { costOfUsage } from "./pricing";
-import type { ChannelId } from "./channels/shared";
+import type { ArchivoNoLegible, ChannelId } from "./channels/shared";
 
 export interface SupportAgentState {
   conversationId: string | null;
@@ -40,7 +40,34 @@ export interface AgentIncomingPayload {
   text?: string;
   audioUrl?: string;
   imageUrl?: string;
+  /**
+   * Un archivo que el bot no puede leer y que igual tiene que llegar a una
+   * persona: un PDF con el comprobante de una transferencia, un video, un
+   * sticker. Antes los canales los descartaban en silencio —ni mensaje
+   * guardado, ni ticket, ni respuesta— y desde afuera parecía que el negocio
+   * había dejado a la clienta en visto.
+   */
+  fileKind?: ArchivoNoLegible;
   isOwnerMessage?: boolean;
+}
+
+/**
+ * Marca interna: "en este turno llegó un archivo que el bot NO puede revisar".
+ *
+ * Existe porque la escalada de archivos miraba solo `[IMAGE_URL: …]`, así que
+ * una nota de voz se transcribía con Whisper y entraba al modelo como si la
+ * clienta la hubiera escrito: sin ticket, sin aviso a la dueña. Y la base de
+ * conocimiento le promete a la clienta justo lo contrario ("el archivo no le
+ * llega al bot: el sistema lo retiene y crea el ticket solo").
+ *
+ * Nunca debe llegar al modelo: se quita del texto antes de armar el turno.
+ */
+export const RE_ARCHIVO = /\n?\[ARCHIVO: (audio|documento|video)\]/;
+const RE_IMAGEN = /\n?\[IMAGE_URL: .+?\]/;
+
+/** Quita las marcas internas de un mensaje guardado. */
+export function limpiarMarcas(texto: string): string {
+  return texto.replace(RE_IMAGEN, "").replace(RE_ARCHIVO, "").trim();
 }
 
 export class SupportAgent extends Agent<Env, SupportAgentState> {
@@ -131,6 +158,29 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         console.error("[ingest] transcription failed:", e);
         processedText = "(no pude entender el audio)";
       }
+      // Se sigue transcribiendo —el equipo lo lee en la Bandeja y en el
+      // ticket—, pero queda marcado: con `escalar_media` encendido, la
+      // transcripción NO se le pasa al modelo. El contenido de una nota de voz
+      // es el archivo, y el negocio prometió que un archivo lo revisa una
+      // persona. Un "ya le hice el Yappy" por voz no lo confirma un bot.
+      processedText += "\n[ARCHIVO: audio]";
+    }
+
+    // Documento, video, sticker o un audio que no es nota de voz (Telegram
+    // manda los archivos de música como `audio`, sin URL que transcribir): no
+    // hay nada que leer, pero tiene que existir el mensaje para que se abra el
+    // ticket y alguien conteste. La condición mira `audioUrl`, no el tipo: si
+    // ya se transcribió arriba, la marca ya está puesta.
+    if (payload.fileKind && !payload.audioUrl) {
+      const comoSeLlama =
+        payload.fileKind === "video"
+          ? "un video"
+          : payload.fileKind === "audio"
+            ? "un audio"
+            : "un documento";
+      processedText =
+        (processedText || `(La clienta envió ${comoSeLlama})`) +
+        `\n[ARCHIVO: ${payload.fileKind}]`;
     }
 
     if (payload.imageUrl) {
@@ -231,7 +281,10 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         : m.role === "owner"
           ? "assistant"
           : m.role) as "user" | "assistant",
-      content: m.content,
+      // Sin esto, las marcas internas viajan al modelo como texto crudo en cada
+      // turno siguiente — incluida la URL firmada del proxy de media, que el
+      // modelo podría llegar a escribirle a la clienta.
+      content: limpiarMarcas(m.content),
     }));
 
     /**
@@ -250,23 +303,38 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
      */
     const lastUserMsg = history[history.length - 1];
     let mediaEscalada = false;
+    let tipoArchivo = "un archivo";
     if (lastUserMsg) {
       const imgMatch = lastUserMsg.content.match(/\[IMAGE_URL: (.+?)\]/);
-      const cleanText = lastUserMsg.content.replace(/\n?\[IMAGE_URL: .+?\]/, "").trim();
+      const fileMatch = lastUserMsg.content.match(RE_ARCHIVO);
+      const cleanText = limpiarMarcas(lastUserMsg.content);
       if (imgMatch && isPro(this.env) && !cfg.escalarMedia) {
         aiMessages.push(buildMultimodalUserMessage(cleanText, imgMatch[1]));
-      } else if (imgMatch && cfg.escalarMedia) {
+      } else if ((imgMatch || fileMatch) && cfg.escalarMedia) {
         mediaEscalada = true;
+        tipoArchivo = imgMatch ? "una imagen" : fileMatch![1] === "audio"
+          ? "una nota de voz"
+          : fileMatch![1] === "video"
+            ? "un video"
+            : "un documento";
+        /**
+         * En un audio, el texto ES el archivo: pasarle la transcripción sería
+         * exactamente lo que la base de conocimiento jura que no ocurre. En una
+         * imagen o un documento, en cambio, el texto es el pie que la clienta
+         * escribió y sí es suyo — ese se conserva.
+         */
+        const visible =
+          fileMatch?.[1] === "audio" ? "(nota de voz)" : cleanText || "(sin texto)";
         aiMessages.push({
           role: "user",
           content:
-            `${cleanText || "(sin texto)"}\n\n[La clienta adjuntó un archivo. NO puedes verlo: ` +
+            `${visible}\n\n[La clienta adjuntó un archivo. NO puedes verlo ni oírlo: ` +
             "ya se creó un ticket y una persona del equipo lo va a revisar. Dígale con calidez " +
             "que lo está pasando con alguien del equipo para revisarlo. NUNCA des por confirmado " +
             "un pago ni describas el archivo: no lo tienes.]",
         });
       } else {
-        aiMessages.push({ role: "user", content: lastUserMsg.content });
+        aiMessages.push({ role: "user", content: cleanText || lastUserMsg.content });
       }
     }
 
@@ -282,13 +350,15 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         const ticketId = await new TicketsRepo(db).create({
           conversationId: convId,
           category: "other",
-          summary: "La clienta envió un archivo (imagen, audio o documento). Requiere revisión humana.",
-          transcript: "",
+          summary: `La clienta envió ${tipoArchivo}. Requiere revisión humana.`,
+          // En una nota de voz, la transcripción es justo lo que la persona
+          // necesita leer para atender el caso sin volver a pedir el audio.
+          transcript: lastUserMsg ? limpiarMarcas(lastUserMsg.content) : "",
         });
         await convs.setOpenTicket(convId, ticketId);
         await notifyOwner(this.env, {
           reason: "archivo recibido",
-          summary: "La clienta envió un archivo que el bot no puede revisar.",
+          summary: `La clienta envió ${tipoArchivo} que el bot no puede revisar.`,
           ticketId,
         });
       } catch (e) {
@@ -450,7 +520,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       }
 
       if (!ok) {
-        assistantText = "Algo falló de mi lado, intenta de nuevo en un momento.";
+        assistantText = "Disculpe, algo falló de mi lado. Inténtelo de nuevo en un momento.";
       }
     }
 

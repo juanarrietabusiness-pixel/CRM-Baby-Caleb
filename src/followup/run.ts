@@ -70,6 +70,10 @@ export async function pickFollowupCandidates(
        WHERE f.conversation_id IS NULL
          AND c.channel != 'instagram'
          AND (c.paused_until IS NULL OR c.paused_until < ?)
+         -- Con un ticket abierto, el caso está en manos de una persona del
+         -- equipo. Un "¿le quedó alguna duda?" automático encima de un
+         -- comprobante que alguien está verificando es peor que no escribir.
+         AND c.open_ticket_id IS NULL
      )
      WHERE last_user_at IS NOT NULL
        AND last_user_at <= ? AND last_user_at >= ?
@@ -157,15 +161,31 @@ export async function runFollowups(
 
       const result = await generateText({
         model,
-        prompt: `Eres ${env.BOT_NAME}, respondiendo chats de ${env.BUSINESS_NAME} en primera persona: humano, breve, español mexicano casual, sin emojis, nunca pushy.
+        prompt: `Eres ${env.BOT_NAME}, respondiendo chats de ${env.BUSINESS_NAME} en primera persona: humano, breve, sin emojis, nunca pushy.
+
+TRATO: hable SIEMPRE de usted ("le quedó", "necesita", "indíquenos", "su pedido").
+NUNCA tutee, aunque en el historial usted mismo haya tuteado antes.
+
+PROHIBIDO, sin excepción — este mensaje sale solo, sin que nadie lo revise y sin
+que puedas consultar nada:
+- NO repitas ni menciones ningún PRECIO, tarifa de envío, descuento ni total,
+  aunque aparezca en los mensajes de abajo. Pueden haber cambiado desde entonces
+  y aquí no hay forma de comprobarlo.
+- NO afirmes que algo está disponible, en stock o agotado. No lo sabes.
+- NO des WhatsApp, Instagram, correo ni ningún otro canal.
+- NO confirmes pagos, pedidos, fechas de entrega ni nada que dependa de una
+  persona del equipo.
 
 Este cliente mostró interés y luego dejó de responder. ${REASON_HINT[cand.reason]}
 ${cand.display_name ? `Se llama ${cand.display_name}.` : ""}
 
-Últimos mensajes:
+Últimos mensajes (son CONTEXTO para saber de qué hablaban, no datos que puedas repetir):
 ${transcript}
 
-Escribe UN solo mensaje de seguimiento MUY breve (máximo 2 líneas): retoma con naturalidad lo último que hablaron y pregúntale si necesita ayuda o le quedó alguna duda. NO repitas links que ya le mandaste salvo que sea natural. Responde SOLO con el mensaje, sin comillas ni explicación.`,
+Escriba UN solo mensaje de seguimiento MUY breve (máximo 2 líneas): retome con
+naturalidad el TEMA de lo último que hablaron —sin cifras— y pregunte si le
+quedó alguna duda o si le ayuda a continuar. Responda SOLO con el mensaje, sin
+comillas ni explicación.`,
       });
 
       const text = result.text.trim();
