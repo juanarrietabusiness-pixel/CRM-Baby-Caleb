@@ -7,6 +7,7 @@ export const SETTING_KEYS = {
   businessContext: "business_context",
   botName: "bot_name",
   tone: "tone",
+  formaDeTrato: "forma_de_trato", // usted | tu | vos — cómo se dirige el bot a la clienta
   bufferSeconds: "buffer_seconds",
   maxChunks: "max_chunks",
   interChunkDelayMs: "inter_chunk_delay_ms",

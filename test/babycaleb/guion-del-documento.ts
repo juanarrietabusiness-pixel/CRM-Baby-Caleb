@@ -20,6 +20,8 @@
 export type Fuente =
   /** Precio, existencia o qué productos hay: solo catalogQuery. */
   | "catalogo"
+  /** Tarifa de delivery por zona: solo cotizarEnvio. Es una tabla, no un texto. */
+  | "envio"
   /** Políticas, tarifas, uso del producto: solo searchKb. */
   | "kb"
   /** El bot no contesta: pasa con una persona. */
@@ -115,14 +117,32 @@ export const GUION: CasoDelGuion[] = [
   {
     id: "delivery-zona-conocida",
     pregunta: "¿cuánto me sale el envío a San Miguelito?",
-    fuente: "kb",
-    debeContener: ["San Miguelito $4"],
+    fuente: "envio",
+    debeContener: ["San Miguelito", "$4.00"],
   },
   {
     id: "delivery-zona-cara",
     pregunta: "¿y a Tocumen cuánto?",
-    fuente: "kb",
-    debeContener: ["Tocumen $8"],
+    fuente: "envio",
+    debeContener: ["Tocumen", "$8.00"],
+  },
+  {
+    id: "delivery-sin-tildes",
+    pregunta: "cuanto sale a juan diaz",
+    fuente: "envio",
+    debeContener: ["Juan Díaz", "$5.00"],
+  },
+  {
+    id: "delivery-costa-del-este",
+    pregunta: "es para Costa del Este, estudio Dreams Factory",
+    fuente: "envio",
+    debeContener: ["no está en el tarifario", "handoffHuman"],
+  },
+  {
+    id: "delivery-panama-oeste",
+    pregunta: "vivo en La Chorrera",
+    fuente: "envio",
+    debeContener: ["Panamá Oeste", "$3.00 a $6.00", "pasa la conversación a una persona"],
   },
   {
     id: "delivery-no-incluido",

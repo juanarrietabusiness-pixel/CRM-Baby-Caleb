@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { Db } from "./db/client";
 import { SettingsRepo, SETTING_KEYS } from "./db/settings";
-import { systemPromptFromEnv } from "./system-prompt";
+import { systemPromptFromEnv, type FormaDeTrato } from "./system-prompt";
 import { renderBusinessContext } from "./businessContext";
 import { getBufferMs } from "./config";
 import { getNiche } from "./niches";
@@ -86,6 +86,11 @@ function parseIntOr(value: string | undefined, fallback: number): number {
   return Number.isNaN(n) ? fallback : n;
 }
 
+function normalizeFormaDeTrato(value: string | undefined): FormaDeTrato | undefined {
+  const v = value?.trim().toLowerCase();
+  return v === "usted" || v === "tu" || v === "vos" ? v : undefined;
+}
+
 function normalizeModelOverride(value: string | undefined): ModelOverride {
   if (value === "haiku" || value === "sonnet" || value === "auto") return value;
   return "auto";
@@ -122,6 +127,9 @@ export async function resolveAgentConfig(env: Env, toolNames: string[]): Promise
   // Tono elegido en el panel gana; si no hay, el tono por defecto del nicho.
   const tone = get(SETTING_KEYS.tone) ?? (niche.defaultTone || undefined);
   const escalationKeywords = parseCsvList(get(SETTING_KEYS.escalationKeywords));
+  // Forma de trato (usted / tú / vos). Sin valor, el prompt no dice nada y el
+  // modelo elige — que es como terminó tuteando un negocio que trata de usted.
+  const formaDeTrato = normalizeFormaDeTrato(get(SETTING_KEYS.formaDeTrato));
 
   // Flywheel lessons (JSON array). Only injected into the GENERATED prompt —
   // a manual override replaces the whole prompt, lessons included.
@@ -143,6 +151,7 @@ export async function resolveAgentConfig(env: Env, toolNames: string[]): Promise
       extraEscalationKeywords: escalationKeywords,
       botName,
       lessons,
+      formaDeTrato,
     });
 
   const bufferSecondsRaw = get(SETTING_KEYS.bufferSeconds);

@@ -12,29 +12,21 @@ una tarifa ni diga "unos 5 dólares": pregunte primero a dónde sería el envío
 responda con el valor exacto de esa zona. Si la zona que le dicen no está en
 esta lista, no la calcule por parecido — pase la conversación a una persona.
 
-## Tarifas en Ciudad de Panamá
+## Las tarifas no están escritas aquí
 
-12 de Octubre $3 · Betania $4 · Bella Vista $4 · Calle 50 $4 · Condado del Rey $4 ·
-Fernández de Córdoba $4 · Iglesia del Carmen $4 · Ingenio $4 · La Lotería $4 ·
-Los Andes $4 · Albrook Mall $4 · Multiplaza $4 · Obarrio $4 · Paitilla $4 ·
-Punta Pacífica $4 · San Francisco $4 · San Miguelito $4 · Santo Tomás $4 ·
-Tumba Muerto $4 · Vía Argentina $4 · Vía Brasil $4 · Vía España $4 · 5 de Mayo $4
+El tarifario zona por zona vive en la tool **`cotizarEnvio`**, no en este texto.
+Pregunte a dónde va el envío y consúltela con el nombre tal cual se lo dijeron.
 
-Brisas del Golf $5 · Chanis $5 · Coco del Mar $5 · Crisol $5 · Diablo $5 ·
-Juan Díaz $5 · Metromall $5 · Parque Lefevre $5 · Río Abajo $5 · San Isidro $5 ·
-Villa Lucre $5
+Está así porque un tarifario son cincuenta filas de nombres propios, y buscarlo
+por parecido de redacción es una lotería: pasó de verdad, el bot le dijo a una
+clienta que no tenía la tarifa de Tocumen teniéndola. Una tabla se consulta.
 
-Cerro Viento $6 · Pedregal $6
+Si `cotizarEnvio` dice que la zona no está en la lista, **no la calcule por
+parecido con otra ni dé un rango**: dígale que confirma el costo con el equipo y
+pase la conversación a una persona.
 
-Brisas $7 · Ciudad Radial $7 · Concepción $7 · Don Bosco $7 · Las Acacias $7 ·
-Mañanitas $7 · Villa Zaita $7
-
-24 de Diciembre $8 · Tocumen $8
-
-## Panamá Oeste (Arraiján y La Chorrera)
-
-De $3 a $6 según la distancia. Pregunte el punto exacto antes de dar el número;
-si no lo tiene claro, pase la conversación a una persona.
+Panamá Oeste (Arraiján y La Chorrera) no tiene tarifa fija: la tool devuelve el
+rango y la instrucción de pasar con una persona.
 
 ## Envíos al interior del país (Ferguson)
 

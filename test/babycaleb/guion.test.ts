@@ -19,6 +19,7 @@ import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { CatalogRepo } from "../../src/db/catalog";
 import { catalogQueryTool } from "../../src/tools/catalogQuery";
+import { cotizarEnvioTool } from "../../src/tools/cotizarEnvio";
 import { SUCURSALES } from "../../src/catalog/validation";
 import { GUION } from "./guion-del-documento";
 import { PRODUCTOS } from "./verdad-del-cliente";
@@ -47,8 +48,8 @@ describe("el guion del documento está completo", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("cubre las tres fuentes", () => {
-    for (const f of ["kb", "catalogo", "escalada"]) {
+  it("cubre las cuatro fuentes", () => {
+    for (const f of ["kb", "catalogo", "envio", "escalada"]) {
       expect(porFuente(f).length, `sin casos de tipo ${f}`).toBeGreaterThan(0);
     }
   });
@@ -110,6 +111,40 @@ describe("preguntas que contesta el catálogo, y SOLO el catálogo", () => {
         ).not.toContain(dato.toLowerCase());
       }
     }
+  });
+});
+
+describe("la tarifa de envío sale de cotizarEnvio, no de un texto", () => {
+  const tool = cotizarEnvioTool({} as never);
+  const cotizar = (zona: string) =>
+    (tool as never as { execute: Function }).execute({ zona }) as Promise<Record<string, unknown>>;
+
+  it.each(porFuente("envio"))("$id — $pregunta", async (caso) => {
+    const r = JSON.stringify(await cotizar(caso.pregunta));
+    for (const dato of caso.debeContener) {
+      expect(r, `cotizarEnvio no devolvió "${dato}" para "${caso.pregunta}"`).toContain(dato);
+    }
+  });
+
+  it("la tarifa NO está escrita en la base de conocimiento", () => {
+    // Si estuviera en los dos sitios, el bot podría contestar sin la tool y con
+    // una tarifa vieja. Y buscar una tabla por parecido es lo que ya falló.
+    expect(KB).not.toMatch(/Tocumen \$8/);
+    expect(KB).not.toMatch(/San Miguelito \$4/);
+  });
+
+  it("no inventa una tarifa para una zona que no está", async () => {
+    const r = (await cotizar("Penonomé")) as { encontrada: boolean; mensaje: string };
+    expect(r.encontrada).toBe(false);
+    expect(r.mensaje).toMatch(/no la calcules por parecido/i);
+    expect(JSON.stringify(r)).not.toMatch(/\$[1-9]\d*\.\d\d.*Penonom/i);
+  });
+
+  it("una zona no arrastra a otra que la contenga", async () => {
+    // "Brisas" y "Brisas del Golf" son zonas distintas con tarifas distintas.
+    const golf = (await cotizar("Brisas del Golf")) as { zonas: Array<{ zona: string; tarifa: string }> };
+    expect(golf.zonas.map((z) => z.zona)).toContain("Brisas del Golf");
+    expect(golf.zonas.find((z) => z.zona === "Brisas del Golf")!.tarifa).toBe("$5.00");
   });
 });
 
