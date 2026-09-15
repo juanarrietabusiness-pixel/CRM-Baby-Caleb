@@ -1,0 +1,126 @@
+# Desplegar el puente de WhatsApp por QR — sin abrir una terminal.
+#
+# Workflow APARTE del deploy del bot, igual que el Worker. Construir la imagen
+# del contenedor puede fallar, y si eso pasa no debe arrastrar al despliegue del
+# bot: un cambio de la base de conocimiento no se puede quedar sin publicar
+# porque WhatsApp esté roto.
+#
+# Necesita dos secrets del repositorio:
+#   CLOUDFLARE_API_TOKEN  — el mismo del bot, MÁS "Cloudflare Images: Edit"
+#                           (el registro de imágenes se apoya en Images).
+#   WA_TOKEN              — protege las rutas del puente y es lo que el
+#                           contenedor presenta para escribir en D1.
+#                           SOLO ASCII. Ver la validación de abajo.
+name: Puente WhatsApp · desplegar
+
+on:
+  workflow_dispatch:
+    inputs:
+      que_hacer:
+        description: "¿Qué quieres hacer?"
+        type: choice
+        default: desplegar
+        options:
+          - desplegar
+          - borrar-el-puente
+
+concurrency:
+  group: puente-wa
+
+jobs:
+  puente:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: puente-wa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      # Node 22: wrangler 4.x aborta en 20 con un mensaje que no nombra la causa
+      # real. Ya nos costó un deploy — ver docs/bitacora-whatsapp-qr.md.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Revisar los secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WA_TOKEN: ${{ secrets.WA_TOKEN }}
+        run: |
+          falta=0
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Falta CLOUDFLARE_API_TOKEN."
+            falta=1
+          fi
+          if [ "${{ inputs.que_hacer }}" = "desplegar" ]; then
+            if [ -z "$WA_TOKEN" ]; then
+              echo "::error::Falta el secret WA_TOKEN."
+              echo "Genera uno en tu computador o teléfono y guárdalo en:"
+              echo "  Settings -> Secrets and variables -> Actions -> New repository secret"
+              echo "Tiene que ser SOLO ASCII: letras, números y guiones. 32+ caracteres."
+              falta=1
+            else
+              # Esta validación existe por un incidente real. Un token con una
+              # tilde o una eñe funciona en TODA prueba hecha por navegador —la
+              # URL lo codifica bien— y falla solo en la máquina: Node escribe
+              # las cabeceras en latin-1 y Cloudflare las lee como UTF-8, así que
+              # el token llega del mismo largo y con distinto contenido. El 401
+              # resultante no delata nada. Mejor rechazarlo aquí.
+              largo=${#WA_TOKEN}
+              if [ "$largo" -lt 24 ]; then
+                echo "::error::WA_TOKEN es demasiado corto ($largo). Mínimo 24 caracteres."
+                falta=1
+              fi
+              if printf '%s' "$WA_TOKEN" | LC_ALL=C grep -q '[^ -~]'; then
+                echo "::error::WA_TOKEN tiene caracteres fuera de ASCII imprimible."
+                echo "Un token con tilde o eñe pasa toda prueba por navegador y falla"
+                echo "solo en la maquina. Usa letras, numeros y guiones."
+                falta=1
+              fi
+            fi
+          fi
+          [ "$falta" = "0" ] || exit 1
+
+      - name: Aplicar el esquema a D1
+        if: ${{ inputs.que_hacer == 'desplegar' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler@4 d1 execute juancitoads-bot-wa-auth --file=esquema.sql --remote --yes
+
+      - name: Guardar WA_TOKEN en el Worker
+        if: ${{ inputs.que_hacer == 'desplegar' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WA_TOKEN: ${{ secrets.WA_TOKEN }}
+        # Por stdin: así no aparece en la línea de comandos ni en el log.
+        run: printf '%s' "$WA_TOKEN" | npx wrangler@4 secret put WA_TOKEN
+
+      # Aquí se ejercita "Cloudflare Images: Edit". Si sale
+      # `Forbidden - Authentication error` DESPUÉS de construir la imagen,
+      # revisa primero el PLAN de la cuenta: en el plan gratis los contenedores
+      # no existen y el error miente.
+      - name: Desplegar el puente
+        if: ${{ inputs.que_hacer == 'desplegar' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler@4 deploy
+
+      - name: Cómo seguir
+        if: ${{ inputs.que_hacer == 'desplegar' && success() }}
+        run: |
+          echo "Puente desplegado. Abre desde el TELEFONO para vincular:"
+          echo "  https://juancitoads-bot-wa.juanarrietabusiness.workers.dev/api/qr?t=<WA_TOKEN>"
+          echo ""
+          echo "Estado completo:"
+          echo "  https://juancitoads-bot-wa.juanarrietabusiness.workers.dev/api/estado?t=<WA_TOKEN>"
+
+      - name: Borrar el puente
+        if: ${{ inputs.que_hacer == 'borrar-el-puente' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        # La base `juancitoads-bot-wa-auth` NO se borra aquí: contiene la sesión de
+        # WhatsApp, y borrarla obligaria a re-escanear el QR. Se borra a mano
+        # desde el panel de Cloudflare si de verdad se quiere empezar de cero.
+        run: npx wrangler@4 delete --name juancitoads-bot-wa

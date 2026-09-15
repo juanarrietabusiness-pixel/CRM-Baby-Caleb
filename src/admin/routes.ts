@@ -61,6 +61,7 @@ import {
 } from "../catalog/validation";
 import { renderConfig } from "./views/config";
 import { renderConexiones, renderWhatsAppDiag } from "./views/conexiones";
+import { renderWhatsappQrPanel, type EstadoDelPuente } from "./views/whatsappQr";
 import { diagnoseWhatsAppCloud } from "../channels/whatsappDiag";
 import { renderCampanas } from "./views/campanas";
 import { sendCampaign, createHandoffTemplate, contentApprovalStatus } from "../campaigns";
@@ -579,6 +580,100 @@ adminApp.get("/conexiones", (c) => c.html(renderConexiones(c.env)));
 adminApp.get("/conexiones/whatsapp/diagnostico", async (c) =>
   c.html(renderWhatsAppDiag(await diagnoseWhatsAppCloud(c.env))),
 );
+
+// --- WhatsApp por QR --------------------------------------------------------
+//
+// El panel no habla con WhatsApp: habla con el puente `juancitoads-bot-wa`, que
+// es quien sostiene el socket. Estas tres rutas son un proxy fino con una sola
+// responsabilidad añadida: que el token del puente NUNCA salga hacia el
+// navegador. Si el panel pidiera el estado desde el cliente, el token viajaría
+// en el HTML y cualquiera con el panel abierto podría vincular otro teléfono.
+
+/** El token, en base64: una cabecera HTTP no entrega intacto un valor no-ASCII. */
+function tokenB64(token: string): string {
+  return btoa(String.fromCharCode(...new TextEncoder().encode(token)));
+}
+
+async function llamarAlPuente(
+  env: Env,
+  ruta: string,
+  init: RequestInit = {},
+): Promise<{ respuesta: Response | null; motivo: string | null }> {
+  if (!env.WA_TOKEN) return { respuesta: null, motivo: "falta WA_TOKEN" };
+  if (!env.PUENTE_WA && !env.WA_PUENTE_URL) {
+    return { respuesta: null, motivo: "falta el binding PUENTE_WA o WA_PUENTE_URL" };
+  }
+  try {
+    // Por SERVICE BINDING cuando existe. Cloudflare rechaza con error 1042 que
+    // un Worker llame a otro Worker de la MISMA cuenta por su URL pública: la
+    // petición ni siquiera llega a la puerta del otro, y el síntoma es un 404
+    // que parece "la ruta no existe". Con binding el host da igual; lo que
+    // cuenta es la ruta.
+    const destino = env.PUENTE_WA
+      ? `https://puente-wa${ruta}`
+      : `${env.WA_PUENTE_URL!.replace(/\/$/, "")}${ruta}`;
+    const peticion = new Request(destino, {
+      ...init,
+      headers: { ...(init.headers ?? {}), "x-wa-token-b64": tokenB64(env.WA_TOKEN) },
+      // 15 s, no 8: el puente reintenta hasta 12,5 s cuando el contenedor está
+      // frío. Con un tope más corto que el del otro lado, el panel se rendía
+      // antes de que llegara la respuesta y mostraba un error que no existía.
+      signal: AbortSignal.timeout(15000),
+    });
+    const respuesta = env.PUENTE_WA ? await env.PUENTE_WA.fetch(peticion) : await fetch(peticion);
+    if (!respuesta.ok) {
+      // El motivo se muestra en pantalla. Un 401 y un 502 piden cosas muy
+      // distintas, y "no se pudo" no distingue ninguna de las dos.
+      //
+      // Va también un trozo del CUERPO, porque el código solo no basta para
+      // saber QUIÉN contestó: un 404 del puente dice {"error":"no existe"} y
+      // uno de otro sitio dice cualquier otra cosa. Sin eso no se puede
+      // distinguir "la ruta no existe" de "la petición ni siquiera llegó".
+      const cuerpo = await respuesta
+        .text()
+        .then((t) => t.replace(/\s+/g, " ").slice(0, 160))
+        .catch(() => "");
+      return {
+        respuesta: null,
+        motivo: `el puente respondió ${respuesta.status}${cuerpo ? ` · ${cuerpo}` : ""}`,
+      };
+    }
+    return { respuesta, motivo: null };
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.error("puente-wa:", e);
+    return { respuesta: null, motivo };
+  }
+}
+
+/** Fragmento que htmx recarga cada 5 s dentro de la tarjeta de Conexiones. */
+adminApp.get("/whatsapp-qr/estado", async (c) => {
+  const [rEstado, rQr] = await Promise.all([
+    llamarAlPuente(c.env, "/api/estado"),
+    llamarAlPuente(c.env, "/api/qr"),
+  ]);
+
+  const estado = rEstado.respuesta
+    ? ((await rEstado.respuesta.json()) as EstadoDelPuente)
+    : ({ error: rEstado.motivo ?? "sin respuesta" } as EstadoDelPuente);
+  const qr = rQr.respuesta
+    ? (((await rQr.respuesta.json()) as { qr?: string | null }).qr ?? null)
+    : null;
+
+  return c.html(renderWhatsappQrPanel(estado, qr));
+});
+
+adminApp.post("/whatsapp-qr/reiniciar", async (c) => {
+  await llamarAlPuente(c.env, "/api/reiniciar", { method: "POST" });
+  // Se devuelve el fragmento con el estado nuevo, no un mensaje: la dueña ve la
+  // consecuencia de lo que acaba de tocar, no una confirmación que hay que creer.
+  return c.html(renderWhatsappQrPanel({ contenedor: { conexion: "arrancando" } }, null));
+});
+
+adminApp.post("/whatsapp-qr/desvincular", async (c) => {
+  await llamarAlPuente(c.env, "/api/desvincular", { method: "POST" });
+  return c.html(renderWhatsappQrPanel({ contenedor: { conexion: "desvinculada" } }, null));
+});
 
 adminApp.get("/campanas", async (c) => {
   const q: Record<string, string | undefined> = {

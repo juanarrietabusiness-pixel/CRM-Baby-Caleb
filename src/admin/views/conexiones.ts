@@ -6,6 +6,7 @@
 import type { Env } from "../../env";
 import { layout } from "./layout";
 import type { WhatsAppDiagnosis, DiagStatus } from "../../channels/whatsappDiag";
+import { renderWhatsappQrCard } from "./whatsappQr";
 
 interface ChannelStatus {
   id: string;
@@ -23,6 +24,8 @@ interface ChannelStatus {
   howTo: string;
   /** Ruta del diagnóstico en vivo (pregunta al proveedor), si el canal tiene. */
   diagPath?: string;
+  /** HTML extra dentro de la tarjeta (panel en vivo). */
+  panel?: string;
 }
 
 function channelStatuses(env: Env): ChannelStatus[] {
@@ -44,6 +47,10 @@ function channelStatuses(env: Env): ChannelStatus[] {
   const manychatMissing = [!has(env.MANYCHAT_API_KEY) && "MANYCHAT_API_KEY"].filter(
     Boolean,
   ) as string[];
+  const waQrMissing = [
+    !has(env.WA_PUENTE_URL) && "WA_PUENTE_URL",
+    !has(env.WA_TOKEN) && "WA_TOKEN",
+  ].filter(Boolean) as string[];
   const whatsappCloudMissing = [
     !has(env.WHATSAPP_PHONE_NUMBER_ID) && "WHATSAPP_PHONE_NUMBER_ID",
     !has(env.WHATSAPP_ACCESS_TOKEN) && "WHATSAPP_ACCESS_TOKEN",
@@ -91,6 +98,22 @@ function channelStatuses(env: Env): ChannelStatus[] {
           : undefined,
       howTo:
         "App de Meta → WhatsApp → Configuration: apunta el webhook a la URL de abajo, suscribe el campo messages, y guarda tu Phone Number ID y token. Pruébalo con el número de prueba gratis.",
+    },
+    {
+      id: "whatsapp-qr",
+      name: "WhatsApp (por código QR)",
+      icon: "qr-code",
+      desc: "Vincula un número escaneando un código, como WhatsApp Web. Sin alta comercial.",
+      ok: waQrMissing.length === 0,
+      missing: waQrMissing,
+      // No lleva webhook que copiar: el puente lo llama solo.
+      securityNote:
+        waQrMissing.length === 0
+          ? "Canal alterno: no es la API oficial y el número puede ser bloqueado por WhatsApp. Conviene dejar conectada también la Cloud API."
+          : undefined,
+      howTo:
+        "Escanea el código desde el teléfono del negocio. La sesión queda guardada y sobrevive a los reinicios.",
+      panel: waQrMissing.length === 0 ? renderWhatsappQrCard(env) : undefined,
     },
     {
       id: "meta",
@@ -184,6 +207,7 @@ export function renderConexiones(env: Env): string {
           ${security}
           ${webhook}
           ${diag}
+          ${ch.panel ?? ""}
         </div>`;
     })
     .join("");
