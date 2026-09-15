@@ -59,6 +59,42 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # WA_TOKEN es el secreto compartido del canal de WhatsApp por QR: el
+      # MISMO valor en el bot, en el puente y en el contenedor. El puente lo
+      # carga en su propio Worker desde `puente-wa.yml`; este paso lo pone en el
+      # Worker del bot, que es quien valida el webhook /webhooks/whatsapp-qr.
+      #
+      # Si no existe, NO se falla: el canal es alterno y opcional, y un bot sin
+      # WhatsApp por QR sigue siendo un bot que hay que poder desplegar. La
+      # tarjeta del panel dice "falta WA_TOKEN", que es diagnóstico suficiente.
+      #
+      # Tampoco se falla con un token inapto, por la misma razón — pero no se
+      # carga: un token con tilde o eñe pasa toda prueba hecha por navegador y
+      # falla solo en la máquina, con un 401 que no delata nada. Mejor que el
+      # panel diga que falta a que diga que está y no funcione.
+      - name: Guardar WA_TOKEN en el Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WA_TOKEN: ${{ secrets.WA_TOKEN }}
+        run: |
+          if [ -z "$WA_TOKEN" ]; then
+            echo "No hay secret WA_TOKEN en el repositorio — el canal de WhatsApp por QR queda sin configurar."
+            exit 0
+          fi
+          largo=${#WA_TOKEN}
+          if [ "$largo" -lt 24 ]; then
+            echo "::warning::WA_TOKEN es demasiado corto ($largo, mínimo 24). No se cargó."
+            exit 0
+          fi
+          if printf '%s' "$WA_TOKEN" | LC_ALL=C grep -q '[^ -~]'; then
+            echo "::warning::WA_TOKEN tiene caracteres fuera de ASCII imprimible. No se cargó."
+            echo "Un token con tilde o enie pasa toda prueba por navegador y falla solo en la maquina."
+            exit 0
+          fi
+          # Por stdin: así no aparece en la línea de comandos ni en el log.
+          printf '%s' "$WA_TOKEN" | npx wrangler@4 secret put WA_TOKEN
+
       # ci-deploy y no `pnpm run deploy`: el segundo dispara el hook predeploy,
       # que aborta si falta el secret DASHBOARD_PASSWORD. Ese chequeo tiene
       # sentido en la máquina de una persona, no en CI.
