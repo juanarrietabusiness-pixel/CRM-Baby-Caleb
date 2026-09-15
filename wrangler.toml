@@ -51,12 +51,23 @@ index_name = "juancitoads-bot-kb"
 # El puente de WhatsApp por QR. Por SERVICE BINDING y no por URL pública:
 # Cloudflare rechaza con error 1042 que un Worker llame a otro de la MISMA
 # cuenta por su URL — la petición ni siquiera llega, y el síntoma es un 404 que
-# se lee como "la ruta no existe". El puente se despliega aparte
-# (.github/workflows/puente-wa.yml); hasta entonces este binding no resuelve y
-# la tarjeta del panel lo dice.
-[[services]]
-binding = "PUENTE_WA"
-service = "juancitoads-bot-wa"
+# se lee como "la ruta no existe".
+#
+# DESCOMENTAR DESPUÉS DE DESPLEGAR EL PUENTE, no antes. Cloudflare rechaza el
+# deploy de un Worker que declara un binding hacia otro que todavía no existe,
+# y aquí mergear a `main` ES desplegar: con estas tres líneas activas antes de
+# tiempo, el deploy del bot se cae y de paso no corre el reindexado de la base
+# de conocimiento.
+#
+# El orden es: 1) correr `puente-wa.yml` (crea `juancitoads-bot-wa`),
+#              2) descomentar esto y mergear.
+#
+# Mientras siga comentado, el canal no funciona aunque el panel muestre la
+# tarjeta: sin el binding, el bot cae a la URL pública y eso da justo el 1042
+# de arriba. Es un estado de paso, no una configuración válida.
+# [[services]]
+# binding = "PUENTE_WA"
+# service = "juancitoads-bot-wa"
 
 [vars]
 BOT_NAME = "Baby Caleb"
