@@ -1,4 +1,14 @@
-export type ChannelId = "manychat" | "telegram" | "twilio" | "messenger" | "instagram" | "whatsapp";
+export type ChannelId =
+  | "manychat"
+  | "telegram"
+  | "twilio"
+  | "messenger"
+  | "instagram"
+  | "whatsapp"
+  /** WhatsApp vinculado por QR, vía el puente `juancitoads-bot-wa`. Canal ALTERNO:
+   *  Baileys no es oficial y el número puede ser baneado, así que la Cloud API
+   *  ("whatsapp") se queda conectada como respaldo. */
+  | "whatsapp-qr";
 
 export interface IncomingMessage {
   channel: ChannelId;

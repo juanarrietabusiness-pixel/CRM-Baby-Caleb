@@ -1,0 +1,64 @@
+# Puente de WhatsApp por QR — Worker `juancitoads-bot-wa`.
+#
+# APARTE del Worker del bot, a propósito. El bot se publica con un solo
+# `wrangler deploy`: si el contenedor se le colgara encima, una imagen que no
+# construye bloquearía publicar un cambio de la base de conocimiento. Con el
+# puente aparte, lo peor que pasa es que WhatsApp se cae y el bot sigue.
+#
+# Convención para los demás clientes: `<bot>-wa` y `<bot>-wa-auth`.
+# Portar a otro cliente es cambiar el prefijo de estos tres nombres.
+
+name = "juancitoads-bot-wa"
+main = "src/worker.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Sin logs no hay forma de ver por qué Baileys no levantó.
+[observability]
+enabled = true
+
+[vars]
+# La URL pública de este mismo Worker. El contenedor no tiene bindings, así que
+# vuelve a entrar por aquí para guardar sus credenciales en D1.
+PUENTE_BASE_URL = "https://juancitoads-bot-wa.juanarrietabusiness.workers.dev"
+# El webhook del bot al que se reenvían los mensajes entrantes. Lo consume la
+# Fase 2; hasta entonces el puente responde 500 al recibir uno, que es correcto:
+# mejor un error visible que perder el mensaje en silencio.
+CRM_WEBHOOK_URL = "https://juancitoads-bot.juanarrietabusiness.workers.dev/webhooks/whatsapp-qr"
+
+# El puente reenvía los mensajes entrantes al bot por SERVICE BINDING, por la
+# misma razón: Worker a Worker de la misma cuenta por URL pública da error 1042.
+# Este lado todavía no había explotado porque no ha entrado ningún mensaje, pero
+# habría fallado igual con el primero.
+[[services]]
+binding = "CRM"
+service = "juancitoads-bot"
+
+[[durable_objects.bindings]]
+name = "WA"
+class_name = "PuenteWa"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PuenteWa"]
+
+[[containers]]
+class_name = "PuenteWa"
+image = "./contenedor/Dockerfile"
+# `lite` = 1/16 vCPU, 256 MiB, 2 GB disco. Es el tamaño cuyo costo se midió
+# (~$1.50–2.00/mes prendido 24/7).
+instance_type = "lite"
+# UNO. WhatsApp admite una sola conexión por dispositivo vinculado: dos
+# contenedores sobre el mismo número se expulsan entre sí en bucle.
+max_instances = 1
+
+[[d1_databases]]
+binding = "DB"
+database_name = "juancitoads-bot-wa-auth"
+database_id = "8cb5c6ae-e36b-4ac8-a0e8-68d10f9dc0d6"
+
+# Secret (lo carga el workflow desde los secrets del repositorio):
+#   WA_TOKEN  — protege todas las rutas y es lo que el contenedor presenta para
+#               escribir en D1. SOLO ASCII: un token con tilde o ñ funciona en
+#               toda prueba hecha por navegador y falla únicamente en la
+#               máquina. El Worker lo valida y lo reporta en /api/estado.

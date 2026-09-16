@@ -1,0 +1,12 @@
+{
+  "name": "juancitoads-bot-wa",
+  "private": true,
+  "type": "module",
+  "description": "Puente de WhatsApp por QR: Baileys en un contenedor de Cloudflare.",
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc.12",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4"
+  }
+}

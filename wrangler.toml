@@ -48,6 +48,27 @@ index_name = "juancitoads-bot-kb"
 # binding = "CATALOG"
 # bucket_name = "juancitoads-bot-catalog"
 
+# El puente de WhatsApp por QR. Por SERVICE BINDING y no por URL pública:
+# Cloudflare rechaza con error 1042 que un Worker llame a otro de la MISMA
+# cuenta por su URL — la petición ni siquiera llega, y el síntoma es un 404 que
+# se lee como "la ruta no existe".
+#
+# DESCOMENTAR DESPUÉS DE DESPLEGAR EL PUENTE, no antes. Cloudflare rechaza el
+# deploy de un Worker que declara un binding hacia otro que todavía no existe,
+# y aquí mergear a `main` ES desplegar: con estas tres líneas activas antes de
+# tiempo, el deploy del bot se cae y de paso no corre el reindexado de la base
+# de conocimiento.
+#
+# El orden es: 1) correr `puente-wa.yml` (crea `juancitoads-bot-wa`),
+#              2) descomentar esto y mergear.
+#
+# Mientras siga comentado, el canal no funciona aunque el panel muestre la
+# tarjeta: sin el binding, el bot cae a la URL pública y eso da justo el 1042
+# de arriba. Es un estado de paso, no una configuración válida.
+# [[services]]
+# binding = "PUENTE_WA"
+# service = "juancitoads-bot-wa"
+
 [vars]
 BOT_NAME = "Baby Caleb"
 BUSINESS_NAME = "Baby Caleb"
@@ -58,6 +79,9 @@ BOT_TIMEZONE = "America/Panama"
 BOT_TIER = "pro"
 BUFFER_SECONDS = "15"
 DASHBOARD_BASE_URL = "https://juancitoads-bot.juanarrietabusiness.workers.dev"
+# WhatsApp por QR (canal alterno). El bot no habla con WhatsApp: habla con este
+# puente, que sostiene el socket desde un contenedor. Ver puente-wa/.
+WA_PUENTE_URL = "https://juancitoads-bot-wa.juanarrietabusiness.workers.dev"
 
 # Secrets (set with `wrangler secret put <NAME>` — never commit values):
 #   ANTHROPIC_API_KEY          required — Claude API
@@ -67,6 +91,10 @@ DASHBOARD_BASE_URL = "https://juancitoads-bot.juanarrietabusiness.workers.dev"
 #   TELEGRAM_BOT_TOKEN         per-channel — Telegram bot
 #   MANYCHAT_API_KEY           per-channel — ManyChat (Pro)
 #   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WA_FROM   per-channel — Twilio WhatsApp (Pro)
+#   WA_TOKEN                   per-channel — WhatsApp por QR. El MISMO valor que el
+#                              secret WA_TOKEN del puente `juancitoads-bot-wa`. Solo
+#                              ASCII: un token con tilde o eñe pasa toda prueba hecha
+#                              por navegador y falla solo en la máquina.
 #   CALCOM_API_KEY             optional — scheduleAppointment (Pro)
 #   GOOGLE_SERVICE_ACCOUNT_JSON  optional — Sheets export (Pro)
 #   RESEND_API_KEY             optional — handoff email

@@ -5,6 +5,7 @@ import { manychatAdapter } from "../channels/manychat";
 import { twilioAdapter } from "../channels/twilio";
 import { metaAdapter } from "../channels/meta";
 import { whatsappAdapter } from "../channels/whatsapp";
+import { whatsappQrAdapter } from "../channels/whatsappQr";
 
 const MIN_DELAY_MS = 800;
 const MAX_DELAY_MS = 1500;
@@ -40,6 +41,7 @@ export function pickAdapter(channel: ChannelId): ChannelAdapter {
   if (channel === "manychat") return manychatAdapter;
   if (channel === "twilio") return twilioAdapter;
   if (channel === "whatsapp") return whatsappAdapter;
+  if (channel === "whatsapp-qr") return whatsappQrAdapter;
   if (channel === "messenger" || channel === "instagram") return metaAdapter;
   throw new Error(`unknown channel: ${channel}`);
 }
