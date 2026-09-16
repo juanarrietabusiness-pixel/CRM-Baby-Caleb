@@ -190,3 +190,24 @@ export function latidoVencido(ultimoLatidoEn: number | null | undefined, ahora: 
   if (!ultimoLatidoEn) return false; // todavía no ha latido ninguna vez
   return ahora - ultimoLatidoEn > LATIDO_VENCIDO_MS;
 }
+
+/**
+ * ¿Se puede volver a arrancar el contenedor, o hay uno en camino?
+ *
+ * Nació del fallo del 16-sep-2026 en Baby Caleb: 16 arranques en 17 minutos con
+ * `max_instances = 1`. El panel se reiniciaba el contenedor a sí mismo — la
+ * tarjeta refresca cada 5 s, cada refresco toca el Durable Object, y mientras
+ * la imagen levanta `running` sigue en false, así que todos volvían a llamar a
+ * `start()`. Baileys nunca asentaba la sesión y el teléfono terminaba
+ * escaneando un QR cuyo socket ya no existía.
+ */
+export function puedeArrancar(
+  ultimoArranqueIso: string | null | undefined,
+  ahora: number,
+  minimoMs: number,
+): boolean {
+  if (!ultimoArranqueIso) return true;
+  const ultimo = Date.parse(ultimoArranqueIso);
+  if (!Number.isFinite(ultimo)) return true; // una fecha ilegible no puede bloquear el arranque
+  return ahora - ultimo >= minimoMs;
+}

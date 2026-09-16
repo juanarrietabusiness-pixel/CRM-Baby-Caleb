@@ -15,6 +15,7 @@ import {
   pedazos,
   veredictoDeSalud,
   latidoVencido,
+  puedeArrancar,
   FILAS_POR_IDA,
   LATIDO_MS,
   LATIDO_VENCIDO_MS,
@@ -300,5 +301,48 @@ describe("las esperas del rescate", () => {
     // cuesta una resincronización entera.
     expect(LATIDOS_ANTES_DE_REINICIAR).toBeGreaterThanOrEqual(3);
     expect(LATIDOS_ANTES_DE_REINICIAR * LATIDO_MS).toBeLessThanOrEqual(10 * 60_000);
+  });
+});
+
+// ── El panel se reiniciaba el contenedor a sí mismo (16-sep-2026) ─────────
+//
+// 16 arranques en 17 minutos con max_instances = 1. La tarjeta refresca cada
+// 5 s, cada refresco toca el Durable Object, y mientras la imagen levanta
+// `running` sigue en false — así que todos volvían a llamar a `start()`.
+// Baileys nunca asentaba la sesión: el teléfono escaneaba un QR cuyo socket ya
+// no existía y WhatsApp decía "Revisa tu conexión y vuelve a intentarlo",
+// culpando a la red del dueño de un fallo que estaba de este lado.
+
+describe("puedeArrancar", () => {
+  const ahora = 1_800_000_000_000;
+  const MIN = 15_000;
+
+  it("la primera vez siempre se puede", () => {
+    expect(puedeArrancar(null, ahora, MIN)).toBe(true);
+    expect(puedeArrancar(undefined, ahora, MIN)).toBe(true);
+  });
+
+  it("un arranque en camino NO se pisa", () => {
+    const haceCinco = new Date(ahora - 5_000).toISOString();
+    expect(puedeArrancar(haceCinco, ahora, MIN)).toBe(false);
+  });
+
+  it("el refresco de 5 s del panel no puede encadenar arranques", () => {
+    // Tres refrescos seguidos, como los que mandaba la tarjeta.
+    const arranque = new Date(ahora).toISOString();
+    for (const t of [5_000, 10_000, 14_999]) {
+      expect(puedeArrancar(arranque, ahora + t, MIN), `a los ${t} ms`).toBe(false);
+    }
+  });
+
+  it("pasado el mínimo sí, porque un contenedor caído hay que relevantarlo", () => {
+    const viejo = new Date(ahora - MIN).toISOString();
+    expect(puedeArrancar(viejo, ahora, MIN)).toBe(true);
+  });
+
+  it("una fecha ilegible no puede dejar el contenedor sin arrancar", () => {
+    // Prefiere arrancar de más que quedarse muerto: un diario corrupto no
+    // puede convertirse en un canal que no levanta nunca.
+    expect(puedeArrancar("no es una fecha", ahora, MIN)).toBe(true);
   });
 });
