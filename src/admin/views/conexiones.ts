@@ -103,7 +103,7 @@ function channelStatuses(env: Env): ChannelStatus[] {
       id: "whatsapp-qr",
       name: "WhatsApp (por código QR)",
       icon: "qr-code",
-      desc: "Vincula un número escaneando un código, como WhatsApp Web. Sin alta comercial.",
+      desc: "Vincule un número escaneando un código, como WhatsApp Web. Sin alta comercial.",
       ok: waQrMissing.length === 0,
       missing: waQrMissing,
       // No lleva webhook que copiar: el puente lo llama solo.
@@ -112,7 +112,7 @@ function channelStatuses(env: Env): ChannelStatus[] {
           ? "Canal alterno: no es la API oficial y el número puede ser bloqueado por WhatsApp. Conviene dejar conectada también la Cloud API."
           : undefined,
       howTo:
-        "Escanea el código desde el teléfono del negocio. La sesión queda guardada y sobrevive a los reinicios.",
+        "Escanee el código desde el teléfono del negocio. La sesión queda guardada y sobrevive a los reinicios.",
       panel: waQrMissing.length === 0 ? renderWhatsappQrCard(env) : undefined,
     },
     {

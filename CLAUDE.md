@@ -46,6 +46,15 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 - `member/kb/` — la base de conocimiento versionada (políticas, tarifas de envío, pagos,
   uso del producto, cuándo escalar). `pnpm kb:reindex` la vuelca a `scripts/kb-fixtures.json`.
 - `src/niches/` — el "niche pack" genérico (Starter). Personaliza tono/columnas del panel.
+- `puente-wa/` — el canal **WhatsApp por código QR**: un Worker aparte
+  (`juancitoads-bot-wa`) con un contenedor que sostiene el WebSocket de Baileys.
+  Se despliega con su propio workflow (`puente-wa.yml`), NO con el del bot: si su
+  imagen no construye, el que no sale es el puente y el bot se sigue publicando.
+  Es un canal **alterno** — no es la API oficial y WhatsApp puede banear el
+  número, así que la Cloud API se queda conectada. Ver `docs/conectar-whatsapp-qr.md`
+  (para el dueño) y `docs/plan-whatsapp-qr.md` (el procedimiento).
+  **Después de desplegar el puente hay que reiniciar el contenedor desde el panel**:
+  uno sano no toma la imagen nueva.
 - `skill/` — asistentes para el usuario.
 
 ## Skills disponibles

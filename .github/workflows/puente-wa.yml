@@ -83,6 +83,34 @@ jobs:
           fi
           [ "$falta" = "0" ] || exit 1
 
+      # La base de la sesion ya existe y su id esta en el wrangler.toml. Este
+      # paso NO es para este bot: es para que el mismo workflow sirva tal cual
+      # en el siguiente cliente, donde la base no existe y el dueno tampoco usa
+      # la terminal. Por eso crea si falta y, si puede resolver el id, lo
+      # escribe; y por eso no falla si no puede — el id comiteado es correcto y
+      # tumbar aqui el despliegue por un paso de comodidad seria peor.
+      - name: Confirmar la base de la sesion
+        if: ${{ inputs.que_hacer == 'desplegar' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx wrangler@4 d1 create juancitoads-bot-wa-auth \
+            || echo "La base ya existia. Se sigue."
+          id=$(npx wrangler@4 d1 list --json 2>/dev/null \
+                | node -e 'let e="";process.stdin.on("data",d=>e+=d).on("end",()=>{
+                    try{
+                      const b=JSON.parse(e).find(x=>x.name==="juancitoads-bot-wa-auth");
+                      process.stdout.write(b&&b.uuid?b.uuid:"");
+                    }catch{process.stdout.write("")}
+                  })' || true)
+          if [ -z "$id" ]; then
+            echo "::warning::No se pudo resolver el id por API. Se usa el del wrangler.toml."
+          else
+            echo "Base juancitoads-bot-wa-auth -> $id"
+            sed -i "s/^database_id = \".*\"/database_id = \"$id\"/" wrangler.toml
+          fi
+          grep '^database_id' wrangler.toml
+
       - name: Aplicar el esquema a D1
         if: ${{ inputs.que_hacer == 'desplegar' }}
         env:
@@ -107,14 +135,23 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler@4 deploy
 
+      # Un contenedor SANO no toma una imagen nueva: el latido lo ve corriendo y
+      # lo deja en paz. En el piloto costo ~30 minutos diagnosticando codigo
+      # viejo creyendo que era el nuevo. Ver el paso "Como seguir".
       - name: Cómo seguir
         if: ${{ inputs.que_hacer == 'desplegar' && success() }}
         run: |
-          echo "Puente desplegado. Abre desde el TELEFONO para vincular:"
-          echo "  https://juancitoads-bot-wa.juanarrietabusiness.workers.dev/api/qr?t=<WA_TOKEN>"
+          echo "Puente desplegado."
           echo ""
-          echo "Estado completo:"
-          echo "  https://juancitoads-bot-wa.juanarrietabusiness.workers.dev/api/estado?t=<WA_TOKEN>"
+          echo "PASO OBLIGATORIO: entra al panel del bot, pestana Conexiones,"
+          echo "tarjeta 'WhatsApp (por codigo QR)' y toca 'Reiniciar el servicio'."
+          echo "Un contenedor sano NO toma la imagen nueva por su cuenta: el"
+          echo "latido lo ve corriendo y lo deja en paz. Sin ese reinicio se"
+          echo "sigue ejecutando el codigo anterior."
+          echo ""
+          echo "  https://juancitoads-bot.juanarrietabusiness.workers.dev/admin"
+          echo ""
+          echo "Y desde ahi mismo, con el telefono, se escanea el QR."
 
       - name: Borrar el puente
         if: ${{ inputs.que_hacer == 'borrar-el-puente' }}

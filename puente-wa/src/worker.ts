@@ -23,8 +23,11 @@ import {
   proximoLatido,
   tokenEsApto,
   tokenPresentado,
+  veredictoDeSalud,
+  latidoVencido,
   FILAS_POR_IDA,
   LATIDO_MS,
+  LATIDOS_ANTES_DE_REINICIAR,
 } from "./comun";
 
 export interface Env {
@@ -52,6 +55,20 @@ interface Diario {
   ultimoArranque: string | null;
   ultimaMuerteVista: string | null;
   fallosSeguidos: number;
+  /**
+   * Cuándo latió por última vez. Es la señal que faltaba el 16-sep-2026: la
+   * alarma se había apagado y NADA lo decía — el panel mostraba el canal como
+   * si todo estuviera bien mientras llevaba horas mudo.
+   */
+  ultimoLatidoEn: number | null;
+  /** Latidos seguidos con el contenedor prendido pero WhatsApp desconectado. */
+  desconectadoSeguidos: number;
+  /** La última vez que se vio el socket de WhatsApp realmente abierto. */
+  ultimaConexionVista: string | null;
+  /** Cuántas veces el latido tuvo que destruir el contenedor para recuperarlo. */
+  reiniciosForzados: number;
+  /** Lo último que impidió latir, si algo lo impidió. */
+  ultimoFalloDelLatido: string | null;
 }
 
 export class PuenteWa extends DurableObject<Env> {
@@ -63,7 +80,6 @@ export class PuenteWa extends DurableObject<Env> {
 
     const url = new URL(request.url);
     const destino = `http://contenedor${url.pathname}${url.search}`;
-    const puerto = this.ctx.container.getTcpPort(PUERTO_CONTENEDOR);
 
     // Con tope de tiempo por intento. Sin él, un contenedor que acepta la
     // conexión pero no contesta deja la petición colgada — y entonces la propia
@@ -71,12 +87,11 @@ export class PuenteWa extends DurableObject<Env> {
     let ultimoFallo = "";
     for (let intento = 0; intento < 5; intento++) {
       try {
-        const respuesta = await puerto.fetch(destino, {
+        const respuesta = await this.#alContenedor(destino, {
           method: request.method,
           headers: request.headers,
           body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
-          signal: AbortSignal.timeout(2500),
-        });
+        }, 2500);
         await this.#marcarSano();
         return respuesta;
       } catch (e) {
@@ -92,7 +107,14 @@ export class PuenteWa extends DurableObject<Env> {
     const diario = await this.#diario();
     diario.ultimaMuerteVista = new Date().toISOString();
     await this.ctx.storage.put("diario", diario);
-    this.ctx.container?.destroy("reinicio pedido desde el panel");
+    try {
+      this.ctx.container?.destroy("reinicio pedido desde el panel");
+    } catch {
+      // Destruir algo que ya no existe no es un error que valga propagar.
+    }
+    // El reinicio a mano también re-arma el latido: si la alarma se había
+    // perdido, el botón del panel la devuelve sin que nadie tenga que saberlo.
+    await this.#asegurarAlarma(LATIDO_MS);
     return diario;
   }
 
@@ -103,22 +125,148 @@ export class PuenteWa extends DurableObject<Env> {
   /**
    * El latido. Mantiene vivo al Durable Object —y con él al contenedor— y lo
    * vuelve a levantar si se cayó.
+   *
+   * ESTE MÉTODO NO PUEDE LANZAR, y el orden de sus dos mitades no es
+   * cosmético. `setAlarm` va PRIMERO, antes de cualquier cosa que pueda
+   * fallar, y el trabajo va entero dentro de un `try`.
+   *
+   * El 16-sep-2026 el canal se quedó mudo una noche entera por no hacerlo así.
+   * `alarm()` es lo único que programa la alarma siguiente, y `setAlarm` era la
+   * ÚLTIMA línea: bastaba con que `container.start()` lanzara —"ya está
+   * corriendo" en una carrera contra el panel, o "There is no container
+   * instance that can be provided to this Durable Object"— para que la línea
+   * nunca se ejecutara. Cloudflare reintenta una alarma que lanza unas pocas
+   * veces y después se rinde. Sin alarma no hay alarma siguiente: la cadena se
+   * corta y el único camino de vuelta es una petición entrante, o sea que
+   * alguien abra el panel. Eso fue exactamente lo que pasó.
    */
   async alarm(): Promise<void> {
+    // 1) Re-armar ANTES que nada. Con el retroceso del estado anterior, que
+    //    puede quedar un latido desfasado — es un precio ridículo comparado con
+    //    quedarse sin latido para siempre.
+    const previo = await this.#diario().catch(() => null);
+    await this.#programarSiguiente(previo?.fallosSeguidos ?? 0);
+
+    // 2) El trabajo. Si algo aquí lanza se anota y se sigue: la alarma ya está
+    //    puesta y el siguiente latido lo volverá a intentar.
+    try {
+      await this.#latir();
+    } catch (e) {
+      const motivo = e instanceof Error ? e.message : String(e);
+      console.error("latido:", motivo);
+      try {
+        const diario = await this.#diario();
+        diario.ultimoFalloDelLatido = motivo;
+        await this.ctx.storage.put("diario", diario);
+      } catch {
+        // Si ni siquiera se puede anotar el fallo, no se insiste: lo que
+        // importa —la alarma siguiente— ya quedó programado arriba.
+      }
+    }
+  }
+
+  /**
+   * Un latido: ¿está prendido el contenedor, y está WhatsApp conectado?
+   *
+   * Las DOS preguntas, no solo la primera. La versión anterior se conformaba
+   * con `container.running` y daba por sano un contenedor prendido con el
+   * socket de Baileys muerto. El propio código ya sabía que `running` miente
+   * —lo dice el comentario de `#marcarSano()`— y aun así lo usaba para decidir.
+   */
+  async #latir(): Promise<void> {
     const diario = await this.#diario();
     diario.latidos += 1;
+    diario.ultimoLatidoEn = Date.now();
+    diario.ultimoFalloDelLatido = null;
 
-    if (this.ctx.container && !this.ctx.container.running) {
+    // ── Primera pregunta: ¿hay proceso? ────────────────────────────────────
+    if (!this.ctx.container || !this.ctx.container.running) {
       diario.ultimaMuerteVista = new Date().toISOString();
       diario.fallosSeguidos += 1;
+      diario.desconectadoSeguidos = 0;
       await this.ctx.storage.put("diario", diario);
       await this.#encender();
-    } else {
-      diario.fallosSeguidos = 0;
-      await this.ctx.storage.put("diario", diario);
+      await this.#programarSiguiente(diario.fallosSeguidos);
+      return;
     }
 
-    await this.ctx.storage.setAlarm(Date.now() + proximoLatido(diario.fallosSeguidos));
+    diario.fallosSeguidos = 0;
+
+    // ── Segunda pregunta: ¿hay WhatsApp? ───────────────────────────────────
+    const conexion = await this.#conexionDelContenedor();
+    const veredicto = veredictoDeSalud(conexion);
+
+    if (veredicto === "sano") {
+      diario.desconectadoSeguidos = 0;
+      diario.ultimaConexionVista = new Date().toISOString();
+      await this.ctx.storage.put("diario", diario);
+      await this.#programarSiguiente(0);
+      return;
+    }
+
+    if (veredicto === "esperando-a-una-persona") {
+      // Sin vincular o esperando el QR. No es un fallo y NO se reinicia:
+      // reiniciar aquí genera un código nuevo y le tumba al dueño el que está
+      // mirando en la pantalla.
+      diario.desconectadoSeguidos = 0;
+      await this.ctx.storage.put("diario", diario);
+      await this.#programarSiguiente(0);
+      return;
+    }
+
+    // ── Caído: prendido pero mudo. Esto es lo que antes pasaba inadvertido ──
+    diario.desconectadoSeguidos += 1;
+
+    if (diario.desconectadoSeguidos >= LATIDOS_ANTES_DE_REINICIAR) {
+      // El martillo. Sale gratis en credenciales —viven en D1, está medido— y
+      // cuesta una resincronización. Después de cinco minutos mudo, vale.
+      diario.reiniciosForzados += 1;
+      diario.desconectadoSeguidos = 0;
+      diario.ultimaMuerteVista = new Date().toISOString();
+      await this.ctx.storage.put("diario", diario);
+      try {
+        this.ctx.container.destroy("el canal llevaba minutos sin conexión a WhatsApp");
+      } catch (e) {
+        console.error("no se pudo destruir el contenedor:", e);
+      }
+      await this.#programarSiguiente(0);
+      return;
+    }
+
+    // Lo barato primero: pedirle al contenedor que reconecte. Es idempotente y
+    // no cuesta nada si ya lo estaba intentando.
+    await this.ctx.storage.put("diario", diario);
+    await this.#pedirReconexion();
+    await this.#programarSiguiente(0);
+  }
+
+  /** Qué dice el contenedor de sí mismo. `null` si no contesta. */
+  async #conexionDelContenedor(): Promise<string | null> {
+    try {
+      const r = await this.#alContenedor("http://contenedor/estado", { method: "GET" }, 5000);
+      if (!r.ok) return null;
+      const cuerpo = (await r.json()) as { conexion?: string };
+      return cuerpo.conexion ?? null;
+    } catch {
+      // Un contenedor prendido que no contesta ES un contenedor caído, y así se
+      // cuenta: `veredictoDeSalud(null)` da "caido".
+      return null;
+    }
+  }
+
+  /** Empuja una reconexión. Un fallo aquí no puede tumbar el latido. */
+  async #pedirReconexion(): Promise<void> {
+    try {
+      await this.#alContenedor("http://contenedor/reconectar", { method: "POST" }, 5000);
+    } catch (e) {
+      console.error("no se pudo pedir la reconexión:", e);
+    }
+  }
+
+  /** Una sola ida al contenedor, con tope de tiempo. */
+  async #alContenedor(destino: string, init: RequestInit, ms: number): Promise<Response> {
+    const puerto = this.ctx.container!.getTcpPort(PUERTO_CONTENEDOR);
+    return puerto.fetch(destino, { ...init, signal: AbortSignal.timeout(ms) });
   }
 
   /**
@@ -134,8 +282,26 @@ export class PuenteWa extends DurableObject<Env> {
 
   async #asegurarEncendido(): Promise<void> {
     if (!this.ctx.container!.running) await this.#encender();
-    if ((await this.ctx.storage.getAlarm()) === null) {
-      await this.ctx.storage.setAlarm(Date.now() + LATIDO_MS);
+    await this.#asegurarAlarma(LATIDO_MS);
+  }
+
+  /** Pone la alarma si no hay ninguna. Nunca lanza. */
+  async #asegurarAlarma(enMs: number): Promise<void> {
+    try {
+      if ((await this.ctx.storage.getAlarm()) === null) {
+        await this.ctx.storage.setAlarm(Date.now() + enMs);
+      }
+    } catch (e) {
+      console.error("no se pudo asegurar la alarma:", e);
+    }
+  }
+
+  /** Programa el siguiente latido. Nunca lanza: es la pieza que no puede faltar. */
+  async #programarSiguiente(fallosSeguidos: number): Promise<void> {
+    try {
+      await this.ctx.storage.setAlarm(Date.now() + proximoLatido(fallosSeguidos));
+    } catch (e) {
+      console.error("no se pudo programar el latido:", e);
     }
   }
 
@@ -145,34 +311,55 @@ export class PuenteWa extends DurableObject<Env> {
     diario.ultimoArranque = new Date().toISOString();
     await this.ctx.storage.put("diario", diario);
 
-    this.ctx.container!.start({
-      env: {
-        PORT: String(PUERTO_CONTENEDOR),
-        PUENTE_URL: this.env.PUENTE_BASE_URL,
-        PUENTE_TOKEN: this.env.WA_TOKEN,
-      },
-      // Baileys tiene que salir a wss://web.whatsapp.com.
-      enableInternet: true,
-    });
+    // Dentro de un try: `start()` lanza si el contenedor YA está corriendo —una
+    // carrera contra una petición del panel basta— y también cuando Cloudflare
+    // no tiene instancia que entregar. Antes ese throw subía hasta `alarm()` y
+    // se llevaba por delante el latido entero. Ver el comentario de `alarm()`.
+    try {
+      this.ctx.container!.start({
+        env: {
+          PORT: String(PUERTO_CONTENEDOR),
+          PUENTE_URL: this.env.PUENTE_BASE_URL,
+          PUENTE_TOKEN: this.env.WA_TOKEN,
+        },
+        // Baileys tiene que salir a wss://web.whatsapp.com.
+        enableInternet: true,
+      });
+    } catch (e) {
+      console.error("no se pudo encender el contenedor:", e);
+    }
   }
 
   async #diario(): Promise<Diario> {
-    const guardado = await this.ctx.storage.get<Diario>("diario");
-    if (!guardado) {
-      return {
-        arrancadoEn: new Date().toISOString(),
-        latidos: 0,
-        arranquesContenedor: 0,
-        ultimoArranque: null,
-        ultimaMuerteVista: null,
-        fallosSeguidos: 0,
-      };
-    }
-    // Un diario escrito por una versión anterior no trae el campo. Sin este
-    // `?? 0`, el primer `+= 1` daría NaN y `setAlarm(NaN)` dejaría al
+    const guardado = await this.ctx.storage.get<Partial<Diario>>("diario");
+    const base: Diario = {
+      arrancadoEn: new Date().toISOString(),
+      latidos: 0,
+      arranquesContenedor: 0,
+      ultimoArranque: null,
+      ultimaMuerteVista: null,
+      fallosSeguidos: 0,
+      ultimoLatidoEn: null,
+      desconectadoSeguidos: 0,
+      ultimaConexionVista: null,
+      reiniciosForzados: 0,
+      ultimoFalloDelLatido: null,
+    };
+    if (!guardado) return base;
+    // Un diario escrito por una versión anterior no trae los campos nuevos. Sin
+    // estos respaldos, el primer `+= 1` daría NaN y `setAlarm(NaN)` dejaría al
     // contenedor sin latido para siempre — un fallo mudo justo en la pieza que
     // existe para recuperarse de fallos.
-    return { ...guardado, fallosSeguidos: guardado.fallosSeguidos ?? 0 };
+    return {
+      ...base,
+      ...guardado,
+      latidos: guardado.latidos ?? 0,
+      arranquesContenedor: guardado.arranquesContenedor ?? 0,
+      fallosSeguidos: guardado.fallosSeguidos ?? 0,
+      desconectadoSeguidos: guardado.desconectadoSeguidos ?? 0,
+      reiniciosForzados: guardado.reiniciosForzados ?? 0,
+      ultimoLatidoEn: guardado.ultimoLatidoEn ?? null,
+    };
   }
 }
 
@@ -287,6 +474,19 @@ export default {
         contenedor: delContenedor,
         durableObject: delDo,
         credenciales: conteos,
+        // El latido se reporta a sí mismo. El 16-sep-2026 la alarma llevaba
+        // horas apagada y el panel no tenía forma de decirlo: mostraba el canal
+        // como si todo estuviera bien mientras el bot no contestaba. Con esto,
+        // un latido vencido se ve ANTES de que alguien descubra el silencio
+        // escribiéndole al bot.
+        latido: {
+          ultimoEn: delDo.ultimoLatidoEn ? new Date(delDo.ultimoLatidoEn).toISOString() : null,
+          vencido: latidoVencido(delDo.ultimoLatidoEn, Date.now()),
+          desconectadoSeguidos: delDo.desconectadoSeguidos,
+          reiniciosForzados: delDo.reiniciosForzados,
+          ultimaConexionVista: delDo.ultimaConexionVista,
+          ultimoFallo: delDo.ultimoFalloDelLatido,
+        },
         token: {
           largo: env.WA_TOKEN.length,
           huella: huella(env.WA_TOKEN),

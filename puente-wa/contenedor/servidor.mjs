@@ -37,9 +37,17 @@ if (!PUENTE || !TOKEN) {
 
 const estado = {
   conexion: "arrancando", // arrancando | esperando-qr | conectada | cerrada | desvinculada
+  // Desde cuándo lleva en ese estado. El vigilante lo necesita para no pisarle
+  // el trabajo a una reconexión que ya está en marcha.
+  conexionDesde: Date.now(),
   arrancadoEn: new Date().toISOString(),
   vinculadoComo: null,
   reconexiones: 0,
+  // Lo que el vigilante tuvo que rescatar. Si este número crece, algo más de
+  // fondo está mal y conviene mirarlo — no es normal necesitar rescates.
+  rescatesDelVigilante: 0,
+  ultimaVigilancia: null,
+  proximoIntentoEn: null,
   mensajesRecibidos: 0,
   mensajesEnviados: 0,
   ultimoError: null,
@@ -62,6 +70,17 @@ function huella(s) {
 }
 
 let qrActual = null;
+
+/**
+ * Cambiar de estado por aquí SIEMPRE. `conexionDesde` es lo que le permite al
+ * vigilante distinguir "se acaba de caer y ya hay una reconexión en camino" de
+ * "lleva minutos caído y nadie va a hacer nada".
+ */
+function ponerConexion(valor) {
+  if (estado.conexion === valor) return;
+  estado.conexion = valor;
+  estado.conexionDesde = Date.now();
+}
 
 // ── Que un error no mate el proceso ────────────────────────────────────────
 //
@@ -217,6 +236,15 @@ let socket = null;
 let generacion = 0;
 let reconexionProgramada = false;
 let intentosReconexion = 0;
+/** Verdadero mientras el arranque inicial siga reintentando por su cuenta. */
+let arrancando = true;
+
+/**
+ * Cada cuánto se revisa a sí mismo. Mismo valor que `VIGILANTE_MS` en
+ * `puente-wa/src/comun.ts` — el contenedor no comparte build con el Worker, así
+ * que la constante se repite. Si cambia allá, cambia aquí.
+ */
+const VIGILANTE_MS = 30_000;
 
 /**
  * Cierra el socket anterior ANTES de abrir otro.
@@ -263,10 +291,6 @@ async function conectar() {
     version,
     auth: state,
     logger: SILENCIO,
-    // Este nombre NO es decorativo: es lo que la dueña ve en su teléfono, en
-    // Dispositivos vinculados, al lado del botón de cerrar sesión. Tiene que
-    // decirle algo a ella — si dijera el nombre de la agencia o el del Worker,
-    // el dispositivo parecería ajeno y el impulso sensato sería desvincularlo.
     browser: ["Baby Caleb", "Chrome", "3.0"],
     syncFullHistory: false,
   });
@@ -287,13 +311,13 @@ async function conectar() {
     if (!vigente()) return;
 
     if (qr) {
-      estado.conexion = "esperando-qr";
+      ponerConexion("esperando-qr");
       qrActual = await QRCode.toDataURL(qr, { width: 512, margin: 2 });
       console.log("QR nuevo disponible.");
     }
 
     if (connection === "open") {
-      estado.conexion = "conectada";
+      ponerConexion("conectada");
       estado.vinculadoComo = s.user?.id ?? null;
       estado.ultimoError = null;
       intentosReconexion = 0;
@@ -304,7 +328,7 @@ async function conectar() {
     if (connection === "close") {
       const causa =
         lastDisconnect?.error instanceof Boom ? lastDisconnect.error.output?.statusCode : 0;
-      estado.conexion = "cerrada";
+      ponerConexion("cerrada");
       estado.ultimoError = `cierre ${causa}`;
 
       if (causa === DisconnectReason.loggedOut) {
@@ -313,29 +337,11 @@ async function conectar() {
         console.log("Sesión cerrada desde el teléfono. Limpiando credenciales.");
         await kvDel("creds").catch(() => {});
         estado.vinculadoComo = null;
-        estado.conexion = "desvinculada";
+        ponerConexion("desvinculada");
         return;
       }
 
-      if (reconexionProgramada) return;
-      reconexionProgramada = true;
-      estado.reconexiones += 1;
-
-      // 515 (restartRequired) es el reinicio que WhatsApp pide tras vincular: es
-      // esperado y se atiende de inmediato. Lo demás espera cada vez más.
-      intentosReconexion =
-        causa === DisconnectReason.restartRequired ? 0 : intentosReconexion + 1;
-      const espera =
-        intentosReconexion === 0 ? 1000 : Math.min(3000 * 2 ** (intentosReconexion - 1), 60000);
-      console.log(`Reconectando en ${espera} ms (cierre ${causa}).`);
-
-      setTimeout(() => {
-        reconexionProgramada = false;
-        conectar().catch((e) => {
-          estado.ultimoError = `reconectar: ${e.message}`;
-          console.error("Fallo al reconectar:", e.message);
-        });
-      }, espera);
+      programarReconexion(causa);
     }
   });
 
@@ -353,6 +359,125 @@ async function conectar() {
     }
   });
 }
+
+/**
+ * Programa UNA reconexión, y garantiza que la cadena NO se corte.
+ *
+ * El 16-sep-2026 el canal se quedó mudo una noche entera por culpa de tres
+ * líneas que vivían aquí:
+ *
+ *     conectar().catch((e) => {
+ *       estado.ultimoError = `reconectar: ${e.message}`;
+ *       console.error("Fallo al reconectar:", e.message);
+ *     });
+ *
+ * Si `conectar()` rechaza —y puede: lo primero que hace es `kvGet("creds")`, que
+ * es un viaje HTTPS al puente— el error se anotaba y **nadie volvía a
+ * intentarlo nunca**. El proceso seguía vivo, `container.running` seguía en
+ * true, y el latido del Durable Object daba el canal por sano mientras llevaba
+ * horas sin contestar.
+ *
+ * El arranque (`arrancar()`) sí reintenta en un `for(;;)`. La reconexión no.
+ * Esa asimetría era el agujero, y el `programarReconexion(causa)` del `catch`
+ * es lo que lo cierra.
+ */
+function programarReconexion(causa) {
+  if (reconexionProgramada) return;
+  if (estado.conexion === "desvinculada") return; // esto necesita una persona
+  reconexionProgramada = true;
+  estado.reconexiones += 1;
+
+  // 515 (restartRequired) es el reinicio que WhatsApp pide tras vincular: es
+  // esperado y se atiende de inmediato. Lo demás espera cada vez más.
+  intentosReconexion = causa === DisconnectReason.restartRequired ? 0 : intentosReconexion + 1;
+  const espera =
+    intentosReconexion === 0 ? 1000 : Math.min(3000 * 2 ** (intentosReconexion - 1), 60000);
+  estado.proximoIntentoEn = new Date(Date.now() + espera).toISOString();
+  console.log(`Reconectando en ${espera} ms (cierre ${causa}).`);
+
+  setTimeout(() => {
+    reconexionProgramada = false;
+    conectar().catch((e) => {
+      estado.ultimoError = `reconectar: ${e.message}`;
+      console.error("Fallo al reconectar:", e.message);
+      // LA línea del arreglo. Sin ella la cadena termina aquí y el canal se
+      // queda mudo para siempre sin que nada lo note.
+      programarReconexion(causa);
+    });
+  }, espera);
+}
+
+/**
+ * ¿El WebSocket sigue de verdad abierto?
+ *
+ * Conservador a propósito: si no se puede medir, se devuelve `true`. Declarar
+ * muerto un socket sano cuesta una reconexión innecesaria y una
+ * resincronización entera; equivocarse en el otro sentido solo retrasa el
+ * rescate hasta que el latido del Worker lo note.
+ */
+function socketAbierto() {
+  try {
+    const ws = socket?.ws;
+    if (!ws) return false;
+    if (typeof ws.isOpen === "boolean") return ws.isOpen;
+    const cual = ws.readyState ?? ws.socket?.readyState;
+    if (typeof cual === "number") return cual === 1; // 1 = OPEN
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * El vigilante: la red de seguridad de última instancia.
+ *
+ * Revisa cada medio minuto que el canal esté donde dice estar. No sustituye al
+ * manejador de `connection.update` —ese sigue siendo el camino normal— sino que
+ * cubre los casos en los que ese camino no llega a ejecutarse: una promesa que
+ * rechazó, un socket que murió sin emitir `close`, un `setTimeout` que se
+ * perdió.
+ *
+ * `esperando-qr` y `desvinculada` se dejan en paz a propósito: no son fallos,
+ * son estados que esperan a una persona. Reconectar ahí solo genera un código
+ * nuevo y le tumba al dueño el que está mirando en la pantalla.
+ */
+function vigilar() {
+  estado.ultimaVigilancia = new Date().toISOString();
+
+  if (estado.conexion === "desvinculada" || estado.conexion === "esperando-qr") return;
+
+  if (estado.conexion === "conectada") {
+    if (socketAbierto()) return;
+    // Dice estar conectada y el socket no está abierto: es un zombi, y nadie
+    // más lo iba a notar porque `connection.update` nunca llegó a dispararse.
+    console.error("El socket dice conectada pero no está abierto. Rescatando.");
+    estado.ultimoError = "socket zombi: conectada sin socket abierto";
+    estado.rescatesDelVigilante += 1;
+    ponerConexion("cerrada");
+    programarReconexion(0);
+    return;
+  }
+
+  // `cerrada` o `arrancando`. Si ya hay algo en camino, no se pisa.
+  if (reconexionProgramada || arrancando) return;
+  // Y se le da al camino normal el tiempo de hacer su trabajo antes de meterse.
+  if (Date.now() - estado.conexionDesde < VIGILANTE_MS) return;
+
+  console.error(`Nadie está reconectando y lleva caída. Rescatando (${estado.conexion}).`);
+  estado.rescatesDelVigilante += 1;
+  programarReconexion(0);
+}
+
+setInterval(() => {
+  // Dentro de un try: una excepción aquí mataría el intervalo, y el vigilante
+  // que se muere en silencio es peor que no tener vigilante.
+  try {
+    vigilar();
+  } catch (e) {
+    estado.ultimoError = `vigilante: ${e.message}`;
+    console.error("El vigilante falló:", e.message);
+  }
+}, VIGILANTE_MS);
 
 /** Manda el mensaje entrante al puente. Un fallo aquí se anota, no se traga. */
 async function reenviar(msg) {
@@ -413,12 +538,32 @@ const servidor = http.createServer(async (req, res) => {
     }
   }
 
+  // La empuja el latido del Durable Object cuando ve el contenedor prendido
+  // pero WhatsApp desconectado. Es idempotente: si ya hay una reconexión en
+  // camino, no hace nada. Lo barato antes que el martillo de destruir el
+  // contenedor entero.
+  if (url.pathname === "/reconectar" && req.method === "POST") {
+    if (estado.conexion === "desvinculada") {
+      return json(409, {
+        error: "El numero esta desvinculado. Hay que escanear un codigo nuevo.",
+        estado: estado.conexion,
+      });
+    }
+    programarReconexion(0);
+    return json(200, {
+      ok: true,
+      estado: estado.conexion,
+      programada: reconexionProgramada,
+      proximoIntentoEn: estado.proximoIntentoEn,
+    });
+  }
+
   if (url.pathname === "/logout" && req.method === "POST") {
     try {
       await socket?.logout();
     } catch {}
     await kvDel("creds").catch(() => {});
-    estado.conexion = "desvinculada";
+    ponerConexion("desvinculada");
     estado.vinculadoComo = null;
     return json(200, { ok: true });
   }
@@ -447,6 +592,9 @@ let intentos = 0;
     try {
       await conectar();
       intentos = 0;
+      // A partir de aquí el vigilante manda: el bucle de arranque ya no está
+      // reintentando, así que dejar de avisarlo lo dejaría sin red.
+      arrancando = false;
       return;
     } catch (e) {
       intentos += 1;

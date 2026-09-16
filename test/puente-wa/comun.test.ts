@@ -13,8 +13,12 @@ import {
   proximoLatido,
   tokenEsApto,
   pedazos,
+  veredictoDeSalud,
+  latidoVencido,
   FILAS_POR_IDA,
   LATIDO_MS,
+  LATIDO_VENCIDO_MS,
+  LATIDOS_ANTES_DE_REINICIAR,
 } from "../../puente-wa/src/comun";
 
 const b64 = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
@@ -230,5 +234,71 @@ describe("pedazos", () => {
   it("el tamaño por ida deja margen bajo el límite de parámetros de una consulta", () => {
     expect(FILAS_POR_IDA).toBeLessThanOrEqual(100);
     expect(FILAS_POR_IDA).toBeGreaterThan(1);
+  });
+});
+
+// ── El fallo del 16-sep-2026: el canal mudo toda la noche ──────────────────
+//
+// El latido preguntaba `container.running` —"¿el proceso está prendido?"— y
+// nunca "¿WhatsApp está conectado?". Un contenedor prendido con el socket de
+// Baileys muerto salía SANO, y el canal se quedaba mudo sin que nada lo notara.
+// El dueño lo descubrió escribiéndole al bot y no recibiendo respuesta.
+
+describe("veredictoDeSalud", () => {
+  it("solo 'conectada' cuenta como sano", () => {
+    expect(veredictoDeSalud("conectada")).toBe("sano");
+  });
+
+  it("un contenedor que no contesta está caído, no sano", () => {
+    // ESTE es el caso que el latido viejo daba por bueno: prendido y mudo.
+    expect(veredictoDeSalud(null)).toBe("caido");
+    expect(veredictoDeSalud(undefined)).toBe("caido");
+    expect(veredictoDeSalud("cerrada")).toBe("caido");
+    expect(veredictoDeSalud("arrancando")).toBe("caido");
+  });
+
+  it("esperar a una persona NO es un fallo que se arregle reiniciando", () => {
+    // Reiniciar aquí genera un código nuevo y le tumba al dueño el que está
+    // mirando en la pantalla del teléfono.
+    expect(veredictoDeSalud("esperando-qr")).toBe("esperando-a-una-persona");
+    expect(veredictoDeSalud("desvinculada")).toBe("esperando-a-una-persona");
+  });
+
+  it("un estado desconocido se trata como caído, no como sano", () => {
+    // Por si Baileys estrena un estado: equivocarse hacia "caído" cuesta una
+    // reconexión; equivocarse hacia "sano" cuesta una noche de silencio.
+    expect(veredictoDeSalud("vaya-usted-a-saber")).toBe("caido");
+  });
+});
+
+describe("latidoVencido", () => {
+  const ahora = 1_800_000_000_000;
+
+  it("un latido reciente no está vencido", () => {
+    expect(latidoVencido(ahora - 30_000, ahora)).toBe(false);
+  });
+
+  it("un latido perdido todavía no es motivo de alarma", () => {
+    expect(latidoVencido(ahora - LATIDO_MS * 2, ahora)).toBe(false);
+  });
+
+  it("tres latidos seguidos sin llegar es que la alarma dejó de existir", () => {
+    expect(latidoVencido(ahora - LATIDO_VENCIDO_MS - 1, ahora)).toBe(true);
+  });
+
+  it("no haber latido nunca no es un vencimiento", () => {
+    // Recién desplegado. Decir "vencido" ahí sería una alarma falsa en el peor
+    // momento: justo cuando el dueño está vinculando por primera vez.
+    expect(latidoVencido(null, ahora)).toBe(false);
+    expect(latidoVencido(undefined, ahora)).toBe(false);
+  });
+});
+
+describe("las esperas del rescate", () => {
+  it("se le dan varios minutos al canal antes de destruir el contenedor", () => {
+    // Reconectar es lo barato y hay que darle tiempo. Destruir el contenedor
+    // cuesta una resincronización entera.
+    expect(LATIDOS_ANTES_DE_REINICIAR).toBeGreaterThanOrEqual(3);
+    expect(LATIDOS_ANTES_DE_REINICIAR * LATIDO_MS).toBeLessThanOrEqual(10 * 60_000);
   });
 });

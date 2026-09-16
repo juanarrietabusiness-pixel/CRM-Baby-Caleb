@@ -128,3 +128,65 @@ export function pedazos<T>(lista: T[], tamano: number): T[][] {
   for (let i = 0; i < lista.length; i += tamano) salida.push(lista.slice(i, i + tamano));
   return salida;
 }
+
+// ── Salud real del canal ───────────────────────────────────────────────────
+//
+// Todo lo que sigue nació del fallo del 16-sep-2026: el canal se quedó mudo
+// una noche entera y volvió solo cuando el dueño abrió el panel. Ver la entrada
+// "El latido medía lo que no importaba" en docs/bitacora-whatsapp-qr.md.
+
+/** Cada cuánto el vigilante del contenedor revisa su propio socket. */
+export const VIGILANTE_MS = 30_000;
+
+/**
+ * Cuántos latidos seguidos con el contenedor prendido pero SIN conexión a
+ * WhatsApp antes de destruirlo y levantarlo de cero.
+ *
+ * Cinco (≈5 min) y no uno: reconectar es lo barato y hay que darle tiempo a
+ * que funcione. Destruir el contenedor es el martillo — sale gratis en
+ * credenciales porque viven en D1, pero cuesta una resincronización entera.
+ */
+export const LATIDOS_ANTES_DE_REINICIAR = 5;
+
+/**
+ * Cuánto puede tardar un latido en llegar antes de considerar que el latido
+ * MISMO está muerto. Tres veces la espera base: un latido perdido es ruido,
+ * tres seguidos es que la alarma dejó de existir.
+ */
+export const LATIDO_VENCIDO_MS = LATIDO_MS * 3;
+
+export type Veredicto = "sano" | "esperando-a-una-persona" | "caido";
+
+/**
+ * Qué hacer con lo que contesta el contenedor.
+ *
+ * Existe aparte y con pruebas porque es EL juicio que el latido se equivocaba
+ * en hacer. La versión anterior preguntaba `container.running` —"¿el proceso
+ * está prendido?"— cuando lo que importa es "¿WhatsApp está conectado?". Un
+ * contenedor prendido con el socket muerto salía sano y el canal se quedaba
+ * mudo sin que nada lo notara.
+ *
+ * `esperando-a-una-persona` no es un estado sano, pero TAMPOCO es un fallo que
+ * se arregle reiniciando: si nadie ha escaneado el QR, reiniciar solo genera un
+ * código nuevo y le tumba al dueño el que está mirando.
+ */
+export function veredictoDeSalud(conexion: string | null | undefined): Veredicto {
+  if (conexion === "conectada") return "sano";
+  if (conexion === "esperando-qr" || conexion === "desvinculada") {
+    return "esperando-a-una-persona";
+  }
+  return "caido";
+}
+
+/**
+ * ¿El latido está llegando?
+ *
+ * Es la señal que faltaba el 16-sep: la alarma del Durable Object se había
+ * apagado y NADA lo decía — el panel mostraba el canal como si todo estuviera
+ * bien. Con esto, un latido vencido se ve en la tarjeta antes de que el dueño
+ * descubra el silencio escribiéndole al bot.
+ */
+export function latidoVencido(ultimoLatidoEn: number | null | undefined, ahora: number): boolean {
+  if (!ultimoLatidoEn) return false; // todavía no ha latido ninguna vez
+  return ahora - ultimoLatidoEn > LATIDO_VENCIDO_MS;
+}

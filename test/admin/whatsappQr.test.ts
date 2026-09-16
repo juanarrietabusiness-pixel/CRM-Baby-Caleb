@@ -3,6 +3,7 @@ import {
   renderWhatsappQrPanel,
   renderWhatsappQrCard,
   enCastellano,
+  haceCuanto,
 } from "../../src/admin/views/whatsappQr";
 import type { Env } from "../../src/env";
 
@@ -122,5 +123,65 @@ describe("renderWhatsappQrCard", () => {
     const html = renderWhatsappQrCard({} as Env);
     expect(html).toContain("WA_PUENTE_URL");
     expect(html).toContain("WA_TOKEN");
+  });
+});
+
+// ── El latido, a la vista ─────────────────────────────────────────────────
+//
+// El 16-sep-2026 el canal llevaba horas mudo y esta tarjeta lo mostraba como si
+// todo estuviera bien. El dueño se enteró escribiéndole al bot. Que el latido
+// se reporte a sí mismo aquí es lo que evita que vuelva a pasar en silencio.
+
+describe("haceCuanto", () => {
+  const ahora = Date.parse("2026-09-16T16:00:00.000Z");
+
+  it("habla en segundos, minutos, horas y días", () => {
+    expect(haceCuanto("2026-09-16T15:59:20.000Z", ahora)).toBe("hace 40 segundos");
+    expect(haceCuanto("2026-09-16T15:57:00.000Z", ahora)).toBe("hace 3 minutos");
+    expect(haceCuanto("2026-09-16T14:00:00.000Z", ahora)).toBe("hace 2 horas");
+    expect(haceCuanto("2026-09-14T16:00:00.000Z", ahora)).toBe("hace 2 días");
+  });
+
+  it("concuerda el singular", () => {
+    expect(haceCuanto("2026-09-16T15:59:59.000Z", ahora)).toBe("hace 1 segundo");
+    expect(haceCuanto("2026-09-16T15:59:00.000Z", ahora)).toBe("hace 1 minuto");
+  });
+
+  it("no inventa nada cuando no hay marca de tiempo", () => {
+    expect(haceCuanto(null, ahora)).toBeNull();
+    expect(haceCuanto(undefined, ahora)).toBeNull();
+    expect(haceCuanto("no es una fecha", ahora)).toBeNull();
+  });
+});
+
+describe("el latido en la tarjeta", () => {
+  it("avisa cuando la vigilancia dejó de revisar la conexión", () => {
+    const html = renderWhatsappQrPanel(
+      { contenedor: { conexion: "conectada" }, latido: { vencido: true } },
+      null,
+    );
+    expect(html).toContain("dejó de revisar la conexión");
+    expect(html).toContain("var(--bad)");
+  });
+
+  it("con el latido sano NO grita: solo dice cuándo revisó", () => {
+    const html = renderWhatsappQrPanel(
+      {
+        contenedor: { conexion: "conectada" },
+        latido: { vencido: false, ultimoEn: new Date(Date.now() - 20_000).toISOString() },
+      },
+      null,
+    );
+    expect(html).toContain("Conexión revisada");
+    expect(html).not.toContain("dejó de revisar");
+  });
+
+  it("habla de usted, como el resto de la atención", () => {
+    const html = renderWhatsappQrPanel(
+      { contenedor: { conexion: "conectada" }, latido: { vencido: true } },
+      null,
+    );
+    expect(html).toContain("Toque");
+    expect(html).not.toMatch(/\bToca\b/);
   });
 });

@@ -22,6 +22,22 @@ export interface EstadoDelPuente {
     ultimoError?: string | null;
   };
   credenciales?: { vinculado?: boolean; credsActualizadaEn?: string | null };
+  /**
+   * La salud del latido que sostiene el canal.
+   *
+   * Existe por el fallo del 16-sep-2026: la alarma del Durable Object llevaba
+   * horas apagada y esta tarjeta mostraba el canal como si todo estuviera bien.
+   * El dueño se enteró del silencio escribiéndole al bot. Un latido vencido
+   * tiene que verse AQUÍ, antes que allá.
+   */
+  latido?: {
+    ultimoEn?: string | null;
+    vencido?: boolean;
+    desconectadoSeguidos?: number;
+    reiniciosForzados?: number;
+    ultimaConexionVista?: string | null;
+    ultimoFallo?: string | null;
+  };
   error?: string;
 }
 
@@ -79,6 +95,24 @@ export function enCastellano(conexion: string | undefined): {
   }
 }
 
+/**
+ * "hace 40 segundos", "hace 3 minutos". Para que el dueño pueda juzgar si el
+ * servicio se está revisando solo sin tener que leer una marca de tiempo ISO.
+ */
+export function haceCuanto(iso: string | null | undefined, ahora: number): string | null {
+  if (!iso) return null;
+  const cuando = Date.parse(iso);
+  if (Number.isNaN(cuando)) return null;
+  const segundos = Math.max(0, Math.round((ahora - cuando) / 1000));
+  if (segundos < 60) return `hace ${segundos} segundo${segundos === 1 ? "" : "s"}`;
+  const minutos = Math.round(segundos / 60);
+  if (minutos < 60) return `hace ${minutos} minuto${minutos === 1 ? "" : "s"}`;
+  const horas = Math.round(minutos / 60);
+  if (horas < 24) return `hace ${horas} hora${horas === 1 ? "" : "s"}`;
+  const dias = Math.round(horas / 24);
+  return `hace ${dias} día${dias === 1 ? "" : "s"}`;
+}
+
 const COLOR = { ok: "var(--ok)", warn: "var(--warn)", bad: "var(--bad)", dim: "var(--dim)" };
 
 /**
@@ -127,6 +161,19 @@ export function renderWhatsappQrPanel(
       ? `<div class="text-dim text-[12px]">Mensajes recibidos desde el último reinicio: <span class="text-cream">${recibidos}</span></div>`
       : "";
 
+  // El latido, a la vista. Cuando está vencido NO se disimula: es la diferencia
+  // entre "el canal se cayó y se está recuperando solo" y "nadie está cuidando
+  // este canal", y esa diferencia es justo la que el 16-sep-2026 no se pudo ver.
+  const revision = haceCuanto(estado.latido?.ultimoEn, Date.now());
+  const latido = estado.latido?.vencido
+    ? `<div class="text-[12px]" style="color:var(--bad)">
+         El servicio de vigilancia dejó de revisar la conexión${revision ? ` (última revisión ${esc(revision)})` : ""}.
+         Toque <strong>Reiniciar el servicio</strong> para volver a ponerlo en marcha.
+       </div>`
+    : revision
+      ? `<div class="text-dim text-[12px]">Conexión revisada ${esc(revision)}.</div>`
+      : "";
+
   // El error técnico va detrás de un <details>: al dueño no le sirve, pero a
   // quien venga a ayudarle le ahorra la cacería. Esconderlo del todo fue un
   // error que ya cometimos durante el piloto.
@@ -147,6 +194,7 @@ export function renderWhatsappQrPanel(
       <p class="text-dim text-[12.5px]" style="margin:0">${esc(detalle)}</p>
       ${numero}
       ${actividad}
+      ${latido}
       ${bloqueQr}
       ${error}
       <div class="row-wrap" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:2px">
