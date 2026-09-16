@@ -53,21 +53,16 @@ index_name = "juancitoads-bot-kb"
 # cuenta por su URL — la petición ni siquiera llega, y el síntoma es un 404 que
 # se lee como "la ruta no existe".
 #
-# DESCOMENTAR DESPUÉS DE DESPLEGAR EL PUENTE, no antes. Cloudflare rechaza el
-# deploy de un Worker que declara un binding hacia otro que todavía no existe,
-# y aquí mergear a `main` ES desplegar: con estas tres líneas activas antes de
-# tiempo, el deploy del bot se cae y de paso no corre el reindexado de la base
-# de conocimiento.
+# Estuvo comentado hasta el 16-sep-2026 a propósito: Cloudflare también rechaza
+# el DEPLOY de un Worker que declara un binding hacia otro que no existe, y aquí
+# mergear a `main` es desplegar. Se activa ahora porque `juancitoads-bot-wa` ya
+# está publicado (`puente-wa.yml`, corrida del 16-sep 17:06 UTC).
 #
-# El orden es: 1) correr `puente-wa.yml` (crea `juancitoads-bot-wa`),
-#              2) descomentar esto y mergear.
-#
-# Mientras siga comentado, el canal no funciona aunque el panel muestre la
-# tarjeta: sin el binding, el bot cae a la URL pública y eso da justo el 1042
-# de arriba. Es un estado de paso, no una configuración válida.
-# [[services]]
-# binding = "PUENTE_WA"
-# service = "juancitoads-bot-wa"
+# Si algún día hay que recrear el puente desde cero, vuelve a comentarse primero
+# y se destapa después — en ese orden.
+[[services]]
+binding = "PUENTE_WA"
+service = "juancitoads-bot-wa"
 
 [vars]
 BOT_NAME = "Baby Caleb"

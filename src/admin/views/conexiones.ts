@@ -24,6 +24,22 @@ interface ChannelStatus {
   howTo: string;
   /** Ruta del diagnóstico en vivo (pregunta al proveedor), si el canal tiene. */
   diagPath?: string;
+  /**
+   * Qué dice el badge cuando `ok` es verdadero. Por defecto, "CONECTADO".
+   *
+   * Existe por WhatsApp por QR. Para los demás canales `ok` —"los secrets
+   * existen"— es prácticamente lo mismo que estar conectado: el proveedor llama
+   * al webhook y ya. Aquí no: con los secrets puestos todavía falta desplegar
+   * el puente, vincular el número escaneando un código y que WhatsApp mantenga
+   * la sesión. Un badge verde que diga CONECTADO ahí miente.
+   *
+   * Y peor: choca. La tarjeta lleva DENTRO un panel en vivo cuyo estado también
+   * se llama "Conectado", y ese sí significa que WhatsApp está atendiendo. Dos
+   * "Conectado" en la misma tarjeta, uno verde sin que haya nada vinculado, es
+   * exactamente la clase de señal que sale verde tanto si el sistema funciona
+   * como si no.
+   */
+  okLabel?: string;
   /** HTML extra dentro de la tarjeta (panel en vivo). */
   panel?: string;
 }
@@ -113,6 +129,10 @@ function channelStatuses(env: Env): ChannelStatus[] {
           : undefined,
       howTo:
         "Escanee el código desde el teléfono del negocio. La sesión queda guardada y sobrevive a los reinicios.",
+      // "CONFIGURADO", no "CONECTADO": aquí tener los secrets no es estar
+      // atendiendo. Quien dice si WhatsApp está conectado es el panel de
+      // adentro, que lo pregunta en vivo. Ver `okLabel`.
+      okLabel: "CONFIGURADO",
       panel: waQrMissing.length === 0 ? renderWhatsappQrCard(env) : undefined,
     },
     {
@@ -156,7 +176,7 @@ export function renderConexiones(env: Env): string {
   const cards = channels
     .map((ch) => {
       const badge = ch.ok
-        ? `<span style="font-size:10px;letter-spacing:.14em;color:var(--ok);border:1px solid var(--ok);background:rgba(87,201,138,.08);padding:3px 10px;border-radius:999px;font-weight:700">● CONECTADO</span>`
+        ? `<span style="font-size:10px;letter-spacing:.14em;color:var(--ok);border:1px solid var(--ok);background:rgba(87,201,138,.08);padding:3px 10px;border-radius:999px;font-weight:700">● ${esc(ch.okLabel ?? "CONECTADO")}</span>`
         : `<span style="font-size:10px;letter-spacing:.14em;color:var(--dim);border:1px solid var(--line);padding:3px 10px;border-radius:999px;font-weight:600">○ SIN CONECTAR</span>`;
 
       const missing = ch.ok
