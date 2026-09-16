@@ -367,7 +367,12 @@ describe("contraElContenedor", () => {
   it("manda EL MISMO cuerpo en todos los intentos", async () => {
     // El candado de este fallo: si alguien vuelve a pasar un stream, el cuerpo
     // del segundo intento ya no sería idéntico al del primero.
-    const cuerpo = new TextEncoder().encode('{"para":"x","chunks":["hola"]}').buffer;
+    // Se construye el ArrayBuffer a mano: `.buffer` de un TypedArray es
+    // `ArrayBufferLike`, que incluye SharedArrayBuffer, y `tsc` lo rechaza
+    // aunque vitest lo deje pasar. Es el mismo tropiezo anotado en la bitácora.
+    const bytes = new TextEncoder().encode('{"para":"x","chunks":["hola"]}');
+    const cuerpo = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(cuerpo).set(bytes);
     const vistos: (ArrayBuffer | undefined)[] = [];
     let quedan = 3;
 
