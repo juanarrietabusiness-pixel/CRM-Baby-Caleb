@@ -26,6 +26,7 @@ import {
   veredictoDeSalud,
   latidoVencido,
   puedeArrancar,
+  contraElContenedor,
   FILAS_POR_IDA,
   LATIDO_MS,
   LATIDOS_ANTES_DE_REINICIAR,
@@ -102,23 +103,34 @@ export class PuenteWa extends DurableObject<Env> {
     const url = new URL(request.url);
     const destino = `http://contenedor${url.pathname}${url.search}`;
 
+    // El cuerpo se lee UNA vez, aquí, y se reutiliza en cada intento.
+    //
+    // Antes se pasaba `request.body` —un ReadableStream— dentro del bucle. El
+    // primer intento lo consume y los demás revientan con "This ReadableStream
+    // is disturbed", así que de los cinco reintentos solo existía el primero
+    // para cualquier POST. Y los reintentos son justamente lo que salva a un
+    // contenedor frío: con el panel abierto acertaba el primero y todo parecía
+    // bien; con el panel cerrado se perdía la respuesta del bot con un 503.
+    const sinCuerpo = request.method === "GET" || request.method === "HEAD";
+    const cuerpo = sinCuerpo ? undefined : await request.arrayBuffer();
+
     // Con tope de tiempo por intento. Sin él, un contenedor que acepta la
     // conexión pero no contesta deja la petición colgada — y entonces la propia
     // pantalla de diagnóstico se cuelga, justo cuando más falta hace.
-    let ultimoFallo = "";
-    for (let intento = 0; intento < 5; intento++) {
-      try {
-        const respuesta = await this.#alContenedor(destino, {
-          method: request.method,
-          headers: request.headers,
-          body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
-        }, 2500);
-        await this.#marcarSano();
-        return respuesta;
-      } catch (e) {
-        ultimoFallo = e instanceof Error ? e.message : String(e);
-        await new Promise((r) => setTimeout(r, 500));
-      }
+    const { respuesta, ultimoFallo } = await contraElContenedor(
+      (datos, topeMs) =>
+        this.#alContenedor(
+          destino,
+          { method: request.method, headers: request.headers, body: datos },
+          topeMs,
+        ),
+      cuerpo,
+      { intentos: 5, esperaMs: 500, dormir: (ms) => new Promise((r) => setTimeout(r, ms)) },
+    );
+
+    if (respuesta) {
+      await this.#marcarSano();
+      return respuesta;
     }
     return json(503, { error: "El contenedor no respondió a tiempo.", detalle: ultimoFallo });
   }
@@ -286,6 +298,8 @@ export class PuenteWa extends DurableObject<Env> {
 
   /** Una sola ida al contenedor, con tope de tiempo. */
   async #alContenedor(destino: string, init: RequestInit, ms: number): Promise<Response> {
+    // `init.body` nunca es un stream: quien llama ya lo materializó. Ver el
+    // comentario del cuerpo reutilizable en `fetch()`.
     const puerto = this.ctx.container!.getTcpPort(PUERTO_CONTENEDOR);
     return puerto.fetch(destino, { ...init, signal: AbortSignal.timeout(ms) });
   }

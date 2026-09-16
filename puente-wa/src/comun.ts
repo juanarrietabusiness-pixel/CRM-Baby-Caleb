@@ -211,3 +211,56 @@ export function puedeArrancar(
   if (!Number.isFinite(ultimo)) return true; // una fecha ilegible no puede bloquear el arranque
   return ahora - ultimo >= minimoMs;
 }
+
+// ── Reintentar contra el contenedor ────────────────────────────────────────
+
+/**
+ * Cuánto espera cada intento contra el contenedor.
+ *
+ * El primero corto, para detectar rápido que está frío; los siguientes más
+ * generosos, porque para entonces ya está arrancando y vale la pena esperarlo.
+ */
+export function topeDelIntento(intento: number): number {
+  return intento === 0 ? 2_500 : 5_000;
+}
+
+/**
+ * Reintenta una petición al contenedor SIN volver a leer el cuerpo.
+ *
+ * Existe por el fallo del 16-sep-2026, que se veía como "el bot responde a
+ * veces sí y a veces no, según si el panel está abierto".
+ *
+ * El bucle de reintentos pasaba `request.body` —un ReadableStream— en cada
+ * vuelta. El primer intento lo consume; del segundo en adelante revientan al
+ * instante con "This ReadableStream is disturbed (has already been read from),
+ * and cannot be used as a body". O sea que de los cinco reintentos, para
+ * cualquier POST, solo existía el primero.
+ *
+ * Y los reintentos están justamente para sobrevivir un contenedor frío. Con el
+ * panel abierto el contenedor estaba caliente, el primer intento acertaba y
+ * todo parecía bien; con el panel cerrado el primero se agotaba, los otros
+ * cuatro morían en el acto y la respuesta del bot se perdía con un 503. Los
+ * mensajes entrantes sí llegaban, porque van por otro camino — por eso el
+ * canal parecía funcionar a ratos.
+ *
+ * El cuerpo se lee UNA vez y se reutiliza. La inyección de `pedir` y `dormir`
+ * es para poder probar aquí, sin red, que el mismo cuerpo viaja en todos los
+ * intentos.
+ */
+export async function contraElContenedor(
+  pedir: (cuerpo: ArrayBuffer | undefined, topeMs: number) => Promise<Response>,
+  cuerpo: ArrayBuffer | undefined,
+  opciones: { intentos: number; esperaMs: number; dormir: (ms: number) => Promise<void> },
+): Promise<{ respuesta: Response | null; ultimoFallo: string; intentosHechos: number }> {
+  let ultimoFallo = "";
+  for (let intento = 0; intento < opciones.intentos; intento++) {
+    try {
+      const respuesta = await pedir(cuerpo, topeDelIntento(intento));
+      return { respuesta, ultimoFallo: "", intentosHechos: intento + 1 };
+    } catch (e) {
+      ultimoFallo = e instanceof Error ? e.message : String(e);
+      if (intento < opciones.intentos - 1) await opciones.dormir(opciones.esperaMs);
+    }
+  }
+  return { respuesta: null, ultimoFallo, intentosHechos: opciones.intentos };
+}
