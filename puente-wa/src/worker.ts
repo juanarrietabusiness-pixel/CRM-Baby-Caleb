@@ -26,6 +26,8 @@ import {
   veredictoDeSalud,
   latidoVencido,
   puedeArrancar,
+  reinicioPedido,
+  REVIVIR_MS,
   contraElContenedor,
   FILAS_POR_IDA,
   LATIDO_MS,
@@ -135,19 +137,32 @@ export class PuenteWa extends DurableObject<Env> {
     return json(503, { error: "El contenedor no respondió a tiempo.", detalle: ultimoFallo });
   }
 
-  /** Lo destruye. Al volver debe reconectar desde D1, sin QR. */
+  /**
+   * Lo destruye Y lo hace volver. Al volver debe reconectar desde D1, sin QR.
+   *
+   * El "y lo hace volver" es la mitad que faltaba. Antes esto solo destruía y
+   * dejaba la vuelta en manos de otro, y ninguno de los dos caminos servía:
+   * el sondeo del panel (5 s, y solo con el panel abierto) chocaba con
+   * `puedeArrancar()`, y el latido podía tardar hasta un minuto — más, con el
+   * retroceso. Desde fuera el botón parecía no hacer nada y el reinicio se lo
+   * acababa acreditando quien refrescaba la página, que solo llegaba más tarde.
+   *
+   * `reinicioPedido()` explica por qué se limpian esos tres campos.
+   */
   async matar(): Promise<Diario> {
-    const diario = await this.#diario();
-    diario.ultimaMuerteVista = new Date().toISOString();
+    const diario = { ...(await this.#diario()), ...reinicioPedido(new Date()) };
     await this.ctx.storage.put("diario", diario);
     try {
       this.ctx.container?.destroy("reinicio pedido desde el panel");
     } catch {
       // Destruir algo que ya no existe no es un error que valga propagar.
     }
-    // El reinicio a mano también re-arma el latido: si la alarma se había
-    // perdido, el botón del panel la devuelve sin que nadie tenga que saberlo.
-    await this.#asegurarAlarma(LATIDO_MS);
+    // ADELANTAR, no "asegurar": `#asegurarAlarma` no toca la que ya existe, y
+    // aquí siempre existe una —el latido se re-arma solo—, así que pedía la
+    // vuelta y se quedaba esperando el latido entero. Se fuerza a REVIVIR_MS
+    // para que el contenedor regrese aunque el panel esté cerrado, que es
+    // justo el caso que este canal tiene que aguantar.
+    await this.#adelantarAlarma(REVIVIR_MS);
     return diario;
   }
 
@@ -318,6 +333,15 @@ export class PuenteWa extends DurableObject<Env> {
   async #asegurarEncendido(): Promise<void> {
     if (!this.ctx.container!.running) await this.#encender();
     await this.#asegurarAlarma(LATIDO_MS);
+  }
+
+  /** Pone la alarma YA, haya una o no. Nunca lanza. */
+  async #adelantarAlarma(enMs: number): Promise<void> {
+    try {
+      await this.ctx.storage.setAlarm(Date.now() + enMs);
+    } catch (e) {
+      console.error("no se pudo adelantar el latido:", e);
+    }
   }
 
   /** Pone la alarma si no hay ninguna. Nunca lanza. */

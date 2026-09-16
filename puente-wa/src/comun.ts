@@ -212,6 +212,48 @@ export function puedeArrancar(
   return ahora - ultimo >= minimoMs;
 }
 
+/**
+ * Cuánto tarda en volver el contenedor tras un reinicio pedido desde el panel.
+ *
+ * Corto a propósito, y MUY por debajo de `LATIDO_MS`: la vuelta no puede
+ * depender de que el panel siga abierto ni de esperar un latido entero.
+ */
+export const REVIVIR_MS = 3_000;
+
+/** Los campos que un reinicio pedido por una persona deja en el diario. */
+export interface ReinicioPedido {
+  ultimaMuerteVista: string;
+  ultimoArranque: null;
+  fallosSeguidos: 0;
+}
+
+/**
+ * Cómo queda el diario cuando una PERSONA toca "Reiniciar el servicio".
+ *
+ * Nació del fallo del 16-sep-2026: el botón no reiniciaba nada y el mérito se
+ * lo llevaba refrescar la página. `matar()` destruía el contenedor y ahí se
+ * acababa su trabajo — la vuelta quedaba a merced de otros dos caminos, y los
+ * dos estaban frenados:
+ *
+ *   · `ultimoArranque` seguía puesto, así que `puedeArrancar()` le negaba el
+ *     arranque al siguiente sondeo hasta 15 s. Ese guardia existe para que el
+ *     refresco del panel no se reinicie el contenedor solo; no está para
+ *     discutirle a quien tocó el botón a propósito.
+ *   · `fallosSeguidos` seguía contando, y el latido programa con retroceso
+ *     exponencial: un reinicio a mano heredaba el castigo pensado para un
+ *     contenedor que se cae solo.
+ *
+ * Por eso los tres campos se limpian juntos: un reinicio pedido es un punto y
+ * aparte, no la continuación de la racha anterior.
+ */
+export function reinicioPedido(ahora: Date): ReinicioPedido {
+  return {
+    ultimaMuerteVista: ahora.toISOString(),
+    ultimoArranque: null,
+    fallosSeguidos: 0,
+  };
+}
+
 // ── Reintentar contra el contenedor ────────────────────────────────────────
 
 /**

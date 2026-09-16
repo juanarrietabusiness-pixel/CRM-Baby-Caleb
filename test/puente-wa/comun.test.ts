@@ -16,6 +16,8 @@ import {
   veredictoDeSalud,
   latidoVencido,
   puedeArrancar,
+  reinicioPedido,
+  REVIVIR_MS,
   contraElContenedor,
   topeDelIntento,
   FILAS_POR_IDA,
@@ -444,5 +446,42 @@ describe("contraElContenedor", () => {
     // Detectar rápido que está frío, y después darle tiempo a que arranque.
     expect(topeDelIntento(0)).toBeLessThan(topeDelIntento(1));
     expect(topeDelIntento(1)).toBe(topeDelIntento(4));
+  });
+});
+
+describe("reinicioPedido", () => {
+  // El fallo del 16-sep-2026: se tocaba "Reiniciar el servicio", no pasaba
+  // nada, y el servicio solo volvía al refrescar la página. El botón sí pedía
+  // el reinicio; lo que fallaba era la vuelta, frenada por dos guardias que
+  // estaban pensados para otra cosa.
+  it("no deja que el antirrebote le discuta a quien tocó el botón", () => {
+    // Contenedor arrancado hace un instante: `puedeArrancar` diría que no.
+    const recienArrancado = new Date().toISOString();
+    expect(puedeArrancar(recienArrancado, Date.now(), 15_000)).toBe(false);
+
+    // Tras un reinicio PEDIDO, tiene que decir que sí. El guardia existe para
+    // que el refresco del panel no se reinicie el contenedor solo, no para
+    // negarle el arranque a una persona.
+    const tras = reinicioPedido(new Date());
+    expect(puedeArrancar(tras.ultimoArranque, Date.now(), 15_000)).toBe(true);
+  });
+
+  it("no hereda el retroceso de la racha anterior", () => {
+    // Con fallos acumulados el latido se va a minutos. Un reinicio a mano es
+    // un punto y aparte: no puede heredar el castigo de un contenedor que se
+    // estaba cayendo solo.
+    expect(proximoLatido(4)).toBeGreaterThan(LATIDO_MS);
+    expect(proximoLatido(reinicioPedido(new Date()).fallosSeguidos)).toBe(LATIDO_MS);
+  });
+
+  it("hace volver el contenedor sin esperar un latido entero", () => {
+    // La vuelta no puede depender de que el panel siga abierto: con el panel
+    // cerrado el único camino era el latido, y eso son hasta 60 s de silencio.
+    expect(REVIVIR_MS).toBeLessThan(LATIDO_MS);
+  });
+
+  it("anota cuándo se pidió, que es lo que el panel muestra", () => {
+    const ahora = new Date("2026-09-16T18:00:00.000Z");
+    expect(reinicioPedido(ahora).ultimaMuerteVista).toBe("2026-09-16T18:00:00.000Z");
   });
 });
