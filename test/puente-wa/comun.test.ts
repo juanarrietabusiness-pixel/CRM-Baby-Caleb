@@ -16,6 +16,8 @@ import {
   veredictoDeSalud,
   latidoVencido,
   puedeArrancar,
+  contraElContenedor,
+  topeDelIntento,
   FILAS_POR_IDA,
   LATIDO_MS,
   LATIDO_VENCIDO_MS,
@@ -344,5 +346,98 @@ describe("puedeArrancar", () => {
     // Prefiere arrancar de más que quedarse muerto: un diario corrupto no
     // puede convertirse en un canal que no levanta nunca.
     expect(puedeArrancar("no es una fecha", ahora, MIN)).toBe(true);
+  });
+});
+
+// ── "Responde a veces sí y a veces no" (16-sep-2026) ──────────────────────
+//
+// El bucle de reintentos pasaba `request.body` —un ReadableStream— en cada
+// vuelta. El primer intento lo consume y los demás revientan al instante con
+// "This ReadableStream is disturbed". De los cinco reintentos, para cualquier
+// POST, solo existía el primero.
+//
+// Y los reintentos son justo lo que salva a un contenedor frío: con el panel
+// abierto acertaba el primero y todo parecía bien; con el panel cerrado se
+// perdía la respuesta del bot con un 503. Por eso el canal recibía siempre
+// pero contestaba a ratos.
+
+const dormirYa = () => Promise.resolve();
+
+describe("contraElContenedor", () => {
+  it("manda EL MISMO cuerpo en todos los intentos", async () => {
+    // El candado de este fallo: si alguien vuelve a pasar un stream, el cuerpo
+    // del segundo intento ya no sería idéntico al del primero.
+    const cuerpo = new TextEncoder().encode('{"para":"x","chunks":["hola"]}').buffer;
+    const vistos: (ArrayBuffer | undefined)[] = [];
+    let quedan = 3;
+
+    const r = await contraElContenedor(
+      async (datos) => {
+        vistos.push(datos);
+        if (quedan-- > 0) throw new Error("el contenedor está frío");
+        return new Response("ok");
+      },
+      cuerpo,
+      { intentos: 5, esperaMs: 0, dormir: dormirYa },
+    );
+
+    expect(r.respuesta).not.toBeNull();
+    expect(r.intentosHechos).toBe(4);
+    expect(vistos).toHaveLength(4);
+    for (const visto of vistos) expect(visto).toBe(cuerpo);
+  });
+
+  it("un contenedor frío se recupera en el segundo intento, no se pierde", async () => {
+    let primero = true;
+    const r = await contraElContenedor(
+      async () => {
+        if (primero) {
+          primero = false;
+          throw new Error("timeout");
+        }
+        return new Response("ok");
+      },
+      undefined,
+      { intentos: 5, esperaMs: 0, dormir: dormirYa },
+    );
+    expect(r.respuesta).not.toBeNull();
+    expect(r.intentosHechos).toBe(2);
+  });
+
+  it("si de verdad no contesta, devuelve el último fallo y no una respuesta", async () => {
+    const r = await contraElContenedor(
+      async () => {
+        throw new Error("sigue sin contestar");
+      },
+      undefined,
+      { intentos: 5, esperaMs: 0, dormir: dormirYa },
+    );
+    expect(r.respuesta).toBeNull();
+    expect(r.ultimoFallo).toBe("sigue sin contestar");
+    expect(r.intentosHechos).toBe(5);
+  });
+
+  it("no duerme después del último intento", async () => {
+    let siestas = 0;
+    await contraElContenedor(
+      async () => {
+        throw new Error("no");
+      },
+      undefined,
+      {
+        intentos: 3,
+        esperaMs: 0,
+        dormir: async () => {
+          siestas += 1;
+        },
+      },
+    );
+    expect(siestas).toBe(2);
+  });
+
+  it("el primer intento es corto y los siguientes más generosos", () => {
+    // Detectar rápido que está frío, y después darle tiempo a que arranque.
+    expect(topeDelIntento(0)).toBeLessThan(topeDelIntento(1));
+    expect(topeDelIntento(1)).toBe(topeDelIntento(4));
   });
 });
