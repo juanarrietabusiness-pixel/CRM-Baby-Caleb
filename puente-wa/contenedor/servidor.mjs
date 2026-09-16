@@ -52,6 +52,9 @@ const estado = {
   mensajesEnviados: 0,
   ultimoError: null,
   credencialesVenianDeD1: false,
+  // Cuántos códigos se han emitido. Si sube y nadie vincula, el QR de la
+  // pantalla se está muriendo antes de que lo escaneen.
+  qrGenerados: 0,
   // Diagnóstico del puente. Nunca el token: solo su largo y su huella, que
   // alcanzan para comparar los dos lados sin exponer el secreto.
   puenteUrl: PUENTE,
@@ -70,6 +73,34 @@ function huella(s) {
 }
 
 let qrActual = null;
+/** Cuándo se generó el QR que está en memoria, y cuántos van. */
+let qrEn = 0;
+let qrGenerados = 0;
+
+/**
+ * Cuánto vale un QR antes de estar muerto.
+ *
+ * WhatsApp rota el `ref` del emparejamiento cada ~20 s y lo invalida al minuto.
+ * Servir uno vencido no da error: el teléfono lo lee, intenta emparejar contra
+ * un `ref` que ya no existe y muestra **"Revisa tu conexión y vuelve a
+ * intentarlo"** — un mensaje que culpa a la red del dueño cuando el problema
+ * está de este lado. Eso fue exactamente lo que pasó el 16-sep-2026 en Baby
+ * Caleb: se escaneaba un código muerto y la base de sesión quedaba en cero.
+ *
+ * 45 s deja margen para el refresco de 5 s del panel y para que a alguien le dé
+ * tiempo de apuntar la cámara.
+ */
+const QR_VENCE_MS = 45_000;
+
+/** El QR solo si todavía sirve. Uno vencido es peor que ninguno. */
+function qrVigente() {
+  if (!qrActual) return null;
+  if (Date.now() - qrEn > QR_VENCE_MS) {
+    qrActual = null;
+    return null;
+  }
+  return qrActual;
+}
 
 /**
  * Cambiar de estado por aquí SIEMPRE. `conexionDesde` es lo que le permite al
@@ -313,7 +344,10 @@ async function conectar() {
     if (qr) {
       ponerConexion("esperando-qr");
       qrActual = await QRCode.toDataURL(qr, { width: 512, margin: 2 });
-      console.log("QR nuevo disponible.");
+      qrEn = Date.now();
+      qrGenerados += 1;
+      estado.qrGenerados = qrGenerados;
+      console.log(`QR nuevo disponible (#${qrGenerados}).`);
     }
 
     if (connection === "open") {
@@ -514,7 +548,16 @@ const servidor = http.createServer(async (req, res) => {
   // la información, y obligar a abrir otra ruta para verlo es esconderlo justo
   // cuando importa.
   if (url.pathname === "/qr") {
-    return json(200, { qr: qrActual, estado: estado.conexion, ultimoError: estado.ultimoError });
+    const vigente = qrVigente();
+    return json(200, {
+      qr: vigente,
+      // La edad es el diagnóstico: un QR de 90 segundos explica por qué el
+      // teléfono dice "Revisa tu conexión" sin que nada más falle.
+      edadMs: vigente ? Date.now() - qrEn : null,
+      generados: qrGenerados,
+      estado: estado.conexion,
+      ultimoError: estado.ultimoError,
+    });
   }
 
   if (url.pathname === "/enviar" && req.method === "POST") {

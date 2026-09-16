@@ -25,6 +25,7 @@ import {
   tokenPresentado,
   veredictoDeSalud,
   latidoVencido,
+  puedeArrancar,
   FILAS_POR_IDA,
   LATIDO_MS,
   LATIDOS_ANTES_DE_REINICIAR,
@@ -47,6 +48,26 @@ const PUERTO_CONTENEDOR = 8080;
 
 /** Cuántas pre-keys se conservan al podar. Ver `/api/podar`. */
 const PRE_KEYS_A_CONSERVAR = 1000;
+
+/**
+ * Lo mínimo entre dos `container.start()`.
+ *
+ * Existe por el fallo del 16-sep-2026 en Baby Caleb: 16 arranques en 17
+ * minutos con `max_instances = 1`, y el QR nunca llegaba a servir para nada.
+ *
+ * La causa era el propio panel. `#asegurarEncendido()` corre en CADA petición
+ * al Durable Object, y la tarjeta se refresca cada 5 s pidiendo dos cosas
+ * —estado y QR—. Mientras el contenedor arranca, `running` sigue en false
+ * durante varios segundos, así que cada refresco volvía a llamar a `start()`.
+ * El panel se reiniciaba el contenedor a sí mismo en bucle y Baileys nunca
+ * alcanzaba a asentar la sesión: el teléfono escaneaba un código cuyo socket
+ * ya no existía y WhatsApp respondía "Revisa tu conexión y vuelve a
+ * intentarlo", culpando a la red del dueño.
+ *
+ * 15 s es más que el arranque de la imagen y mucho más que el refresco del
+ * panel, así que un arranque en curso ya no se pisa a sí mismo.
+ */
+const ARRANQUE_MIN_MS = 15_000;
 
 interface Diario {
   arrancadoEn: string;
@@ -307,6 +328,11 @@ export class PuenteWa extends DurableObject<Env> {
 
   async #encender(): Promise<void> {
     const diario = await this.#diario();
+
+    // Un arranque ya en camino no se pisa. Sin esto, el refresco del panel
+    // reinicia el contenedor cada 5 segundos y nunca termina de levantar.
+    if (!puedeArrancar(diario.ultimoArranque, Date.now(), ARRANQUE_MIN_MS)) return;
+
     diario.arranquesContenedor += 1;
     diario.ultimoArranque = new Date().toISOString();
     await this.ctx.storage.put("diario", diario);
