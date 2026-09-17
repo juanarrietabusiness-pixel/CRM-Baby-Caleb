@@ -52,7 +52,9 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
   imagen no construye, el que no sale es el puente y el bot se sigue publicando.
   Es un canal **alterno** — no es la API oficial y WhatsApp puede banear el
   número, así que la Cloud API se queda conectada. Ver `docs/conectar-whatsapp-qr.md`
-  (para el dueño) y `docs/plan-whatsapp-qr.md` (el procedimiento).
+  (para el dueño), `docs/plan-whatsapp-qr.md` (el procedimiento) y
+  `docs/bitacora-whatsapp-qr.md` (**lee esto antes de diagnosticar**: qué se
+  rompió, por qué, y cómo se consiguen los logs sin terminal).
   **Después de desplegar el puente hay que reiniciar el contenedor desde el panel**:
   uno sano no toma la imagen nueva.
 - `skill/` — asistentes para el usuario.

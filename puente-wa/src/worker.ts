@@ -132,7 +132,49 @@ export class PuenteWa extends Container<Env> {
 
   // ── Ciclo de vida ────────────────────────────────────────────────────────
 
+  /**
+   * ¿El contenedor ya estaba prendido cuando PEDIMOS arrancarlo?
+   *
+   * Campo de instancia y no de almacenamiento a propósito: solo tiene que
+   * sobrevivir el tramo entre el `startAndWaitForPorts()` y el `onStart()` que
+   * la librería dispara al final de ese mismo `await`. Ver `#arrancar()`.
+   */
+  #yaEstabaPrendido = false;
+
+  /**
+   * `startAndWaitForPorts()`, pero contando arranques de verdad.
+   *
+   * Todos los arranques que pedimos nosotros pasan por aquí, y no es una
+   * envoltura de adorno. La librería llama `onStart()` al final de CADA
+   * `startAndWaitForPorts()`, sin mirar si hizo falta arrancar algo: su
+   * `startContainerIfNotRunning()` es un no-op cuando el contenedor ya corría,
+   * y el `onStart()` que viene después no lo es.
+   *
+   * Con la vigilancia cada 30 s eso son 120 "arranques" por hora de un
+   * contenedor que no se cayó ni una vez. Y no es cosmético: la cuenta de
+   * arranques contra la de latidos es LA señal con la que encontramos el fallo
+   * del 17-sep-2026 —89 arranques contra 76 latidos en dos horas y media, que
+   * es como se vio que el Durable Object se desalojaba—. Una señal que sube
+   * sola no sirve para diagnosticar nada.
+   *
+   * La bandera se limpia al salir, y por eso los arranques que dispara
+   * `containerFetch()` sí se cuentan: ésa solo arranca cuando el contenedor NO
+   * estaba corriendo, así que ahí `onStart()` siempre significa un arranque
+   * real.
+   */
+  async #arrancar(): Promise<void> {
+    this.#yaEstabaPrendido = this.ctx.container?.running === true;
+    try {
+      await this.startAndWaitForPorts();
+    } finally {
+      this.#yaEstabaPrendido = false;
+    }
+  }
+
   override async onStart(): Promise<void> {
+    // Ya estaba arriba: esto no fue un arranque, fue una comprobación.
+    if (this.#yaEstabaPrendido) return;
+
     const diario = await this.#diario();
     diario.arranquesContenedor += 1;
     diario.ultimoArranque = new Date().toISOString();
@@ -196,8 +238,9 @@ export class PuenteWa extends Container<Env> {
 
     try {
       // Que el contenedor esté vivo y con el puerto listo. Idempotente: si ya
-      // lo está, no cuesta nada.
-      await this.startAndWaitForPorts();
+      // lo está, no cuesta nada — y `#arrancar()` se encarga de que tampoco
+      // cuente como un arranque en el diario.
+      await this.#arrancar();
 
       // La actividad se renueva aunque WhatsApp esté caído: lo que se está
       // diciendo es "este contenedor sigue haciendo falta", no "está sano".
@@ -232,7 +275,7 @@ export class PuenteWa extends Container<Env> {
         diario.desconectadoSeguidos = 0;
         await this.ctx.storage.put("diario", diario);
         await this.destroy();
-        await this.startAndWaitForPorts();
+        await this.#arrancar();
         return;
       }
 
@@ -280,7 +323,7 @@ export class PuenteWa extends Container<Env> {
     } catch {
       // Destruir algo que ya no existe no es un error que valga propagar.
     }
-    await this.startAndWaitForPorts();
+    await this.#arrancar();
     return diario;
   }
 
