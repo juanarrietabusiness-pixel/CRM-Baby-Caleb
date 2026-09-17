@@ -44,6 +44,17 @@ jobs:
         with:
           node-version: "22"
 
+      # El puente dejó de ser autosuficiente: desde que extiende la clase
+      # `Container`, su bundle importa `@cloudflare/containers` y esbuild tiene
+      # que poder resolverlo. Sin este paso el deploy muere al empaquetar, con
+      # un error de módulo no encontrado que no dice que falte instalar.
+      #
+      # `working-directory: .` porque las dependencias viven en la raíz del
+      # repo, no dentro de puente-wa/, que no tiene package.json propio.
+      - name: Instalar dependencias
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
       - name: Revisar los secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
