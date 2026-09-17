@@ -10,8 +10,11 @@ Cada sección trae, cuando corresponde, un bloque **⚠ Esto ya falló** con el 
 exacto que costó tiempo en PanaClaw. No son advertencias genéricas: son las siete
 paradas del piloto. Si una de ellas aparece aquí, es que este plan se saltó.
 
-> **Fuente de verdad técnica:** `docs/bitacora-whatsapp-qr.md` en el repo de
-> PanaClaw. Este documento es el procedimiento; la bitácora es el porqué.
+> **Fuente de verdad técnica:** dos bitácoras, y no son la misma.
+> `docs/bitacora-whatsapp-qr.md` **de este repo** tiene lo que se rompió aquí, en
+> producción, los días 16 y 17 de septiembre —incluida la causa por la que el
+> canal no servía con el panel cerrado—; la del repo de PanaClaw tiene el
+> piloto. Este documento es el procedimiento; las bitácoras son el porqué.
 
 ---
 
