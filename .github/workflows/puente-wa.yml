@@ -24,6 +24,25 @@ on:
           - desplegar
           - borrar-el-puente
 
+# La versión de wrangler va CLAVADA, no en `@4`.
+#
+# El 17-sep-2026 este despliegue se cayó sin que cambiáramos nada suyo:
+#
+#     VALIDATE_INPUT
+#     observability cannot define both observability and configuration.observability
+#
+# `npx wrangler@4` trae siempre la última. La 4.133.0 se publicó el 16-sep a
+# las 20:23 UTC — 49 minutos después del último despliegue verde, que corrió
+# con la 4.132.0— y empezó a mandar `containers.configuration.observability.logs`
+# además del campo `observability` que la aplicación ya tenía. La API rechaza
+# las dos formas juntas.
+#
+# Un despliegue que depende de "lo último que hayan publicado" no es
+# reproducible: el mismo commit pasa hoy y falla mañana sin que nadie toque
+# nada. Subir esta versión es una decisión deliberada, no un efecto secundario.
+env:
+  WRANGLER: "4.132.0"
+
 concurrency:
   group: puente-wa
 
@@ -105,9 +124,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          npx wrangler@4 d1 create juancitoads-bot-wa-auth \
+          npx wrangler@$WRANGLER d1 create juancitoads-bot-wa-auth \
             || echo "La base ya existia. Se sigue."
-          id=$(npx wrangler@4 d1 list --json 2>/dev/null \
+          id=$(npx wrangler@$WRANGLER d1 list --json 2>/dev/null \
                 | node -e 'let e="";process.stdin.on("data",d=>e+=d).on("end",()=>{
                     try{
                       const b=JSON.parse(e).find(x=>x.name==="juancitoads-bot-wa-auth");
@@ -126,7 +145,7 @@ jobs:
         if: ${{ inputs.que_hacer == 'desplegar' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx wrangler@4 d1 execute juancitoads-bot-wa-auth --file=esquema.sql --remote --yes
+        run: npx wrangler@$WRANGLER d1 execute juancitoads-bot-wa-auth --file=esquema.sql --remote --yes
 
       - name: Guardar WA_TOKEN en el Worker
         if: ${{ inputs.que_hacer == 'desplegar' }}
@@ -134,7 +153,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           WA_TOKEN: ${{ secrets.WA_TOKEN }}
         # Por stdin: así no aparece en la línea de comandos ni en el log.
-        run: printf '%s' "$WA_TOKEN" | npx wrangler@4 secret put WA_TOKEN
+        run: printf '%s' "$WA_TOKEN" | npx wrangler@$WRANGLER secret put WA_TOKEN
 
       # Aquí se ejercita "Cloudflare Images: Edit". Si sale
       # `Forbidden - Authentication error` DESPUÉS de construir la imagen,
@@ -144,7 +163,7 @@ jobs:
         if: ${{ inputs.que_hacer == 'desplegar' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx wrangler@4 deploy
+        run: npx wrangler@$WRANGLER deploy
 
       # Un contenedor SANO no toma una imagen nueva: el latido lo ve corriendo y
       # lo deja en paz. En el piloto costo ~30 minutos diagnosticando codigo
@@ -171,4 +190,4 @@ jobs:
         # La base `juancitoads-bot-wa-auth` NO se borra aquí: contiene la sesión de
         # WhatsApp, y borrarla obligaria a re-escanear el QR. Se borra a mano
         # desde el panel de Cloudflare si de verdad se quiere empezar de cero.
-        run: npx wrangler@4 delete --name juancitoads-bot-wa
+        run: npx wrangler@$WRANGLER delete --name juancitoads-bot-wa
