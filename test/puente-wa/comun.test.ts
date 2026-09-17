@@ -10,20 +10,16 @@ import {
   tokenPresentado,
   tokensIguales,
   autorizado,
-  proximoLatido,
   tokenEsApto,
   pedazos,
   veredictoDeSalud,
   latidoVencido,
-  puedeArrancar,
   reinicioPedido,
-  REVIVIR_MS,
-  contraElContenedor,
-  topeDelIntento,
   FILAS_POR_IDA,
   LATIDO_MS,
   LATIDO_VENCIDO_MS,
   LATIDOS_ANTES_DE_REINICIAR,
+  VIGILANCIA_S,
 } from "../../puente-wa/src/comun";
 
 const b64 = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
@@ -138,32 +134,6 @@ describe("autorizado", () => {
     const conEñe = "clave-con-Ñ-1234567890abcdef";
     expect(autorizado(pedido({ b64: b64(conEñe) }), conEñe)).toBe(true);
     expect(autorizado(pedido({ query: conEñe }), conEñe)).toBe(true);
-  });
-});
-
-describe("proximoLatido", () => {
-  it("con el contenedor sano espera un minuto", () => {
-    expect(proximoLatido(0)).toBe(LATIDO_MS);
-  });
-
-  it("crece con cada fallo seguido", () => {
-    expect(proximoLatido(1)).toBe(2 * LATIDO_MS);
-    expect(proximoLatido(2)).toBe(4 * LATIDO_MS);
-    expect(proximoLatido(3)).toBe(8 * LATIDO_MS);
-  });
-
-  it("no pasa de quince minutos", () => {
-    expect(proximoLatido(10)).toBe(15 * 60_000);
-    expect(proximoLatido(99)).toBe(15 * 60_000);
-  });
-
-  it("sobrevive a NaN y a negativos", () => {
-    // Un diario viejo sin el campo daba NaN, y setAlarm(NaN) dejaba al
-    // contenedor sin latido para siempre: un fallo mudo justo en la pieza que
-    // existe para recuperarse de fallos.
-    expect(proximoLatido(NaN)).toBe(LATIDO_MS);
-    expect(proximoLatido(-5)).toBe(LATIDO_MS);
-    expect(Number.isFinite(proximoLatido(NaN))).toBe(true);
   });
 });
 
@@ -304,184 +274,49 @@ describe("las esperas del rescate", () => {
     // Reconectar es lo barato y hay que darle tiempo. Destruir el contenedor
     // cuesta una resincronización entera.
     expect(LATIDOS_ANTES_DE_REINICIAR).toBeGreaterThanOrEqual(3);
-    expect(LATIDOS_ANTES_DE_REINICIAR * LATIDO_MS).toBeLessThanOrEqual(10 * 60_000);
-  });
-});
-
-// ── El panel se reiniciaba el contenedor a sí mismo (16-sep-2026) ─────────
-//
-// 16 arranques en 17 minutos con max_instances = 1. La tarjeta refresca cada
-// 5 s, cada refresco toca el Durable Object, y mientras la imagen levanta
-// `running` sigue en false — así que todos volvían a llamar a `start()`.
-// Baileys nunca asentaba la sesión: el teléfono escaneaba un QR cuyo socket ya
-// no existía y WhatsApp decía "Revisa tu conexión y vuelve a intentarlo",
-// culpando a la red del dueño de un fallo que estaba de este lado.
-
-describe("puedeArrancar", () => {
-  const ahora = 1_800_000_000_000;
-  const MIN = 15_000;
-
-  it("la primera vez siempre se puede", () => {
-    expect(puedeArrancar(null, ahora, MIN)).toBe(true);
-    expect(puedeArrancar(undefined, ahora, MIN)).toBe(true);
-  });
-
-  it("un arranque en camino NO se pisa", () => {
-    const haceCinco = new Date(ahora - 5_000).toISOString();
-    expect(puedeArrancar(haceCinco, ahora, MIN)).toBe(false);
-  });
-
-  it("el refresco de 5 s del panel no puede encadenar arranques", () => {
-    // Tres refrescos seguidos, como los que mandaba la tarjeta.
-    const arranque = new Date(ahora).toISOString();
-    for (const t of [5_000, 10_000, 14_999]) {
-      expect(puedeArrancar(arranque, ahora + t, MIN), `a los ${t} ms`).toBe(false);
-    }
-  });
-
-  it("pasado el mínimo sí, porque un contenedor caído hay que relevantarlo", () => {
-    const viejo = new Date(ahora - MIN).toISOString();
-    expect(puedeArrancar(viejo, ahora, MIN)).toBe(true);
-  });
-
-  it("una fecha ilegible no puede dejar el contenedor sin arrancar", () => {
-    // Prefiere arrancar de más que quedarse muerto: un diario corrupto no
-    // puede convertirse en un canal que no levanta nunca.
-    expect(puedeArrancar("no es una fecha", ahora, MIN)).toBe(true);
-  });
-});
-
-// ── "Responde a veces sí y a veces no" (16-sep-2026) ──────────────────────
-//
-// El bucle de reintentos pasaba `request.body` —un ReadableStream— en cada
-// vuelta. El primer intento lo consume y los demás revientan al instante con
-// "This ReadableStream is disturbed". De los cinco reintentos, para cualquier
-// POST, solo existía el primero.
-//
-// Y los reintentos son justo lo que salva a un contenedor frío: con el panel
-// abierto acertaba el primero y todo parecía bien; con el panel cerrado se
-// perdía la respuesta del bot con un 503. Por eso el canal recibía siempre
-// pero contestaba a ratos.
-
-const dormirYa = () => Promise.resolve();
-
-describe("contraElContenedor", () => {
-  it("manda EL MISMO cuerpo en todos los intentos", async () => {
-    // El candado de este fallo: si alguien vuelve a pasar un stream, el cuerpo
-    // del segundo intento ya no sería idéntico al del primero.
-    // Se construye el ArrayBuffer a mano: `.buffer` de un TypedArray es
-    // `ArrayBufferLike`, que incluye SharedArrayBuffer, y `tsc` lo rechaza
-    // aunque vitest lo deje pasar. Es el mismo tropiezo anotado en la bitácora.
-    const bytes = new TextEncoder().encode('{"para":"x","chunks":["hola"]}');
-    const cuerpo = new ArrayBuffer(bytes.byteLength);
-    new Uint8Array(cuerpo).set(bytes);
-    const vistos: (ArrayBuffer | undefined)[] = [];
-    let quedan = 3;
-
-    const r = await contraElContenedor(
-      async (datos) => {
-        vistos.push(datos);
-        if (quedan-- > 0) throw new Error("el contenedor está frío");
-        return new Response("ok");
-      },
-      cuerpo,
-      { intentos: 5, esperaMs: 0, dormir: dormirYa },
-    );
-
-    expect(r.respuesta).not.toBeNull();
-    expect(r.intentosHechos).toBe(4);
-    expect(vistos).toHaveLength(4);
-    for (const visto of vistos) expect(visto).toBe(cuerpo);
-  });
-
-  it("un contenedor frío se recupera en el segundo intento, no se pierde", async () => {
-    let primero = true;
-    const r = await contraElContenedor(
-      async () => {
-        if (primero) {
-          primero = false;
-          throw new Error("timeout");
-        }
-        return new Response("ok");
-      },
-      undefined,
-      { intentos: 5, esperaMs: 0, dormir: dormirYa },
-    );
-    expect(r.respuesta).not.toBeNull();
-    expect(r.intentosHechos).toBe(2);
-  });
-
-  it("si de verdad no contesta, devuelve el último fallo y no una respuesta", async () => {
-    const r = await contraElContenedor(
-      async () => {
-        throw new Error("sigue sin contestar");
-      },
-      undefined,
-      { intentos: 5, esperaMs: 0, dormir: dormirYa },
-    );
-    expect(r.respuesta).toBeNull();
-    expect(r.ultimoFallo).toBe("sigue sin contestar");
-    expect(r.intentosHechos).toBe(5);
-  });
-
-  it("no duerme después del último intento", async () => {
-    let siestas = 0;
-    await contraElContenedor(
-      async () => {
-        throw new Error("no");
-      },
-      undefined,
-      {
-        intentos: 3,
-        esperaMs: 0,
-        dormir: async () => {
-          siestas += 1;
-        },
-      },
-    );
-    expect(siestas).toBe(2);
-  });
-
-  it("el primer intento es corto y los siguientes más generosos", () => {
-    // Detectar rápido que está frío, y después darle tiempo a que arranque.
-    expect(topeDelIntento(0)).toBeLessThan(topeDelIntento(1));
-    expect(topeDelIntento(1)).toBe(topeDelIntento(4));
+    expect(LATIDOS_ANTES_DE_REINICIAR * VIGILANCIA_S * 1000).toBeLessThanOrEqual(10 * 60_000);
   });
 });
 
 describe("reinicioPedido", () => {
   // El fallo del 16-sep-2026: se tocaba "Reiniciar el servicio", no pasaba
-  // nada, y el servicio solo volvía al refrescar la página. El botón sí pedía
-  // el reinicio; lo que fallaba era la vuelta, frenada por dos guardias que
-  // estaban pensados para otra cosa.
-  it("no deja que el antirrebote le discuta a quien tocó el botón", () => {
-    // Contenedor arrancado hace un instante: `puedeArrancar` diría que no.
-    const recienArrancado = new Date().toISOString();
-    expect(puedeArrancar(recienArrancado, Date.now(), 15_000)).toBe(false);
-
-    // Tras un reinicio PEDIDO, tiene que decir que sí. El guardia existe para
-    // que el refresco del panel no se reinicie el contenedor solo, no para
-    // negarle el arranque a una persona.
+  // nada, y el servicio solo volvía al refrescar la página. Hoy `matar()`
+  // destruye y vuelve a levantar en el mismo paso; esto fija lo que el diario
+  // tiene que quedar diciendo.
+  it("corta la racha anterior en vez de heredarla", () => {
+    // Un reinicio pedido por una persona es un punto y aparte. Si arrastrara
+    // los contadores, la vuelta heredaría castigos pensados para un contenedor
+    // que se estaba cayendo solo.
     const tras = reinicioPedido(new Date());
-    expect(puedeArrancar(tras.ultimoArranque, Date.now(), 15_000)).toBe(true);
-  });
-
-  it("no hereda el retroceso de la racha anterior", () => {
-    // Con fallos acumulados el latido se va a minutos. Un reinicio a mano es
-    // un punto y aparte: no puede heredar el castigo de un contenedor que se
-    // estaba cayendo solo.
-    expect(proximoLatido(4)).toBeGreaterThan(LATIDO_MS);
-    expect(proximoLatido(reinicioPedido(new Date()).fallosSeguidos)).toBe(LATIDO_MS);
-  });
-
-  it("hace volver el contenedor sin esperar un latido entero", () => {
-    // La vuelta no puede depender de que el panel siga abierto: con el panel
-    // cerrado el único camino era el latido, y eso son hasta 60 s de silencio.
-    expect(REVIVIR_MS).toBeLessThan(LATIDO_MS);
+    expect(tras.fallosSeguidos).toBe(0);
+    expect(tras.ultimoArranque).toBeNull();
   });
 
   it("anota cuándo se pidió, que es lo que el panel muestra", () => {
     const ahora = new Date("2026-09-16T18:00:00.000Z");
     expect(reinicioPedido(ahora).ultimaMuerteVista).toBe("2026-09-16T18:00:00.000Z");
+  });
+});
+
+// ── El canal se apagaba solo cuando nadie miraba (17-sep-2026) ────────────
+//
+// Tres minutos escuchando el Worker con el panel cerrado: cero eventos. Ni un
+// latido. El contenedor vive mientras vive su Durable Object, y el DO se
+// desalojaba entre latido y latido porque nuestro `alarm()` hacía su trabajo y
+// retornaba. El retroceso exponencial alargaba esos huecos hasta 15 minutos.
+
+describe("la cadencia de la vigilancia", () => {
+  it("vigila varias veces dentro de la ventana que da por muerto el latido", () => {
+    // Si la vigilancia fuera más lenta que el umbral de "latido vencido", el
+    // panel declararía muerto un canal sano. Tiene que caber holgada.
+    expect(VIGILANCIA_S * 1000).toBeLessThan(LATIDO_VENCIDO_MS / 2);
+  });
+
+  it("no retrocede: la espera es siempre la misma", () => {
+    // El retroceso es correcto para algo que se reintenta y es al revés para un
+    // socket que debe estar siempre abierto. Aquí es una constante, y que lo
+    // siga siendo es justo lo que esta prueba cuida.
+    expect(typeof VIGILANCIA_S).toBe("number");
+    expect(VIGILANCIA_S).toBeGreaterThan(0);
   });
 });

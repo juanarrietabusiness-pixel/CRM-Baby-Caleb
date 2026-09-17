@@ -29,6 +29,7 @@
     "@ai-sdk/openai": "^3.0.68",
     "@ai-sdk/xai": "^3.0.106",
     "@anthropic-ai/sdk": "^0.90.0",
+    "@cloudflare/containers": "^0.3.7",
     "agents": "^0.1.0",
     "ai": "^6.0.0",
     "hono": "^4.10.0",

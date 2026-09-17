@@ -6,32 +6,53 @@
 // peor que pasa es que WhatsApp se cae y el bot sigue publicándose.
 //
 // Tres trabajos:
-//   1. Sostener el contenedor prendido (alarma) y dejarlo observable.
+//   1. Sostener el contenedor prendido y dejarlo observable.
 //   2. Hacer de puente a D1 — el contenedor no tiene bindings, así que guarda
 //      sus credenciales llamando aquí por HTTPS con un token.
 //   3. Pasar los mensajes: los entrantes hacia el webhook del CRM, los
 //      salientes hacia el contenedor.
 //
-// No usa `@cloudflare/containers`: la API cruda de `ctx.container` alcanza y
-// evita una dependencia más en la ruta crítica de un canal de producción.
+// ── Por qué esto extiende `Container` y ya no usa la API cruda ─────────────
+//
+// La versión anterior decía: "no usa `@cloudflare/containers`: la API cruda de
+// `ctx.container` alcanza y evita una dependencia más en la ruta crítica". Esa
+// decisión es la que tuvo el canal caído.
+//
+// El 17-sep-2026 escuchamos el Worker tres minutos con el panel cerrado:
+// CERO eventos. Ni un latido. El canal no estaba degradado, estaba apagado —
+// y con él, 89 arranques de contenedor contra 76 latidos en dos horas y media.
+//
+// La causa está en el código de Cloudflare, no en el nuestro:
+//
+//     // do not remove this, container DOs ALWAYS need an alarm right now.
+//
+// Su `alarm()` DUERME DENTRO del propio manejador y al despertar la vuelve a
+// armar con `setAlarm(Date.now())`: siempre hay una alarma en vuelo, y eso es
+// lo que mantiene el Durable Object residente en memoria. El contenedor vive
+// mientras vive su DO.
+//
+// El nuestro hacía su trabajo y RETORNABA. Entre latido y latido no quedaba
+// ninguna alarma en vuelo, el DO se desalojaba, y el contenedor se iba con él.
+// El retroceso exponencial alargaba esos huecos hasta quince minutos.
+//
+// Por eso la dependencia entra: no es un envoltorio de conveniencia, es la
+// gestión del ciclo de vida. Sostener un socket permanente sin ella significa
+// reimplementar ese bucle, que es exactamente lo que la librería ya hace bien.
 
-import { DurableObject } from "cloudflare:workers";
+import type { DurableObject } from "cloudflare:workers";
+import { Container } from "@cloudflare/containers";
 import {
   autorizado,
   huella,
   pedazos,
-  proximoLatido,
   tokenEsApto,
   tokenPresentado,
   veredictoDeSalud,
   latidoVencido,
-  puedeArrancar,
   reinicioPedido,
-  REVIVIR_MS,
-  contraElContenedor,
   FILAS_POR_IDA,
-  LATIDO_MS,
   LATIDOS_ANTES_DE_REINICIAR,
+  VIGILANCIA_S,
 } from "./comun";
 
 export interface Env {
@@ -52,26 +73,6 @@ const PUERTO_CONTENEDOR = 8080;
 /** Cuántas pre-keys se conservan al podar. Ver `/api/podar`. */
 const PRE_KEYS_A_CONSERVAR = 1000;
 
-/**
- * Lo mínimo entre dos `container.start()`.
- *
- * Existe por el fallo del 16-sep-2026 en Baby Caleb: 16 arranques en 17
- * minutos con `max_instances = 1`, y el QR nunca llegaba a servir para nada.
- *
- * La causa era el propio panel. `#asegurarEncendido()` corre en CADA petición
- * al Durable Object, y la tarjeta se refresca cada 5 s pidiendo dos cosas
- * —estado y QR—. Mientras el contenedor arranca, `running` sigue en false
- * durante varios segundos, así que cada refresco volvía a llamar a `start()`.
- * El panel se reiniciaba el contenedor a sí mismo en bucle y Baileys nunca
- * alcanzaba a asentar la sesión: el teléfono escaneaba un código cuyo socket
- * ya no existía y WhatsApp respondía "Revisa tu conexión y vuelve a
- * intentarlo", culpando a la red del dueño.
- *
- * 15 s es más que el arranque de la imagen y mucho más que el refresco del
- * panel, así que un arranque en curso ya no se pisa a sí mismo.
- */
-const ARRANQUE_MIN_MS = 15_000;
-
 interface Diario {
   arrancadoEn: string;
   latidos: number;
@@ -80,89 +81,206 @@ interface Diario {
   ultimaMuerteVista: string | null;
   fallosSeguidos: number;
   /**
-   * Cuándo latió por última vez. Es la señal que faltaba el 16-sep-2026: la
-   * alarma se había apagado y NADA lo decía — el panel mostraba el canal como
-   * si todo estuviera bien mientras llevaba horas mudo.
+   * Cuándo se vigiló por última vez. Es la señal que faltaba el 16-sep-2026:
+   * el canal llevaba horas mudo y el panel lo mostraba como si nada.
    */
   ultimoLatidoEn: number | null;
-  /** Latidos seguidos con el contenedor prendido pero WhatsApp desconectado. */
+  /** Vigilancias seguidas con el contenedor prendido pero WhatsApp caído. */
   desconectadoSeguidos: number;
   /** La última vez que se vio el socket de WhatsApp realmente abierto. */
   ultimaConexionVista: string | null;
-  /** Cuántas veces el latido tuvo que destruir el contenedor para recuperarlo. */
+  /** Cuántas veces hubo que destruir el contenedor para recuperarlo. */
   reiniciosForzados: number;
-  /** Lo último que impidió latir, si algo lo impidió. */
+  /** Lo último que impidió vigilar, si algo lo impidió. */
   ultimoFalloDelLatido: string | null;
+  /** Por qué murió el contenedor la última vez, según el propio runtime. */
+  ultimaSalida: string | null;
 }
 
-export class PuenteWa extends DurableObject<Env> {
-  async fetch(request: Request): Promise<Response> {
-    if (!this.ctx.container) {
-      return json(500, { error: "Este Worker no tiene contenedor configurado." });
-    }
-    await this.#asegurarEncendido();
+export class PuenteWa extends Container<Env> {
+  /** El puerto donde escucha `servidor.mjs`. */
+  defaultPort = PUERTO_CONTENEDOR;
 
-    const url = new URL(request.url);
-    const destino = `http://contenedor${url.pathname}${url.search}`;
+  /**
+   * Cuánto aguanta el contenedor sin actividad antes de que la librería lo
+   * apague.
+   *
+   * Largo a propósito. El valor por defecto son 10 minutos y está pensado para
+   * un contenedor que atiende peticiones: si nadie pide nada, sobra. Aquí el
+   * trabajo del contenedor es justamente NO recibir peticiones — sostiene un
+   * socket con WhatsApp y se queda callado. Una noche sin mensajes es el modo
+   * de operación normal, no una señal de que sobre.
+   *
+   * Aun así no basta con ponerlo largo: `vigilar()` renueva la actividad
+   * explícitamente. Ver ahí por qué.
+   */
+  sleepAfter = "6h";
 
-    // El cuerpo se lee UNA vez, aquí, y se reutiliza en cada intento.
-    //
-    // Antes se pasaba `request.body` —un ReadableStream— dentro del bucle. El
-    // primer intento lo consume y los demás revientan con "This ReadableStream
-    // is disturbed", así que de los cinco reintentos solo existía el primero
-    // para cualquier POST. Y los reintentos son justamente lo que salva a un
-    // contenedor frío: con el panel abierto acertaba el primero y todo parecía
-    // bien; con el panel cerrado se perdía la respuesta del bot con un 503.
-    const sinCuerpo = request.method === "GET" || request.method === "HEAD";
-    const cuerpo = sinCuerpo ? undefined : await request.arrayBuffer();
+  /** Baileys tiene que salir a wss://web.whatsapp.com. */
+  enableInternet = true;
 
-    // Con tope de tiempo por intento. Sin él, un contenedor que acepta la
-    // conexión pero no contesta deja la petición colgada — y entonces la propia
-    // pantalla de diagnóstico se cuelga, justo cuando más falta hace.
-    const { respuesta, ultimoFallo } = await contraElContenedor(
-      (datos, topeMs) =>
-        this.#alContenedor(
-          destino,
-          { method: request.method, headers: request.headers, body: datos },
-          topeMs,
-        ),
-      cuerpo,
-      { intentos: 5, esperaMs: 500, dormir: (ms) => new Promise((r) => setTimeout(r, ms)) },
-    );
-
-    if (respuesta) {
-      await this.#marcarSano();
-      return respuesta;
-    }
-    return json(503, { error: "El contenedor no respondió a tiempo.", detalle: ultimoFallo });
+  constructor(ctx: DurableObject["ctx"], env: Env) {
+    super(ctx, env);
+    // Va en el constructor y no como campo porque depende de `env`, que no
+    // existe hasta que el DO se construye.
+    this.envVars = {
+      PORT: String(PUERTO_CONTENEDOR),
+      PUENTE_URL: env.PUENTE_BASE_URL,
+      PUENTE_TOKEN: env.WA_TOKEN,
+    };
   }
+
+  // ── Ciclo de vida ────────────────────────────────────────────────────────
+
+  override async onStart(): Promise<void> {
+    const diario = await this.#diario();
+    diario.arranquesContenedor += 1;
+    diario.ultimoArranque = new Date().toISOString();
+    await this.ctx.storage.put("diario", diario);
+    console.log("contenedor arriba");
+  }
+
+  /**
+   * Por qué murió, en el diario y en el log.
+   *
+   * Durante dos horas el contenedor se apagó 89 veces y NADA decía por qué:
+   * el diario solo sabía que lo había encontrado caído. `exitCode` y `reason`
+   * los da el runtime, y son justo lo que convierte "se cayó otra vez" en una
+   * causa.
+   */
+  override async onStop({ exitCode, reason }: { exitCode: number; reason: string }): Promise<void> {
+    const diario = await this.#diario();
+    diario.ultimaMuerteVista = new Date().toISOString();
+    diario.ultimaSalida = `código ${exitCode} · ${reason}`;
+    await this.ctx.storage.put("diario", diario);
+    console.log(`contenedor abajo: código ${exitCode} · ${reason}`);
+  }
+
+  override onError(error: unknown): unknown {
+    const motivo = error instanceof Error ? error.message : String(error);
+    console.error("contenedor:", motivo);
+    return error;
+  }
+
+  // ── La vigilancia ────────────────────────────────────────────────────────
+
+  /**
+   * El relevo del viejo `alarm()`, con dos diferencias que importan.
+   *
+   * Va por `schedule()` y NO sobrescribiendo `alarm()`: el manejador de alarma
+   * de la librería es lo que mantiene vivo al Durable Object —y con él al
+   * contenedor—, así que pisarlo rompe justo la pieza que sostiene todo. La
+   * propia librería lo pide: "we strongly recommend using this instead of the
+   * `alarm` handler".
+   *
+   * Y renueva la actividad a mano. La librería la renueva sola cuando llega una
+   * petición al contenedor, pero a éste no le llega ninguna: sostiene un socket
+   * y se queda callado. `renewActivityTimeout()` está documentado para
+   * exactamente este caso — "useful for background tasks that don't involve
+   * container requests".
+   *
+   * Sin retroceso, a propósito. Esperar cada vez más tras cada fallo es lo
+   * correcto para algo que se reintenta; para un socket que debe estar siempre
+   * abierto es al revés, y fue parte de por qué las noches quedaban mudas.
+   */
+  async vigilar(): Promise<void> {
+    // Primero lo que no puede faltar: la próxima vigilancia queda pedida antes
+    // de cualquier cosa que pueda fallar. Es la misma lección que nos costó una
+    // noche entera cuando `setAlarm` era la última línea.
+    await this.#asegurarVigilancia();
+
+    const diario = await this.#diario();
+    diario.latidos += 1;
+    diario.ultimoLatidoEn = Date.now();
+    diario.ultimoFalloDelLatido = null;
+
+    try {
+      // Que el contenedor esté vivo y con el puerto listo. Idempotente: si ya
+      // lo está, no cuesta nada.
+      await this.startAndWaitForPorts();
+
+      // La actividad se renueva aunque WhatsApp esté caído: lo que se está
+      // diciendo es "este contenedor sigue haciendo falta", no "está sano".
+      this.renewActivityTimeout();
+
+      const conexion = await this.#conexionDelContenedor();
+      const veredicto = veredictoDeSalud(conexion);
+
+      if (veredicto === "sano") {
+        diario.desconectadoSeguidos = 0;
+        diario.ultimaConexionVista = new Date().toISOString();
+        await this.ctx.storage.put("diario", diario);
+        return;
+      }
+
+      if (veredicto === "esperando-a-una-persona") {
+        // Sin vincular o esperando el QR. No es un fallo y NO se reinicia:
+        // reiniciar aquí genera un código nuevo y le tumba al dueño el que está
+        // mirando en la pantalla.
+        diario.desconectadoSeguidos = 0;
+        await this.ctx.storage.put("diario", diario);
+        return;
+      }
+
+      // ── Prendido pero mudo ────────────────────────────────────────────────
+      diario.desconectadoSeguidos += 1;
+
+      if (diario.desconectadoSeguidos >= LATIDOS_ANTES_DE_REINICIAR) {
+        // El martillo. Sale gratis en credenciales —viven en D1, está medido— y
+        // cuesta una resincronización.
+        diario.reiniciosForzados += 1;
+        diario.desconectadoSeguidos = 0;
+        await this.ctx.storage.put("diario", diario);
+        await this.destroy();
+        await this.startAndWaitForPorts();
+        return;
+      }
+
+      // Lo barato primero: pedirle que reconecte. Es idempotente.
+      await this.ctx.storage.put("diario", diario);
+      await this.#pedirReconexion();
+    } catch (e) {
+      const motivo = e instanceof Error ? e.message : String(e);
+      diario.ultimoFalloDelLatido = motivo;
+      await this.ctx.storage.put("diario", diario).catch(() => {});
+      console.error("vigilancia:", motivo);
+    }
+  }
+
+  /**
+   * Encadena la próxima vigilancia. Nunca lanza: es la pieza que no puede faltar.
+   *
+   * ESTE es el único sitio del archivo que programa, y no por gusto: cada
+   * llamada a `schedule()` agrega una tarea, así que dos dueños serían dos
+   * cadenas, y dos cadenas se multiplican. `onStart()` y `matar()` a propósito
+   * no programan; el cron solo revive cuando la cadena ya se cortó.
+   */
+  async #asegurarVigilancia(): Promise<void> {
+    try {
+      await this.schedule(VIGILANCIA_S, "vigilar");
+    } catch (e) {
+      console.error("no se pudo programar la vigilancia:", e);
+    }
+  }
+
+  // ── Lo que llama el Worker ───────────────────────────────────────────────
 
   /**
    * Lo destruye Y lo hace volver. Al volver debe reconectar desde D1, sin QR.
    *
-   * El "y lo hace volver" es la mitad que faltaba. Antes esto solo destruía y
-   * dejaba la vuelta en manos de otro, y ninguno de los dos caminos servía:
-   * el sondeo del panel (5 s, y solo con el panel abierto) chocaba con
-   * `puedeArrancar()`, y el latido podía tardar hasta un minuto — más, con el
-   * retroceso. Desde fuera el botón parecía no hacer nada y el reinicio se lo
-   * acababa acreditando quien refrescaba la página, que solo llegaba más tarde.
-   *
-   * `reinicioPedido()` explica por qué se limpian esos tres campos.
+   * `reinicioPedido()` explica por qué se limpian esos campos: un reinicio
+   * pedido por una persona es un punto y aparte, no la continuación de la
+   * racha anterior.
    */
   async matar(): Promise<Diario> {
     const diario = { ...(await this.#diario()), ...reinicioPedido(new Date()) };
     await this.ctx.storage.put("diario", diario);
     try {
-      this.ctx.container?.destroy("reinicio pedido desde el panel");
+      await this.destroy();
     } catch {
       // Destruir algo que ya no existe no es un error que valga propagar.
     }
-    // ADELANTAR, no "asegurar": `#asegurarAlarma` no toca la que ya existe, y
-    // aquí siempre existe una —el latido se re-arma solo—, así que pedía la
-    // vuelta y se quedaba esperando el latido entero. Se fuerza a REVIVIR_MS
-    // para que el contenedor regrese aunque el panel esté cerrado, que es
-    // justo el caso que este canal tiene que aguantar.
-    await this.#adelantarAlarma(REVIVIR_MS);
+    await this.startAndWaitForPorts();
     return diario;
   }
 
@@ -171,127 +289,32 @@ export class PuenteWa extends DurableObject<Env> {
   }
 
   /**
-   * El latido. Mantiene vivo al Durable Object —y con él al contenedor— y lo
-   * vuelve a levantar si se cayó.
+   * Lo llama el cron. NO vigila por su cuenta: solo revive la cadena si se
+   * cortó.
    *
-   * ESTE MÉTODO NO PUEDE LANZAR, y el orden de sus dos mitades no es
-   * cosmético. `setAlarm` va PRIMERO, antes de cualquier cosa que pueda
-   * fallar, y el trabajo va entero dentro de un `try`.
+   * La distinción no es un detalle. `schedule()` agrega una tarea CADA vez que
+   * se le llama, así que un cron que vigilara siempre haría nacer una cadena
+   * nueva por minuto: a la hora habría sesenta vigilando en paralelo, cada una
+   * arrancando contenedores. Programar tiene un solo dueño —`vigilar()`— y
+   * esto es el desfibrilador, no un segundo corazón.
    *
-   * El 16-sep-2026 el canal se quedó mudo una noche entera por no hacerlo así.
-   * `alarm()` es lo único que programa la alarma siguiente, y `setAlarm` era la
-   * ÚLTIMA línea: bastaba con que `container.start()` lanzara —"ya está
-   * corriendo" en una carrera contra el panel, o "There is no container
-   * instance that can be provided to this Durable Object"— para que la línea
-   * nunca se ejecutara. Cloudflare reintenta una alarma que lanza unas pocas
-   * veces y después se rinde. Sin alarma no hay alarma siguiente: la cadena se
-   * corta y el único camino de vuelta es una petición entrante, o sea que
-   * alguien abra el panel. Eso fue exactamente lo que pasó.
+   * La señal de que se cortó es la misma que mira el panel: un `ultimoLatidoEn`
+   * vencido. Sin latido previo también entra, que es el arranque en frío.
    */
-  async alarm(): Promise<void> {
-    // 1) Re-armar ANTES que nada. Con el retroceso del estado anterior, que
-    //    puede quedar un latido desfasado — es un precio ridículo comparado con
-    //    quedarse sin latido para siempre.
-    const previo = await this.#diario().catch(() => null);
-    await this.#programarSiguiente(previo?.fallosSeguidos ?? 0);
-
-    // 2) El trabajo. Si algo aquí lanza se anota y se sigue: la alarma ya está
-    //    puesta y el siguiente latido lo volverá a intentar.
-    try {
-      await this.#latir();
-    } catch (e) {
-      const motivo = e instanceof Error ? e.message : String(e);
-      console.error("latido:", motivo);
-      try {
-        const diario = await this.#diario();
-        diario.ultimoFalloDelLatido = motivo;
-        await this.ctx.storage.put("diario", diario);
-      } catch {
-        // Si ni siquiera se puede anotar el fallo, no se insiste: lo que
-        // importa —la alarma siguiente— ya quedó programado arriba.
-      }
-    }
-  }
-
-  /**
-   * Un latido: ¿está prendido el contenedor, y está WhatsApp conectado?
-   *
-   * Las DOS preguntas, no solo la primera. La versión anterior se conformaba
-   * con `container.running` y daba por sano un contenedor prendido con el
-   * socket de Baileys muerto. El propio código ya sabía que `running` miente
-   * —lo dice el comentario de `#marcarSano()`— y aun así lo usaba para decidir.
-   */
-  async #latir(): Promise<void> {
+  async despertar(): Promise<void> {
     const diario = await this.#diario();
-    diario.latidos += 1;
-    diario.ultimoLatidoEn = Date.now();
-    diario.ultimoFalloDelLatido = null;
-
-    // ── Primera pregunta: ¿hay proceso? ────────────────────────────────────
-    if (!this.ctx.container || !this.ctx.container.running) {
-      diario.ultimaMuerteVista = new Date().toISOString();
-      diario.fallosSeguidos += 1;
-      diario.desconectadoSeguidos = 0;
-      await this.ctx.storage.put("diario", diario);
-      await this.#encender();
-      await this.#programarSiguiente(diario.fallosSeguidos);
-      return;
-    }
-
-    diario.fallosSeguidos = 0;
-
-    // ── Segunda pregunta: ¿hay WhatsApp? ───────────────────────────────────
-    const conexion = await this.#conexionDelContenedor();
-    const veredicto = veredictoDeSalud(conexion);
-
-    if (veredicto === "sano") {
-      diario.desconectadoSeguidos = 0;
-      diario.ultimaConexionVista = new Date().toISOString();
-      await this.ctx.storage.put("diario", diario);
-      await this.#programarSiguiente(0);
-      return;
-    }
-
-    if (veredicto === "esperando-a-una-persona") {
-      // Sin vincular o esperando el QR. No es un fallo y NO se reinicia:
-      // reiniciar aquí genera un código nuevo y le tumba al dueño el que está
-      // mirando en la pantalla.
-      diario.desconectadoSeguidos = 0;
-      await this.ctx.storage.put("diario", diario);
-      await this.#programarSiguiente(0);
-      return;
-    }
-
-    // ── Caído: prendido pero mudo. Esto es lo que antes pasaba inadvertido ──
-    diario.desconectadoSeguidos += 1;
-
-    if (diario.desconectadoSeguidos >= LATIDOS_ANTES_DE_REINICIAR) {
-      // El martillo. Sale gratis en credenciales —viven en D1, está medido— y
-      // cuesta una resincronización. Después de cinco minutos mudo, vale.
-      diario.reiniciosForzados += 1;
-      diario.desconectadoSeguidos = 0;
-      diario.ultimaMuerteVista = new Date().toISOString();
-      await this.ctx.storage.put("diario", diario);
-      try {
-        this.ctx.container.destroy("el canal llevaba minutos sin conexión a WhatsApp");
-      } catch (e) {
-        console.error("no se pudo destruir el contenedor:", e);
-      }
-      await this.#programarSiguiente(0);
-      return;
-    }
-
-    // Lo barato primero: pedirle al contenedor que reconecte. Es idempotente y
-    // no cuesta nada si ya lo estaba intentando.
-    await this.ctx.storage.put("diario", diario);
-    await this.#pedirReconexion();
-    await this.#programarSiguiente(0);
+    const nuncaLatió = diario.ultimoLatidoEn === null;
+    if (!nuncaLatió && !latidoVencido(diario.ultimoLatidoEn, Date.now())) return;
+    console.log("el cron encontró la vigilancia detenida; la reanuda");
+    await this.vigilar();
   }
+
+  // ── Interno ──────────────────────────────────────────────────────────────
 
   /** Qué dice el contenedor de sí mismo. `null` si no contesta. */
   async #conexionDelContenedor(): Promise<string | null> {
     try {
-      const r = await this.#alContenedor("http://contenedor/estado", { method: "GET" }, 5000);
+      const r = await this.containerFetch("http://contenedor/estado");
       if (!r.ok) return null;
       const cuerpo = (await r.json()) as { conexion?: string };
       return cuerpo.conexion ?? null;
@@ -302,95 +325,11 @@ export class PuenteWa extends DurableObject<Env> {
     }
   }
 
-  /** Empuja una reconexión. Un fallo aquí no puede tumbar el latido. */
   async #pedirReconexion(): Promise<void> {
     try {
-      await this.#alContenedor("http://contenedor/reconectar", { method: "POST" }, 5000);
+      await this.containerFetch("http://contenedor/reconectar", { method: "POST" });
     } catch (e) {
       console.error("no se pudo pedir la reconexión:", e);
-    }
-  }
-
-  /** Una sola ida al contenedor, con tope de tiempo. */
-  async #alContenedor(destino: string, init: RequestInit, ms: number): Promise<Response> {
-    // `init.body` nunca es un stream: quien llama ya lo materializó. Ver el
-    // comentario del cuerpo reutilizable en `fetch()`.
-    const puerto = this.ctx.container!.getTcpPort(PUERTO_CONTENEDOR);
-    return puerto.fetch(destino, { ...init, signal: AbortSignal.timeout(ms) });
-  }
-
-  /**
-   * Responder es la ÚNICA señal fiable de salud. `running` se pone en true
-   * apenas arranca, antes de que el proceso escuche el puerto.
-   */
-  async #marcarSano(): Promise<void> {
-    const diario = await this.#diario();
-    if (diario.fallosSeguidos === 0) return;
-    diario.fallosSeguidos = 0;
-    await this.ctx.storage.put("diario", diario);
-  }
-
-  async #asegurarEncendido(): Promise<void> {
-    if (!this.ctx.container!.running) await this.#encender();
-    await this.#asegurarAlarma(LATIDO_MS);
-  }
-
-  /** Pone la alarma YA, haya una o no. Nunca lanza. */
-  async #adelantarAlarma(enMs: number): Promise<void> {
-    try {
-      await this.ctx.storage.setAlarm(Date.now() + enMs);
-    } catch (e) {
-      console.error("no se pudo adelantar el latido:", e);
-    }
-  }
-
-  /** Pone la alarma si no hay ninguna. Nunca lanza. */
-  async #asegurarAlarma(enMs: number): Promise<void> {
-    try {
-      if ((await this.ctx.storage.getAlarm()) === null) {
-        await this.ctx.storage.setAlarm(Date.now() + enMs);
-      }
-    } catch (e) {
-      console.error("no se pudo asegurar la alarma:", e);
-    }
-  }
-
-  /** Programa el siguiente latido. Nunca lanza: es la pieza que no puede faltar. */
-  async #programarSiguiente(fallosSeguidos: number): Promise<void> {
-    try {
-      await this.ctx.storage.setAlarm(Date.now() + proximoLatido(fallosSeguidos));
-    } catch (e) {
-      console.error("no se pudo programar el latido:", e);
-    }
-  }
-
-  async #encender(): Promise<void> {
-    const diario = await this.#diario();
-
-    // Un arranque ya en camino no se pisa. Sin esto, el refresco del panel
-    // reinicia el contenedor cada 5 segundos y nunca termina de levantar.
-    if (!puedeArrancar(diario.ultimoArranque, Date.now(), ARRANQUE_MIN_MS)) return;
-
-    diario.arranquesContenedor += 1;
-    diario.ultimoArranque = new Date().toISOString();
-    await this.ctx.storage.put("diario", diario);
-
-    // Dentro de un try: `start()` lanza si el contenedor YA está corriendo —una
-    // carrera contra una petición del panel basta— y también cuando Cloudflare
-    // no tiene instancia que entregar. Antes ese throw subía hasta `alarm()` y
-    // se llevaba por delante el latido entero. Ver el comentario de `alarm()`.
-    try {
-      this.ctx.container!.start({
-        env: {
-          PORT: String(PUERTO_CONTENEDOR),
-          PUENTE_URL: this.env.PUENTE_BASE_URL,
-          PUENTE_TOKEN: this.env.WA_TOKEN,
-        },
-        // Baileys tiene que salir a wss://web.whatsapp.com.
-        enableInternet: true,
-      });
-    } catch (e) {
-      console.error("no se pudo encender el contenedor:", e);
     }
   }
 
@@ -408,12 +347,11 @@ export class PuenteWa extends DurableObject<Env> {
       ultimaConexionVista: null,
       reiniciosForzados: 0,
       ultimoFalloDelLatido: null,
+      ultimaSalida: null,
     };
     if (!guardado) return base;
     // Un diario escrito por una versión anterior no trae los campos nuevos. Sin
-    // estos respaldos, el primer `+= 1` daría NaN y `setAlarm(NaN)` dejaría al
-    // contenedor sin latido para siempre — un fallo mudo justo en la pieza que
-    // existe para recuperarse de fallos.
+    // estos respaldos, el primer `+= 1` daría NaN y ese NaN viajaría al panel.
     return {
       ...base,
       ...guardado,
@@ -456,6 +394,26 @@ function instancia(env: Env) {
 }
 
 export default {
+  /**
+   * El cron. Despierta al Durable Object y le pide una vigilancia.
+   *
+   * No duplica a la vigilancia interna: la respalda. La de adentro es rápida y
+   * barata pero depende de que el DO siga en pie; ésta llega desde fuera
+   * aunque el DO se haya desalojado y su cadena de alarmas se haya perdido —
+   * que es exactamente lo que dejó el canal mudo una noche entera.
+   *
+   * No lanza: un cron que revienta no deja rastro útil y no hay a quién
+   * devolverle el error.
+   */
+  async scheduled(_evento: ScheduledController, env: Env): Promise<void> {
+    if (!env.WA_TOKEN) return;
+    try {
+      await instancia(env).despertar();
+    } catch (e) {
+      console.error("cron:", e instanceof Error ? e.message : String(e));
+    }
+  },
+
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 

@@ -34,6 +34,18 @@ CRM_WEBHOOK_URL = "https://juancitoads-bot.juanarrietabusiness.workers.dev/webho
 binding = "CRM"
 service = "juancitoads-bot"
 
+# Un supervisor FUERA del Durable Object.
+#
+# Hasta el 17-sep-2026 el único que despertaba este canal era la alarma del
+# propio DO, y esa cadena ya se rompió una vez: el canal pasó una noche mudo y
+# volvió solo cuando el dueño abrió el panel. Un supervisor que vive dentro de
+# la cosa que vigila no puede levantarla cuando se cae del todo.
+#
+# El cron es de plataforma: llega aunque el DO esté desalojado y su alarma
+# perdida. Cada minuto, que es el mínimo que Cloudflare permite.
+[triggers]
+crons = ["* * * * *"]
+
 [[durable_objects.bindings]]
 name = "WA"
 class_name = "PuenteWa"

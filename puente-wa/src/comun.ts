@@ -75,21 +75,6 @@ export function autorizado(request: Request, esperado: string): boolean {
 }
 
 /**
- * Cuánto esperar hasta el próximo latido, según cuántos seguidos encontraron el
- * contenedor caído.
- *
- * Relevantar cada minuto un contenedor que se cae al arrancar es lo que hizo
- * que Cloudflare dejara de entregar instancias ("There is no container instance
- * that can be provided to this Durable Object"). Insistir más rápido retrasa la
- * recuperación en vez de acelerarla.
- */
-export function proximoLatido(fallosSeguidos: number): number {
-  const fallos = Number.isFinite(fallosSeguidos) ? Math.max(0, fallosSeguidos) : 0;
-  if (fallos === 0) return LATIDO_MS;
-  return Math.min(LATIDO_MS * 2 ** fallos, 15 * 60_000);
-}
-
-/**
  * Un token apto para viajar hacia el contenedor: solo ASCII imprimible.
  *
  * Se valida al desplegar y se reporta en el diagnóstico. Un token con una ñ o
@@ -149,6 +134,20 @@ export const VIGILANTE_MS = 30_000;
 export const LATIDOS_ANTES_DE_REINICIAR = 5;
 
 /**
+ * Cada cuántos SEGUNDOS el Durable Object vigila su contenedor.
+ *
+ * En segundos porque `schedule()` los cuenta así. Treinta, y sin retroceso: el
+ * retroceso exponencial que había aquí esperaba cada vez más tras cada fallo,
+ * que es lo correcto para algo que se reintenta y lo contrario de lo que
+ * necesita un socket que debe estar siempre abierto. Fue parte de por qué las
+ * noches quedaban mudas.
+ *
+ * Esta vigilancia no solo mira: también renueva la actividad del contenedor,
+ * que es lo único que impide que Cloudflare lo apague por estar callado.
+ */
+export const VIGILANCIA_S = 30;
+
+/**
  * Cuánto puede tardar un latido en llegar antes de considerar que el latido
  * MISMO está muerto. Tres veces la espera base: un latido perdido es ruido,
  * tres seguidos es que la alarma dejó de existir.
@@ -191,35 +190,6 @@ export function latidoVencido(ultimoLatidoEn: number | null | undefined, ahora: 
   return ahora - ultimoLatidoEn > LATIDO_VENCIDO_MS;
 }
 
-/**
- * ¿Se puede volver a arrancar el contenedor, o hay uno en camino?
- *
- * Nació del fallo del 16-sep-2026 en Baby Caleb: 16 arranques en 17 minutos con
- * `max_instances = 1`. El panel se reiniciaba el contenedor a sí mismo — la
- * tarjeta refresca cada 5 s, cada refresco toca el Durable Object, y mientras
- * la imagen levanta `running` sigue en false, así que todos volvían a llamar a
- * `start()`. Baileys nunca asentaba la sesión y el teléfono terminaba
- * escaneando un QR cuyo socket ya no existía.
- */
-export function puedeArrancar(
-  ultimoArranqueIso: string | null | undefined,
-  ahora: number,
-  minimoMs: number,
-): boolean {
-  if (!ultimoArranqueIso) return true;
-  const ultimo = Date.parse(ultimoArranqueIso);
-  if (!Number.isFinite(ultimo)) return true; // una fecha ilegible no puede bloquear el arranque
-  return ahora - ultimo >= minimoMs;
-}
-
-/**
- * Cuánto tarda en volver el contenedor tras un reinicio pedido desde el panel.
- *
- * Corto a propósito, y MUY por debajo de `LATIDO_MS`: la vuelta no puede
- * depender de que el panel siga abierto ni de esperar un latido entero.
- */
-export const REVIVIR_MS = 3_000;
-
 /** Los campos que un reinicio pedido por una persona deja en el diario. */
 export interface ReinicioPedido {
   ultimaMuerteVista: string;
@@ -252,57 +222,4 @@ export function reinicioPedido(ahora: Date): ReinicioPedido {
     ultimoArranque: null,
     fallosSeguidos: 0,
   };
-}
-
-// ── Reintentar contra el contenedor ────────────────────────────────────────
-
-/**
- * Cuánto espera cada intento contra el contenedor.
- *
- * El primero corto, para detectar rápido que está frío; los siguientes más
- * generosos, porque para entonces ya está arrancando y vale la pena esperarlo.
- */
-export function topeDelIntento(intento: number): number {
-  return intento === 0 ? 2_500 : 5_000;
-}
-
-/**
- * Reintenta una petición al contenedor SIN volver a leer el cuerpo.
- *
- * Existe por el fallo del 16-sep-2026, que se veía como "el bot responde a
- * veces sí y a veces no, según si el panel está abierto".
- *
- * El bucle de reintentos pasaba `request.body` —un ReadableStream— en cada
- * vuelta. El primer intento lo consume; del segundo en adelante revientan al
- * instante con "This ReadableStream is disturbed (has already been read from),
- * and cannot be used as a body". O sea que de los cinco reintentos, para
- * cualquier POST, solo existía el primero.
- *
- * Y los reintentos están justamente para sobrevivir un contenedor frío. Con el
- * panel abierto el contenedor estaba caliente, el primer intento acertaba y
- * todo parecía bien; con el panel cerrado el primero se agotaba, los otros
- * cuatro morían en el acto y la respuesta del bot se perdía con un 503. Los
- * mensajes entrantes sí llegaban, porque van por otro camino — por eso el
- * canal parecía funcionar a ratos.
- *
- * El cuerpo se lee UNA vez y se reutiliza. La inyección de `pedir` y `dormir`
- * es para poder probar aquí, sin red, que el mismo cuerpo viaja en todos los
- * intentos.
- */
-export async function contraElContenedor(
-  pedir: (cuerpo: ArrayBuffer | undefined, topeMs: number) => Promise<Response>,
-  cuerpo: ArrayBuffer | undefined,
-  opciones: { intentos: number; esperaMs: number; dormir: (ms: number) => Promise<void> },
-): Promise<{ respuesta: Response | null; ultimoFallo: string; intentosHechos: number }> {
-  let ultimoFallo = "";
-  for (let intento = 0; intento < opciones.intentos; intento++) {
-    try {
-      const respuesta = await pedir(cuerpo, topeDelIntento(intento));
-      return { respuesta, ultimoFallo: "", intentosHechos: intento + 1 };
-    } catch (e) {
-      ultimoFallo = e instanceof Error ? e.message : String(e);
-      if (intento < opciones.intentos - 1) await opciones.dormir(opciones.esperaMs);
-    }
-  }
-  return { respuesta: null, ultimoFallo, intentosHechos: opciones.intentos };
 }
