@@ -1,54 +1,80 @@
-# Despliegue automático a Cloudflare.
+# CI y despliegue — un solo camino: probar → desplegar → auditar la verdad.
 #
-# El deploy sale del repositorio, no del computador de nadie: cada push a
-# `main` corre las pruebas y, si pasan, aplica el esquema y publica el Worker.
-# Así no hay forma de que lo desplegado difiera de lo que está en git.
+# Hasta el 23-sep-2026 eran dos workflows (ci.yml y este) disparados por el
+# MISMO push a `main`: las pruebas corrían dos veces en paralelo, y el deploy
+# publicaba sin esperar a css:check / icons:check, que solo estaban en CI. Ahora
+# es una cadena: si las pruebas fallan, no se despliega; si se despliega, se
+# audita la base EN VIVO contra el documento de la dueña.
 #
-# Necesita dos secrets del repositorio (Settings → Secrets and variables →
+# En un pull request solo corre `test` (el mismo nombre de siempre, así que
+# cualquier regla de rama que lo exija sigue funcionando).
+#
+# Necesita estos secrets del repositorio (Settings → Secrets and variables →
 # Actions):
 #   CLOUDFLARE_API_TOKEN   — token de la cuenta donde vive el bot
 #   CLOUDFLARE_ACCOUNT_ID  — id de esa misma cuenta
 #   KB_REINDEX_TOKEN       — el MISMO valor que el secret del Worker; sin él la
 #                            base de conocimiento no se actualiza al desplegar
+#   WA_TOKEN               — opcional: el del canal de WhatsApp por QR
 #
 # `workflow_dispatch` permite dispararlo a mano desde la pestaña Actions
 # eligiendo la rama — útil para probar antes de mergear a main.
-name: Deploy
+name: CI y despliegue
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
-# Dos pushes seguidos no pueden desplegar en paralelo: el segundo espera, y si
-# llega un tercero mientras tanto, el del medio se descarta. Evita que dos
-# `wrangler deploy` se pisen y quede publicada la versión vieja.
-concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  deploy:
+  # ── 1 · Probar ─────────────────────────────────────────────────────────────
+  test:
+    name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
       # Node 22, no 20: wrangler 4.x exige >= 22 y aborta con "Wrangler requires
-      # at least Node.js v22.0.0" antes de hablar con Cloudflare. Como
-      # package.json trae wrangler en "latest", esto sube solo — el piso lo
-      # pone wrangler, no nosotros.
-      - uses: actions/setup-node@v4
+      # at least Node.js v22.0.0" antes de hablar con Cloudflare. Las pruebas
+      # corren en el mismo Node que publica.
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: "pnpm"
-
       - run: pnpm install --frozen-lockfile
-
-      # Las pruebas son el candado: nada roto llega a producción.
       - run: pnpm typecheck
+      # public/admin.css y public/icons.svg se versionan (wrangler sube public/
+      # sin construir nada), así que aquí se comprueba que lo commiteado sea lo
+      # que produce el código.
+      - run: pnpm css:check
+      - run: pnpm icons:check
       - run: pnpm test
+
+  # ── 2 · Desplegar (solo main, o a mano) ───────────────────────────────────
+  deploy:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    # Dos pushes seguidos no pueden desplegar en paralelo: el segundo espera, y
+    # si llega un tercero mientras tanto, el del medio se descarta. Evita que
+    # dos `wrangler deploy` se pisen y quede publicada la versión vieja.
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
 
       # El esquema es idempotente (todo CREATE TABLE IF NOT EXISTS), así que
       # correrlo en cada deploy no toca los datos que ya existen: solo agrega
@@ -93,7 +119,7 @@ jobs:
             exit 0
           fi
           # Por stdin: así no aparece en la línea de comandos ni en el log.
-          printf '%s' "$WA_TOKEN" | npx wrangler@4 secret put WA_TOKEN
+          printf '%s' "$WA_TOKEN" | pnpm exec wrangler secret put WA_TOKEN
 
       # ci-deploy y no `pnpm run deploy`: el segundo dispara el hook predeploy,
       # que aborta si falta el secret DASHBOARD_PASSWORD. Ese chequeo tiene
@@ -143,3 +169,15 @@ jobs:
             *'"ok":true'*) echo "Base de conocimiento actualizada." ;;
             *) echo "::error::El reindexado no confirmó ok:true."; exit 1 ;;
           esac
+
+  # ── 3 · Auditar la verdad contra la base EN VIVO ──────────────────────────
+  # Las pruebas vigilan los archivos; el bot lee D1. Justo después de publicar
+  # es cuando más sirve mirar la base. Aquí es INFORMATIVA (un aviso, no un
+  # rojo): los problemas que encuentra son de datos, no del código recién
+  # desplegado. La corrida estricta es la de los lunes (auditar.yml).
+  auditar:
+    needs: deploy
+    uses: ./.github/workflows/auditar.yml
+    with:
+      modo: informativo
+    secrets: inherit
