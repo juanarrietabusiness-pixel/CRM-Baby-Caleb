@@ -34,6 +34,17 @@ export interface Aviso {
  * ya quedó en los logs.
  */
 export async function avisarAlDueno(env: Env, aviso: Aviso): Promise<boolean> {
+  // Un aviso nunca rompe la atención: si algo falla aquí (Telegram caído, una
+  // tabla que el esquema todavía no creó), se anota y la conversación sigue.
+  try {
+    return await armarYEnviar(env, aviso);
+  } catch (e) {
+    console.error("[avisarAlDueno] no se pudo avisar al dueño:", e);
+    return false;
+  }
+}
+
+async function armarYEnviar(env: Env, aviso: Aviso): Promise<boolean> {
   const chatId = await chatDelDueno(env);
   if (!chatId || !env.TELEGRAM_BOT_TOKEN) return false;
 
