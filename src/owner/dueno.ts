@@ -6,8 +6,9 @@
 // clienta que quiere pagar, un comprobante— se quedaba esperando a que alguien
 // abriera el panel por casualidad.
 //
-// Ahora hay dos fuentes, y el secret sigue mandando si existe:
-//   1. OWNER_TELEGRAM_CHAT_ID (secret), como siempre.
+// Ahora hay dos fuentes. Basta UNA; si están las dos, manda el secret:
+//   1. OWNER_TELEGRAM_CHAT_ID, puesto como Secret en el panel de Cloudflare
+//      (Workers & Pages → el bot → Settings → Variables and Secrets).
 //   2. `owner_telegram_chat_id` en D1, que se llena solo cuando la dueña toca
 //      el enlace del panel —t.me/<bot>?start=dueno_<código>— y el bot recibe
 //      el código. Un código de seis dígitos, de un solo uso, que vence.
@@ -15,6 +16,7 @@
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { SettingsRepo, SETTING_KEYS } from "../db/settings";
+import { asegurarWebhook, huellaDelWebhook } from "./telegram";
 
 /** Cuánto vale un código de vinculación. Lo justo para abrir Telegram. */
 export const CODIGO_VENCE_MS = 15 * 60_000;
@@ -94,4 +96,37 @@ export async function enModoCliente(env: Env): Promise<boolean> {
 
 export async function ponerModoCliente(env: Env, activo: boolean): Promise<void> {
   await repo(env).set(SETTING_KEYS.ownerTelegramMode, activo ? "cliente" : "");
+}
+
+/**
+ * Registra el webhook con su firma (asegurarWebhook) y anota con qué token
+ * quedó, para que protegerConsolaUnaVez no lo repita.
+ */
+export async function protegerConsola(env: Env): Promise<{ ok: true } | { ok: false; error: string }> {
+  const r = await asegurarWebhook(env);
+  if (r.ok) {
+    const huella = await huellaDelWebhook(env);
+    if (huella) await repo(env).set(SETTING_KEYS.ownerWebhookFirmado, huella).catch(() => {});
+  }
+  return r;
+}
+
+/**
+ * La consola solo obedece updates firmados por Telegram, y la firma se
+ * registraba al tocar "Vincular" en el panel. Un dueño que puso su chat id
+ * como secret en Cloudflare nunca pasa por ahí: su primer botón se rechazaba.
+ * Esto lo hace solo —antes de cada aviso y en el cron— y una sola vez por
+ * token: después es una lectura de D1. Nunca lanza.
+ */
+export async function protegerConsolaUnaVez(env: Env): Promise<void> {
+  try {
+    if (!(await chatDelDueno(env))) return;
+    const huella = await huellaDelWebhook(env);
+    if (!huella) return;
+    if ((await repo(env).get(SETTING_KEYS.ownerWebhookFirmado)) === huella) return;
+    const r = await protegerConsola(env);
+    if (!r.ok) console.error("[consola] no se pudo proteger el webhook:", r.error);
+  } catch (e) {
+    console.error("[consola] no se pudo proteger el webhook:", e);
+  }
 }

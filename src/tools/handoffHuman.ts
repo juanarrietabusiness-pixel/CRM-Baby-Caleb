@@ -69,6 +69,8 @@ interface HandoffNotice {
   ticketId: string;
   /** La conversación de la clienta: el aviso de Telegram trae sus botones y se puede responder. */
   conversationId?: string | null;
+  /** La imagen de la clienta que motivó el ticket (ver Aviso.foto). */
+  foto?: string | null;
 }
 
 /**
@@ -150,6 +152,7 @@ export async function notifyOwner(env: Env, notice: HandoffNotice): Promise<void
     conversationId: notice.conversationId ?? null,
     ticketId: alertaDeSalud ? null : notice.ticketId,
     conBotones: !alertaDeSalud,
+    foto: notice.foto ?? null,
   });
 
   // --- Twilio WhatsApp via approved Content Template (optional) --------------

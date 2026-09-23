@@ -249,6 +249,38 @@ en pausa global desde el 17-sep y con una línea como prompt entero. Ver
 
 ---
 
+## 23-sep-2026 · Las notas de voz y las fotos llegaban vacías
+
+**Síntoma.** Por el WhatsApp por QR el bot no entendía notas de voz ni fotos.
+Con la Cloud API (el número de prueba de Meta) sí las entendía.
+
+**Causa.** No era Baileys ni Cloudflare: era el contenedor. `reenviar()` solo
+mandaba `conversation` y `extendedTextMessage.text`. De una nota de voz no
+mandaba nada —ni el audio—, y de una foto ni la leyenda. La Cloud API y
+Telegram dejan el archivo en una URL que se descarga después; Baileys no: el
+archivo se descarga dentro del contenedor, en el momento, o se pierde.
+
+**Arreglo.**
+- El contenedor descarga la nota de voz o la foto con `downloadMediaMessage`
+  (tope 12 MB) y la manda en base64 junto al mensaje, con la leyenda
+  (`textoDe`). Si la descarga falla, el mensaje sale igual y el CRM dice qué
+  era. El estado cuenta `archivosRecibidos`.
+- El CRM la guarda en D1 (`media_temporal`, en partes, dos días) y la ve como
+  la de cualquier canal: una URL firmada (`/webhooks/whatsapp-qr/media/:id`).
+  La transcripción lee los bytes de D1, sin que el Worker se llame a sí mismo.
+- Las reacciones y los mensajes de protocolo ya no llegan al agente como un
+  mensaje vacío.
+
+**Ojo con `escalar_media`.** En Baby Caleb está encendido (Config): una **foto**
+no la ve la IA, crea un ticket (es el comprobante de pago que nadie verificó).
+Ahora esa foto le llega a la dueña por Telegram antes del aviso. Las **notas
+de voz** sí se transcriben y se contestan.
+
+**Después de desplegar:** el contenedor tiene que tomar la imagen nueva.
+`puente-wa.yml` lo reinicia solo al terminar.
+
+---
+
 ## Cómo se consiguen los logs sin abrir una terminal
 
 El dueño de este bot no usa la terminal, y el fallo de arriba era invisible

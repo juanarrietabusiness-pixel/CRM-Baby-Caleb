@@ -14,14 +14,26 @@
 // llega a esta consola. Lo demás sigue siendo una clienta.
 
 import type { Env } from "../env";
-import { canjearCodigo, chatDelDueno, desvincular, enModoCliente, esElDueno, ponerModoCliente } from "./dueno";
+import {
+  canjearCodigo,
+  chatDelDueno,
+  desvincular,
+  enModoCliente,
+  esElDueno,
+  ponerModoCliente,
+  protegerConsola,
+} from "./dueno";
 import { anotarAviso, buscarConversaciones, conversacionDelAviso, nombreDe, refCorta, responderACliente, tomarAccion } from "./acciones";
-import { asegurarWebhook, contestarBoton, editar, enviar } from "./telegram";
+import { contestarBoton, editar, enviar, escribiendo } from "./telegram";
+import { anotar, olvidar } from "./memoria";
+import { entenderAlDueno, type Entrada } from "./cerebro";
 import { pendientes } from "./pendientes";
-import { entenderAlDueno } from "./cerebro";
 import { EXTENSIONES } from "./extensiones";
 import { devolverAlBot, pausarPorHumano } from "../takeover";
 import type { Contexto, Respuesta } from "./tipos";
+import { Db } from "../db/client";
+import { ConversationsRepo } from "../db/conversations";
+import { resolveTelegramFileUrl } from "../channels/telegram";
 
 export interface TgMensaje {
   message_id: number;
@@ -30,6 +42,10 @@ export interface TgMensaje {
   text?: string;
   caption?: string;
   reply_to_message?: { message_id: number };
+  voice?: { file_id: string; duration?: number; mime_type?: string };
+  audio?: { file_id: string; duration?: number; mime_type?: string };
+  photo?: { file_id: string; width?: number; height?: number }[];
+  document?: { file_id: string; mime_type?: string; file_name?: string };
 }
 
 export interface TgBoton {
@@ -60,13 +76,15 @@ function ayuda(env: Env): string {
     "",
     ...EXTENSIONES.flatMap((e) => [...e.ayuda, ""]),
     "🧪 /cliente — probar el bot como si fuera una clienta (/dueno para volver)",
+    "🧹 /nuevo — que el asistente olvide lo que veníamos hablando",
     "",
-    "También puede escribir con sus palabras: «¿qué tengo pendiente?», «devuélvele lo de Ana al bot».",
+    "También puede escribirme o mandarme una nota de voz con sus palabras —«¿qué tengo pendiente?», «¿quién escribió hoy?», «devuélvele lo de Ana al bot»— o una foto (una lista, una factura). Me acuerdo de lo que venimos hablando.",
   ].join("\n");
 }
 
 async function mandar(ctx: Contexto, respuestas: Respuesta[]): Promise<void> {
   for (const r of respuestas) {
+    await anotar(ctx.env, ctx.chatId, "consola", r.texto);
     const id = await enviar(ctx.env, ctx.chatId, r.texto, r.teclado);
     if (id !== null && r.conversationId) await anotarAviso(ctx.env, ctx.chatId, id, r.conversationId);
   }
@@ -117,6 +135,10 @@ const COMANDOS: Record<string, (ctx: Contexto, args: string) => Promise<Respuest
     return [{ texto: "👤 Modo dueño. /ayuda para ver qué puede hacer." }];
   },
   miid: async (ctx) => [{ texto: `Su chat id es:\n${ctx.chatId}` }],
+  nuevo: async (ctx) => {
+    await olvidar(ctx.env, ctx.chatId);
+    return [{ texto: "🧹 Listo, empezamos de cero. Los avisos y los comandos siguen igual." }];
+  },
   olvidarme: async (ctx) => {
     await desvincular(ctx.env);
     return [{ texto: "Listo: este Telegram ya no recibe los avisos. Para volver, genere un código en el panel (Conexiones → Telegram)." }];
@@ -178,20 +200,31 @@ export async function atenderAlDueno(
   // Sin la firma de Telegram, la consola no ejecuta NADA: ni botones, ni
   // comandos, ni el código de vínculo. Lo que diga venir del dueño se le avisa
   // a su chat real y se descarta; lo de una clienta sigue al agente como siempre.
+  //
+  // Si el webhook todavía no va firmado (protegerConsolaUnaVez casi siempre lo
+  // evita, pero alguien pudo re-registrarlo a mano sin secreto), se registra
+  // con el secreto aquí mismo: es inofensivo aunque el update fuera falso
+  // —solo reapunta NUESTRO webhook con NUESTRO secreto— y se descarta igual.
   if (!opts.confiable) {
     const cb = update.callback_query;
     if (cb) {
-      await contestarBoton(env, cb.id, "Por seguridad, abra el panel → Conexiones → Telegram y vuelva a vincular.");
+      if (!(await esElDueno(env, cb.from.id))) {
+        await contestarBoton(env, cb.id, "Este botón es solo para el dueño del negocio.");
+        return true;
+      }
+      // El botón no se consumió (tomarAccion no corrió): el segundo toque, ya
+      // firmado, lo hace.
+      const r = await protegerConsola(env);
+      await contestarBoton(
+        env,
+        cb.id,
+        r.ok ? "🔒 Activé la protección de su consola. Toque el botón otra vez." : `⚠️ No pude proteger la consola: ${r.error}`,
+      );
       return true;
     }
     const m = update.message;
     if (m && (codigoDeVinculo(m.text ?? "") || (await esElDueno(env, m.chat.id)))) {
-      // La primera vez (p. ej. un dueño que puso su chat id como secret y
-      // nunca pasó por "Vincular" en el panel), el webhook todavía no va
-      // firmado. Se registra con el secreto aquí mismo: es inofensivo aunque
-      // el mensaje fuera falso —solo reapunta NUESTRO webhook con NUESTRO
-      // secreto— y el mensaje sin firma se descarta igual.
-      const r = await asegurarWebhook(env);
+      const r = await protegerConsola(env);
       await enviar(env, m.chat.id, r.ok ? "🔒 Listo: activé la protección de su consola (el webhook ahora va firmado por Telegram). Vuelva a enviar su mensaje." : "⚠️ Por seguridad, la consola necesita que el webhook de Telegram esté protegido y no pude hacerlo solo: " + r.error + " Abra el panel → Conexiones → Telegram y toque «Enviarme un aviso de prueba».");
       return true;
     }
@@ -223,6 +256,9 @@ export async function atenderAlDueno(
     }
     await contestarBoton(env, cb.id);
     if (EDITAN_SU_MENSAJE.has(accion.kind) && cb.message) {
+      // Lo que hizo el botón también es parte de la conversación: "¿y lo de
+      // recién?" tiene que saber que la venta se registró.
+      await anotar(env, chatId, "consola", `[botón] ${r.texto}`);
       await editar(env, chatId, cb.message.message_id, `${cb.message.text ?? ""}\n\n${r.texto}`, r.teclado);
       if (r.conversationId) await anotarAviso(env, chatId, cb.message.message_id, r.conversationId);
     } else {
@@ -233,7 +269,7 @@ export async function atenderAlDueno(
 
   const msg = update.message;
   if (!msg || msg.chat.type !== "private") return false;
-  const texto = (msg.text ?? msg.caption ?? "").trim();
+  const texto = (msg.text || msg.caption || "").trim();
 
   // ── El enlace de vinculación del panel. Llega ANTES de que haya dueño. ──
   const codigo = codigoDeVinculo(texto);
@@ -260,26 +296,62 @@ export async function atenderAlDueno(
   const chatId = String(msg.chat.id);
   const ctx: Contexto = { env, chatId, actor: `telegram:${chatId}` };
 
-  // ── Respuesta sobre un aviso: le llega a la clienta ──
+  // ── Una nota de voz o una foto: se convierte en algo que la consola entienda ──
+  if (msg.voice || msg.audio || msg.photo || msg.document || !partirComando(texto)) await escribiendo(env, chatId);
+  let entrada: Entrada;
+  try {
+    const m = await medioDelDueno(env, msg);
+    entrada = { texto: m?.transcripcion ?? texto, porVoz: !!m?.transcripcion, imagen: m?.imagen };
+    if (m?.error) {
+      await mandar(ctx, [{ texto: m.error }]);
+      return true;
+    }
+  } catch (e) {
+    console.error("[consola] no se pudo leer el archivo del dueño:", e);
+    await mandar(ctx, [{ texto: "No pude abrir ese archivo. Intente de nuevo o escríbamelo." }]);
+    return true;
+  }
+  if (!entrada.texto && !entrada.imagen) {
+    await mandar(ctx, [{ texto: "Eso todavía no lo sé leer. Escríbame, mándeme una nota de voz o una foto. /ayuda para ver qué puedo hacer." }]);
+    return true;
+  }
+
+  // Lo que dijo el dueño queda en la memoria, venga como venga.
+  await anotar(
+    env,
+    chatId,
+    "dueno",
+    [entrada.porVoz ? `🎤 ${entrada.texto}` : entrada.texto, entrada.imagen ? "[mandó una foto]" : ""].filter(Boolean).join(" "),
+  );
+
+  // Que vea lo que se entendió de su nota de voz: si el oído falló, lo nota.
+  const eco: Respuesta[] = entrada.porVoz ? [{ texto: `🎤 «${entrada.texto}»` }] : [];
+
+  // ── Respuesta sobre un aviso ──
   if (msg.reply_to_message) {
     const conv = await conversacionDelAviso(env, chatId, msg.reply_to_message.message_id);
     if (conv) {
-      if (!msg.text?.trim()) {
-        await mandar(ctx, [{ texto: "Por ahora solo puedo reenviarle texto a la clienta." }]);
+      // Texto escrito: le llega a la clienta tal cual, como siempre.
+      if (msg.text?.trim()) {
+        const r = await responderACliente(env, conv, msg.text.trim());
+        await mandar(ctx, [
+          r.ok
+            ? { texto: `✅ Enviado a ${r.nombre}. El bot queda en pausa ahí.`, conversationId: conv }
+            : { texto: `❌ ${r.error}` },
+        ]);
         return true;
       }
-      const r = await responderACliente(env, conv, msg.text.trim());
-      await mandar(ctx, [
-        r.ok
-          ? { texto: `✅ Enviado a ${r.nombre}. El bot queda en pausa ahí.`, conversationId: conv }
-          : { texto: `❌ ${r.error}` },
-      ]);
+      // Voz o foto sobre un aviso: es una instrucción sobre ESA conversación.
+      // Lo que salga hacia la clienta, el asistente lo propone con botón.
+      const c = await new ConversationsRepo(new Db(env.DB)).getById(conv);
+      entrada.pista = `Responde sobre el aviso de la conversación de ${c ? nombreDe(c) : "una clienta"} (#${refCorta(conv)}). Si quiere que se le diga algo a ella, propónlo con proponerMensaje.`;
+      await mandar(ctx, [...eco, ...(await entenderAlDueno(ctx, entrada))]);
       return true;
     }
   }
 
-  // ── Un comando ──
-  const cmd = partirComando(texto);
+  // ── Un comando ── (escrito; una nota de voz nunca es un comando)
+  const cmd = entrada.porVoz ? null : partirComando(texto);
   if (cmd) {
     const [nombre, args] = cmd;
     const f = COMANDOS[nombre] ?? EXTENSIONES.find((e) => e.comandos[nombre])?.comandos[nombre];
@@ -292,14 +364,50 @@ export async function atenderAlDueno(
     return true;
   }
 
-  if (!texto) {
-    await mandar(ctx, [{ texto: "Por ahora la consola solo entiende texto. /ayuda para ver qué puede hacer." }]);
-    return true;
-  }
-
-  // ── Con sus palabras ──
-  await mandar(ctx, await entenderAlDueno(ctx, texto));
+  // ── Con sus palabras (escritas, dichas o en una foto) ──
+  await mandar(ctx, [...eco, ...(await entenderAlDueno(ctx, entrada))]);
   return true;
+}
+
+/** Cuánto puede durar una nota de voz del dueño. Whisper cobra por minuto. */
+const VOZ_MAXIMA_S = 5 * 60;
+
+/**
+ * La nota de voz (transcrita) o la foto que mandó el dueño. null si el mensaje
+ * es solo texto; `error` si trae algo que no se puede usar.
+ */
+async function medioDelDueno(
+  env: Env,
+  msg: TgMensaje,
+): Promise<{ transcripcion?: string; imagen?: { bytes: Uint8Array; mime: string }; error?: string } | null> {
+  const token = env.TELEGRAM_BOT_TOKEN!;
+  const voz = msg.voice ?? msg.audio;
+  if (voz) {
+    if ((voz.duration ?? 0) > VOZ_MAXIMA_S) return { error: "Esa nota de voz es muy larga. Mándemela en partes de hasta 5 minutos." };
+    const archivo = await descargarDeTelegram(token, voz.file_id);
+    if (!archivo) return { error: "No pude descargar la nota de voz. Intente de nuevo." };
+    const { transcribirBytes } = await import("../media/transcribe");
+    const t = (await transcribirBytes(archivo.bytes, env)).text.trim();
+    if (!t) return { error: "No le entendí la nota de voz (salió en blanco). ¿Me la repite o me la escribe?" };
+    return { transcripcion: t };
+  }
+  const foto = msg.photo?.length ? msg.photo[msg.photo.length - 1] : null;
+  const docImagen = msg.document?.mime_type?.startsWith("image/") ? msg.document : null;
+  if (foto || docImagen) {
+    const archivo = await descargarDeTelegram(token, (foto ?? docImagen)!.file_id);
+    if (!archivo) return { error: "No pude descargar la foto. Intente de nuevo." };
+    return { imagen: { bytes: archivo.bytes, mime: docImagen?.mime_type ?? "image/jpeg" } };
+  }
+  if (msg.document) return { error: "Todavía no leo documentos. Mándeme una foto o una captura, o escríbamelo." };
+  return null;
+}
+
+async function descargarDeTelegram(token: string, fileId: string): Promise<{ bytes: Uint8Array } | null> {
+  const url = await resolveTelegramFileUrl(fileId, token);
+  if (!url) return null;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  return { bytes: new Uint8Array(await res.arrayBuffer()) };
 }
 
 /** ¿Hay un dueño vinculado? (para el panel y para los avisos) */

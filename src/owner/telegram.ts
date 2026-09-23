@@ -61,6 +61,37 @@ export async function enviar(
   return r?.message_id ?? null;
 }
 
+/**
+ * Manda una foto (los bytes, no una URL: la del WhatsApp por QR es firmada y la
+ * de Telegram lleva el token). Devuelve su message_id, o null si no salió.
+ */
+export async function enviarFoto(
+  env: Env,
+  chatId: string | number,
+  bytes: Uint8Array,
+  mime: string,
+  leyenda?: string,
+): Promise<number | null> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  if (leyenda) form.append("caption", leyenda.slice(0, 1000));
+  form.append("photo", new Blob([bytes], { type: mime }), mime.includes("png") ? "foto.png" : "foto.jpg");
+  try {
+    const res = await fetch(`${TG}${token}/sendPhoto`, { method: "POST", body: form });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; result?: { message_id: number }; description?: string } | null;
+    if (!res.ok || !json?.ok) {
+      console.error(`[telegram] sendPhoto ${res.status}: ${json?.description ?? "(sin detalle)"}`);
+      return null;
+    }
+    return json.result?.message_id ?? null;
+  } catch (e) {
+    console.error("[telegram] sendPhoto falló:", e);
+    return null;
+  }
+}
+
 /** Cambia el texto (y los botones) de un mensaje ya enviado. */
 export async function editar(
   env: Env,
@@ -76,6 +107,11 @@ export async function editar(
     reply_markup: marcado(teclado) ?? { inline_keyboard: [] },
     disable_web_page_preview: true,
   });
+}
+
+/** "escribiendo…" en el chat mientras se transcribe o piensa. Dura unos segundos. */
+export async function escribiendo(env: Env, chatId: string | number): Promise<void> {
+  await llamar(env, "sendChatAction", { chat_id: chatId, action: "typing" });
 }
 
 /** Quita el "reloj" del botón tocado. Sin esto Telegram lo deja girando. */
@@ -107,14 +143,28 @@ export async function nombreDelBot(env: Env): Promise<string | null> {
 // X-Telegram-Bot-Api-Secret-Token si el webhook se registró con `secret_token`.
 //
 // El secreto se DERIVA del token del bot: no hay otro secret que guardar ni
-// que olvidar, y nadie que no tenga el token lo puede calcular. El panel lo
-// registra al vincular el Telegram del dueño (asegurarWebhook).
+// que olvidar, y nadie que no tenga el token lo puede calcular. Se registra
+// solo (protegerConsolaUnaVez, en src/owner/dueno.ts): el dueño no tiene que
+// pasar por el panel.
+
+async function sha256hex(texto: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 export async function secretoDelWebhook(env: Env): Promise<string | null> {
   const token = env.TELEGRAM_BOT_TOKEN;
   if (!token) return null;
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`telegram-webhook:${token}`));
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 48);
+  return (await sha256hex(`telegram-webhook:${token}`)).slice(0, 48);
+}
+
+/**
+ * Una huella del secreto, para anotar en D1 con qué token quedó protegido el
+ * webhook sin guardar el secreto mismo. Cambia si cambia el token del bot.
+ */
+export async function huellaDelWebhook(env: Env): Promise<string | null> {
+  const secreto = await secretoDelWebhook(env);
+  return secreto ? (await sha256hex(`huella:${secreto}`)).slice(0, 16) : null;
 }
 
 /** ¿El update trae la firma de Telegram? */

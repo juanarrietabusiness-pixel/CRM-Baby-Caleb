@@ -54,13 +54,22 @@ describe("parseIncoming", () => {
     ).rejects.toThrow(/sin remitente/i);
   });
 
-  it("tolera un mensaje sin texto (una foto, un audio)", async () => {
+  it("una foto que el contenedor no pudo descargar no llega vacía: dice qué era", async () => {
     const msg = await whatsappQrAdapter.parseIncoming(
       entrante({ de: "1@s.whatsapp.net", texto: null, tipo: "imageMessage", recibidoEn: 1 }),
       env,
     );
-    expect(msg.text).toBeUndefined();
+    expect(msg.text).toMatch(/mandó una imagen/);
+    expect(msg.imageUrl).toBeUndefined();
     expect(msg.channelUserId).toBe("1@s.whatsapp.net");
+  });
+
+  it("una reacción o un mensaje de protocolo llega sin nada (la ruta no lo pasa al agente)", async () => {
+    const msg = await whatsappQrAdapter.parseIncoming(
+      entrante({ de: "1@s.whatsapp.net", texto: null, tipo: "reactionMessage", recibidoEn: 1 }),
+      env,
+    );
+    expect(msg.text ?? msg.audioUrl ?? msg.imageUrl).toBeUndefined();
   });
 });
 

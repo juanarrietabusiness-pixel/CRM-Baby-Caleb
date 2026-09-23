@@ -55,6 +55,8 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
   (para el dueño), `docs/plan-whatsapp-qr.md` (el procedimiento) y
   `docs/bitacora-whatsapp-qr.md` (**lee esto antes de diagnosticar**: qué se
   rompió, por qué, y cómo se consiguen los logs sin terminal).
+  Las notas de voz y las fotos las descarga el contenedor y viajan en base64;
+  el CRM las guarda unas horas en D1 (`src/media/almacen.ts`).
   **Un contenedor sano no toma la imagen nueva**: `puente-wa.yml` lo reinicia solo
   al terminar (sale solo cuando un merge cambia `puente-wa/`). Si ese paso avisa
   que no pudo, se reinicia desde el panel.
@@ -63,7 +65,9 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
   tres puertas; el plazo sale de Config.
 - `src/owner/` — la **consola del dueño por Telegram**: avisos con botones que se
   pueden responder, comandos (`/pendientes`, `/venta`, `/devolucion`…) y un
-  asistente interno. El vínculo es un enlace del panel, sin terminal. Ver
+  asistente interno que sabe que habla con el jefe, entiende notas de voz y
+  fotos, y recuerda la conversación (`src/owner/memoria.ts`, tabla `owner_chat`).
+  El vínculo es el secret en Cloudflare o un enlace del panel, sin terminal. Ver
   `docs/consola-del-dueno.md`. El inventario es una extensión
   (`src/owner/inventario.ts`); cada movimiento queda en `stock_movements`.
 - `skill/` — asistentes para el usuario.

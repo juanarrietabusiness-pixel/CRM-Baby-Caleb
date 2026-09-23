@@ -286,3 +286,31 @@ CREATE TABLE IF NOT EXISTS owner_notices (
   PRIMARY KEY (tg_chat_id, tg_message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_owner_notices_conv ON owner_notices(conversation_id);
+
+-- La conversación del dueño con su consola: lo que le dijo y lo que se le
+-- contestó. Es la memoria del asistente interno, para que "¿y la M?" o "dile
+-- que sí" se entiendan por lo que se habló antes, como pasa con las clientas.
+-- rol: dueno | consola
+CREATE TABLE IF NOT EXISTS owner_chat (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id    TEXT NOT NULL,
+  rol        TEXT NOT NULL,
+  contenido  TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_owner_chat ON owner_chat(chat_id, created_at);
+
+-- Audios e imágenes que llegan por el WhatsApp por QR. Baileys no deja una URL
+-- que se pueda descargar después (como la Cloud API o Telegram), así que el
+-- contenedor manda los bytes y se guardan aquí unas horas: lo justo para
+-- transcribirlos, que el modelo vea la imagen o reenviársela al dueño. En
+-- partes, porque una fila de D1 tiene tope de tamaño.
+CREATE TABLE IF NOT EXISTS media_temporal (
+  id         TEXT NOT NULL,
+  parte      INTEGER NOT NULL,
+  mime       TEXT NOT NULL,
+  datos      BLOB NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (id, parte)
+);
+CREATE INDEX IF NOT EXISTS idx_media_temporal_fecha ON media_temporal(created_at);

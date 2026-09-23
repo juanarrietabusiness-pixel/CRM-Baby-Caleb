@@ -34,8 +34,8 @@ export async function resolveTelegramFileUrl(
 /**
  * `/miid` → el bot contesta el chat id de quien lo escribe.
  *
- * Es el número que va en el secret OWNER_TELEGRAM_CHAT_ID para que los avisos
- * le lleguen al dueño. Sin esto, la única forma de conocerlo era llamar a la
+ * Es el número que va en el secret OWNER_TELEGRAM_CHAT_ID (en Cloudflare) para
+ * que los avisos le lleguen al dueño. Sin esto, la única forma de conocerlo era llamar a la
  * API de Telegram a mano. Lo contesta a cualquiera —cada quien ve solo el
  * suyo— y NO intercepta `/start`: una clienta nueva tiene que recibir el
  * saludo del bot, no un número.
@@ -52,8 +52,8 @@ export async function contestarMiId(update: TgUpdate, env: Env): Promise<boolean
       chat_id: msg.chat.id,
       text:
         `Su chat id es:\n${msg.from.id}\n\n` +
-        "Si usted es el dueño, ese número va en el secret OWNER_TELEGRAM_CHAT_ID " +
-        "(GitHub → Settings → Secrets and variables → Actions).",
+        "Si usted es el dueño, ese número va en Cloudflare: Workers & Pages → el bot → " +
+        "Settings → Variables and Secrets → Add, tipo Secret, nombre OWNER_TELEGRAM_CHAT_ID.",
     }),
   }).catch((e) => console.error("[telegram] /miid falló:", e));
   return true;

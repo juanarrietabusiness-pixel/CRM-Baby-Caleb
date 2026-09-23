@@ -14,6 +14,7 @@
 import http from "node:http";
 import makeWASocket, {
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestBaileysVersion,
   generateMessageIDV2,
   initAuthCreds,
@@ -25,6 +26,7 @@ import { Boom } from "@hapi/boom";
 import pino from "pino";
 import QRCode from "qrcode";
 import {
+  archivoDe,
   crearRegistroDeEnvios,
   esRespuestaDelTelefono as esRespuestaPropiaDePersona,
   textoDe,
@@ -61,6 +63,8 @@ const estado = {
   // Mensajes que salieron del número del negocio SIN que los mandara el bot:
   // la dueña contestando desde el teléfono. Cada uno pausa esa conversación.
   respuestasDelTelefono: 0,
+  // Notas de voz e imágenes descargadas y reenviadas al CRM.
+  archivosRecibidos: 0,
   ultimoError: null,
   credencialesVenianDeD1: false,
   // Cuántos códigos se han emitido. Si sube y nadie vincula, el QR de la
@@ -592,16 +596,42 @@ async function reenviar(msg) {
     body: JSON.stringify({
       de: msg.key?.remoteJid ?? null,
       nombre: msg.pushName ?? null,
-      texto:
-        msg.message?.conversation ??
-        msg.message?.extendedTextMessage?.text ??
-        null,
-      tipo: Object.keys(msg.message ?? {})[0] ?? null,
+      // Con la leyenda de una foto y sin las envolturas de "temporal".
+      texto: textoDe(msg),
+      tipo: tipoDe(msg),
+      media: await descargarArchivo(msg),
       recibidoEn: Date.now(),
       crudo: msg,
     }),
   });
   if (!r.ok) throw new Error(`entrante → ${r.status} · ${await porQue(r)}`);
+}
+
+/**
+ * La nota de voz o la imagen, en base64, o null. Nunca lanza: si la descarga
+ * falla, el mensaje igual se reenvía y el CRM dice qué era (mejor que perderlo).
+ */
+async function descargarArchivo(msg) {
+  const archivo = archivoDe(msg);
+  if (!archivo) return null;
+  if (!archivo.descargable) {
+    estado.ultimoError = `archivo de ${archivo.tamano} bytes: pasa del tope, se reenvió sin él`;
+    return null;
+  }
+  try {
+    const bytes = await downloadMediaMessage(
+      msg,
+      "buffer",
+      {},
+      { logger: SILENCIO, reuploadRequest: socket?.updateMediaMessage },
+    );
+    estado.archivosRecibidos += 1;
+    return { clase: archivo.clase, mime: archivo.mime, base64: Buffer.from(bytes).toString("base64") };
+  } catch (e) {
+    estado.ultimoError = `descargar ${archivo.clase}: ${e.message}`;
+    console.error(`No se pudo descargar ${archivo.clase}:`, e.message);
+    return null;
+  }
 }
 
 // ── HTTP interno, el que el Worker consulta ────────────────────────────────

@@ -62,8 +62,8 @@ import {
 import { renderConfig, CONSERVAR } from "./views/config";
 import { renderConexiones, renderWhatsAppDiag } from "./views/conexiones";
 import { pausarPorHumano, devolverAlBot } from "../takeover";
-import { chatDelDueno, crearCodigoDeVinculo, desvincular } from "../owner/dueno";
-import { asegurarWebhook, nombreDelBot } from "../owner/telegram";
+import { chatDelDueno, crearCodigoDeVinculo, desvincular, protegerConsola } from "../owner/dueno";
+import { nombreDelBot } from "../owner/telegram";
 import { avisarAlDueno } from "../owner/avisos";
 import {
   renderAvisoDuenoEnlace,
@@ -263,7 +263,7 @@ adminApp.post("/telegram/vincular", async (c) => {
   if (!c.env.TELEGRAM_BOT_TOKEN) return c.html(renderAvisoDuenoSinVincular("Falta el token del bot de Telegram."));
   // Primero se protege el webhook: la consola solo obedece updates firmados
   // por Telegram, y el código que la dueña va a mandar tiene que llegar firmado.
-  const webhook = await asegurarWebhook(c.env);
+  const webhook = await protegerConsola(c.env);
   if (!webhook.ok) return c.html(renderAvisoDuenoSinVincular(webhook.error));
   const { codigo } = await crearCodigoDeVinculo(c.env);
   return c.html(renderAvisoDuenoEnlace({ bot: await nombreDelBot(c.env), codigo }));
@@ -275,7 +275,7 @@ adminApp.post("/telegram/prueba", async (c) => {
   // También protege el webhook: un dueño vinculado por el secret
   // OWNER_TELEGRAM_CHAT_ID nunca pasó por "Vincular", y sin la firma la
   // consola no le obedece.
-  await asegurarWebhook(c.env);
+  await protegerConsola(c.env);
   const ok = await avisarAlDueno(c.env, {
     titulo: "🔔 Aviso de prueba",
     cuerpo: "Así le van a llegar los avisos del bot. Escriba /ayuda para ver lo que puede hacer desde aquí.",

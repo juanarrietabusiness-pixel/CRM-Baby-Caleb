@@ -9,6 +9,8 @@ const {
   textoDe,
   sinDispositivo,
   RESPUESTA_VIGENTE_MS,
+  archivoDe,
+  ARCHIVO_MAXIMO,
 } = propios as any;
 
 const AHORA = 1_790_000_000_000;
@@ -122,5 +124,43 @@ describe("el contenedor usa la regla", () => {
     const { readFileSync } = await import("node:fs");
     const docker = readFileSync("puente-wa/contenedor/Dockerfile", "utf8");
     expect(docker).toMatch(/COPY [^\n]*propios\.mjs/);
+  });
+});
+
+describe("archivoDe — la nota de voz o la foto que hay que descargar", () => {
+  const de = (message: unknown) => ({ key: { remoteJid: "1@s.whatsapp.net" }, message });
+
+  it("una nota de voz es audio, con su mime sin parámetros", () => {
+    expect(archivoDe(de({ audioMessage: { mimetype: "audio/ogg; codecs=opus", fileLength: 9000, ptt: true } }))).toEqual({
+      clase: "audio",
+      mime: "audio/ogg",
+      tamano: 9000,
+      descargable: true,
+    });
+  });
+
+  it("una foto (también dentro de un mensaje temporal) es imagen", () => {
+    const r = archivoDe(de({ ephemeralMessage: { message: { imageMessage: { mimetype: "image/jpeg", caption: "mi pago" } } } }));
+    expect(r).toMatchObject({ clase: "imagen", mime: "image/jpeg", descargable: true });
+    expect(textoDe(de({ ephemeralMessage: { message: { imageMessage: { caption: "mi pago" } } } }))).toBe("mi pago");
+  });
+
+  it("un texto, un sticker o un video no se descargan", () => {
+    expect(archivoDe(de({ conversation: "hola" }))).toBeNull();
+    expect(archivoDe(de({ stickerMessage: {} }))).toBeNull();
+    expect(archivoDe(de({ videoMessage: {} }))).toBeNull();
+  });
+
+  it("pasado el tope, no se descarga (se reenvía sin el archivo)", () => {
+    expect(archivoDe(de({ audioMessage: { fileLength: ARCHIVO_MAXIMO + 1 } })).descargable).toBe(false);
+  });
+
+  it("servidor.mjs descarga el archivo y lo manda con el mensaje, con la leyenda de la foto", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("puente-wa/contenedor/servidor.mjs", "utf8");
+    const reenviar = src.slice(src.indexOf("async function reenviar"), src.indexOf("async function descargarArchivo"));
+    expect(reenviar).toContain("media: await descargarArchivo(msg)");
+    expect(reenviar).toContain("texto: textoDe(msg)");
+    expect(src).toMatch(/import makeWASocket, \{[^}]*downloadMediaMessage/);
   });
 });

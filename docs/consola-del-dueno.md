@@ -9,19 +9,20 @@ maneja el inventario.
 
 ## 1. Vincular su Telegram (una sola vez)
 
-Hay dos caminos, los dos sin terminal. Elija uno.
+Hay dos caminos, los dos sin terminal. **Basta uno**: no hace falta hacer los
+dos, ni dejar el panel abierto después.
 
-**A · Con el secret de GitHub (su ID fijo, como los demás secrets)**
+**A · Con su ID, en Cloudflare**
 
-1. En Telegram, abra el bot del negocio y envíele **`/miid`**. Le contesta un
-   número: es su chat id.
-2. GitHub → este repositorio → **Settings → Secrets and variables → Actions →
-   New repository secret**. Nombre: `OWNER_TELEGRAM_CHAT_ID`. Valor: ese
-   número, sin espacios.
-3. Pestaña **Actions → CI y despliegue → Run workflow** (rama `main`). El paso
-   *Cargar los avisos al dueño en el Worker* lo pone en Cloudflare.
-4. Escríbale **`/ayuda`** al bot. La primera vez contesta *"Listo: activé la
-   protección…"*; escríbale `/ayuda` otra vez y ya le muestra la consola.
+1. Averigüe su ID: envíele **`/miid`** al bot del negocio (o use cualquier bot
+   de ID, como @userinfobot). Es un número.
+2. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** →
+   `juancitoads-bot` → **Settings → Variables and Secrets → Add**.
+3. Tipo **Secret** (no *Text*: las de tipo Text se borran en el siguiente
+   despliegue). Nombre: `OWNER_TELEGRAM_CHAT_ID`. Valor: ese número, sin
+   espacios. **Deploy**.
+
+Listo. El bot protege solo su consola antes del primer aviso.
 
 **B · Con el enlace del panel**
 
@@ -30,21 +31,28 @@ Hay dos caminos, los dos sin terminal. Elija uno.
 3. La tarjeta se pone en verde sola.
 
 El código del panel dura 15 minutos y sirve una sola vez. Si el enlace no abre,
-envíele al bot el mensaje que aparece en pantalla (`/dueno 123456`). Si usa los
-dos caminos, manda el secret.
+envíele al bot el mensaje que aparece en pantalla (`/dueno 123456`). Si hay de
+los dos, manda el de Cloudflare.
 
-Para comprobar cualquiera de los dos: panel → Conexiones → Telegram →
-**Enviarme un aviso de prueba**. En el Resumen, *Salud del bot* debe decir
-**✓ handoff avisa por Telegram**.
+El ID **no** va en los secrets de GitHub: el despliegue no lo carga. Un dato,
+un solo sitio.
+
+Para comprobarlo (opcional): panel → Conexiones → Telegram → **Enviarme un
+aviso de prueba**. En el Resumen, *Salud del bot* debe decir **✓ handoff avisa
+por Telegram**.
 
 > Antes esto exigía `wrangler secret put` en una terminal, y por eso el panel
 > decía **⚠ HANDOFF SIN AVISO**: el bot creaba tickets y nadie se enteraba.
+
+> Si alguna vez un botón contesta *"Activé la protección… Toque el botón otra
+> vez"*, tóquelo otra vez y ya. Pasa solo si el webhook de Telegram se
+> re-registró a mano.
 
 ## 2. Qué le llega
 
 | Aviso | Cuándo |
 |---|---|
-| 🚨 **Ticket** | Una clienta pide una persona, quiere pagar, manda un comprobante, reclama… |
+| 🚨 **Ticket** | Una clienta pide una persona, quiere pagar, manda un comprobante, reclama… Si mandó una foto que el bot no revisa (un comprobante), le llega la foto justo antes del aviso. |
 | 🛍 **Interesada** | El bot anotó a alguien con intención de compra (nombre, contacto). |
 | 💬 **Le escribió** | Usted atiende una conversación desde Telegram y la clienta contestó. |
 | ⚠️ **Salud del bot** | El bot está fallando en cadena (rara vez). |
@@ -75,13 +83,30 @@ en esa conversación mientras usted la atiende.
 | `/ajuste NAT-M +3` · `-1` · `=10` | Corrige el stock. |
 | `/movimientos [código]` | Lo último que se movió en el inventario. |
 | `/cliente` | Probar el bot como si fuera una clienta. `/dueno` para volver. |
-| `/miid` | Su chat id (el número del secret `OWNER_TELEGRAM_CHAT_ID`). |
+| `/nuevo` | Que el asistente olvide lo que venían hablando y empiece de cero. |
+| `/miid` | Su chat id (el número del secret `OWNER_TELEGRAM_CHAT_ID` en Cloudflare). |
 | `/ayuda` | Esta lista. |
 
-También puede escribir con sus palabras: *"¿qué tengo pendiente?"*, *"devuélvele
-la conversación de Ana al bot"*, *"vendí 2 cajas de la M"*. Un asistente interno
-lo entiende. Lo que sale hacia afuera (un mensaje a una clienta) o mueve el
-inventario, **siempre** se lo propone con botones: no pasa nada sin su toque.
+También puede hablarle con sus palabras —**escritas, en nota de voz o con una
+foto**—: *"¿qué tengo pendiente?"*, *"¿quién escribió hoy?"*, *"devuélvele la
+conversación de Ana al bot"*, *"vendí 2 cajas de la M"*, o la foto de una
+factura del proveedor. Un asistente interno lo entiende:
+
+- **Sabe que usted es el jefe.** Este canal es interno: seguimiento de clientas,
+  trazabilidad, logística, inventario y ajustes. Nunca la confunde con una
+  clienta.
+- **Se acuerda de lo que vienen hablando** (los últimos días): *"¿y de la L?"*
+  o *"dile que sí"* se entienden por lo anterior. `/nuevo` para empezar de cero.
+- **Oye notas de voz.** Le muestra lo que entendió (🎤 «…») antes de contestar,
+  para que vea si el oído falló. Hasta 5 minutos por nota.
+- **Ve fotos**: una lista, una factura, un comprobante, un producto.
+- Una nota de voz **sobre un aviso** es una instrucción sobre esa clienta. Si
+  hay que decirle algo, se lo propone con botón (el texto escrito sobre un aviso
+  sigue saliendo directo, como siempre).
+
+Lo que sale hacia afuera (un mensaje a una clienta) o mueve el inventario,
+**siempre** se lo propone con botones: no pasa nada sin su toque. Los comandos
+siguen igual.
 
 ## 4. El inventario, con cuidado
 
