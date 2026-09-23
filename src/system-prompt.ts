@@ -11,6 +11,7 @@ export interface SystemPromptInput {
   formaDeTrato?: FormaDeTrato;      // usted | tu | vos — decisión del negocio, no del modelo
   extraEscalationKeywords?: string[]; // extra words that trigger a human handoff
   lessons?: string[];               // flywheel: rules distilled from owner takeovers
+  instrucciones?: string;           // reglas extra del dueño (pestaña Config) — se SUMAN, no reemplazan
 }
 
 const TEMPLATE = `<output_language>
@@ -71,6 +72,8 @@ Si una pregunta no tiene respuesta en lo que sabes, escalas a un humano.
 {{NICHO_PLAYBOOK}}
 
 {{LECCIONES}}
+
+{{INSTRUCCIONES}}
 
 <escalation_rules>
 Llama handoffHuman cuando:
@@ -284,6 +287,21 @@ ${lessons.map((l) => `- ${l}`).join("\n")}
 </lecciones_aprendidas>`
       : "";
 
+  // Lo que el dueño escribe en "Instrucciones adicionales". Va DENTRO del
+  // prompt generado, después de las fuentes de verdad, y con la regla de que
+  // no las pisa. Antes ese campo escribía system_prompt_override y reemplazaba
+  // el prompt ENTERO: en Baby Caleb una sola línea ("cuando un humano responda
+  // por WhatsApp el bot se pone en pausa") dejó al bot sin catálogo, sin
+  // contexto del negocio y sin el trato de usted.
+  const instrucciones = input.instrucciones?.trim();
+  const instruccionesBlock = instrucciones
+    ? `<instrucciones_del_negocio>
+Reglas que agregó el dueño desde el panel. Síguelas, salvo que contradigan
+<fuentes_de_verdad> o la forma de trato: esas mandan siempre.
+${instrucciones}
+</instrucciones_del_negocio>`
+    : "";
+
   return TEMPLATE
     .replaceAll("{{LANGUAGE}}", input.language)
     .replaceAll("{{BOT_NAME}}", input.botName)
@@ -293,6 +311,7 @@ ${lessons.map((l) => `- ${l}`).join("\n")}
     .replaceAll("{{FUENTES_DE_VERDAD}}", truthBlock(input.toolList))
     .replaceAll("{{NICHO_PLAYBOOK}}", input.nichoPlaybook ?? "")
     .replaceAll("{{LECCIONES}}", lessonsBlock)
+    .replaceAll("{{INSTRUCCIONES}}", instruccionesBlock)
     .replaceAll("{{FORMA_DE_TRATO}}", input.formaDeTrato ? `\n${TRATO[input.formaDeTrato]}\n` : "")
     .replaceAll(
       "{{TRATO_RECORDATORIO}}",
@@ -308,6 +327,7 @@ export interface SystemPromptOverrides {
   extraEscalationKeywords?: string[];
   botName?: string;
   lessons?: string[];
+  instrucciones?: string;
 }
 
 export function systemPromptFromEnv(
@@ -328,5 +348,6 @@ export function systemPromptFromEnv(
     formaDeTrato: overrides?.formaDeTrato,
     extraEscalationKeywords: overrides?.extraEscalationKeywords,
     lessons: overrides?.lessons,
+    instrucciones: overrides?.instrucciones,
   });
 }

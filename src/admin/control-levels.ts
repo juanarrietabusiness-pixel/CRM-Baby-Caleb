@@ -189,6 +189,32 @@ export const STATUS_CONTROL: ControlDef = {
   ],
 };
 
+export const TAKEOVER_CONTROL: ControlDef = {
+  key: SETTING_KEYS.takeoverMinutes,
+  title: "Cuando una persona contesta",
+  help: "Cuánto se calla el bot en ESA conversación después de que alguien del equipo responde (desde el panel, el teléfono o Telegram). Cada respuesta reinicia el plazo.",
+  options: [
+    {
+      value: "60",
+      label: "1 hora",
+      desc: "Lo normal: si la clienta vuelve más tarde, la atiende el bot.",
+      svg: SVG_CLOCK,
+    },
+    {
+      value: "240",
+      label: "4 horas",
+      desc: "Para conversaciones largas, como cerrar un pedido.",
+      svg: SVG_TURTLE,
+    },
+    {
+      value: "1440",
+      label: "Todo el día",
+      desc: "El bot no vuelve a esa conversación hasta que usted la devuelva o pase un día.",
+      svg: SVG_PAUSE,
+    },
+  ],
+};
+
 // Registry keyed by setting key, for generic lookups by the helpers + UI.
 export const CONTROLS: Record<string, ControlDef> = {
   [TONE_CONTROL.key]: TONE_CONTROL,
@@ -196,6 +222,7 @@ export const CONTROLS: Record<string, ControlDef> = {
   [STYLE_CONTROL.key]: STYLE_CONTROL,
   [MODEL_CONTROL.key]: MODEL_CONTROL,
   [STATUS_CONTROL.key]: STATUS_CONTROL,
+  [TAKEOVER_CONTROL.key]: TAKEOVER_CONTROL,
 };
 
 // Ordered list for rendering the dashboard in a sensible sequence.
@@ -205,6 +232,7 @@ export const CONTROL_LIST: ControlDef[] = [
   STYLE_CONTROL,
   MODEL_CONTROL,
   STATUS_CONTROL,
+  TAKEOVER_CONTROL,
 ];
 
 // --- Bidirectional mapping helpers -------------------------------------------

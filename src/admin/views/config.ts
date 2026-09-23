@@ -31,9 +31,31 @@ const CARD_BASE =
   "cfgcard flex flex-col gap-1 h-full border border-line bg-panel2 p-4 cursor-pointer";
 
 /** Render one card group (radio cards) for a level-based control. */
+/**
+ * Valor que se envía para "dejar lo guardado como está". Existe porque un
+ * valor que no es ninguna de las tarjetas —el tono de Baby Caleb, "cálido y
+ * servicial, tratando siempre de usted", escrito desde la pestaña Agente— se
+ * mostraba con la PRIMERA tarjeta marcada, y guardar la página por cualquier
+ * otro motivo lo cambiaba por "cálido y cercano" sin que nadie lo decidiera.
+ */
+export const CONSERVAR = "__actual__";
+
 function renderCardGroup(control: ControlDef, settings: Record<string, string>): string {
-  const currentLevel = valueToLevel(control.key, settings[control.key]);
-  const cards = control.options
+  const guardado = (settings[control.key] ?? "").trim();
+  const propio = guardado !== "" && !control.options.some((o) => o.value === guardado);
+  const currentLevel = propio ? null : valueToLevel(control.key, settings[control.key]);
+  const tarjetaPropia = propio
+    ? `
+        <div class="relative">
+          <input type="radio" id="${esc(control.key)}__actual" name="${esc(control.key)}" value="${CONSERVAR}"
+                 class="peer sr-only absolute" checked>
+          <label for="${esc(control.key)}__actual" class="${CARD_BASE}">
+            <span class="card-label font-display font-semibold text-[12.5px] text-cream">Personalizado</span>
+            <span class="text-dim text-[11px] leading-snug">${esc(guardado)}</span>
+          </label>
+        </div>`
+    : "";
+  const cards = tarjetaPropia + control.options
     .map((opt) => {
       const id = `${control.key}__${opt.value}`;
       const checked = opt.label === currentLevel ? "checked" : "";
@@ -49,11 +71,21 @@ function renderCardGroup(control: ControlDef, settings: Record<string, string>):
         </div>`;
     })
     .join("");
+  // El tono es el único control que un negocio suele querer con sus propias
+  // palabras ("cálido y servicial, tratando siempre de usted", el del documento
+  // de Baby Caleb). Sin este campo, eso solo se podía escribir tocando la base.
+  const libre =
+    control.key === SETTING_KEYS.tone
+      ? `<label class="text-dim text-[12px]" for="tone_libre" style="margin-top:4px">…o escríbalo con sus palabras (reemplaza la tarjeta elegida):</label>
+         <input type="text" id="tone_libre" name="tone_libre" value="" placeholder="Ej. cálido y servicial, tratando siempre de usted"
+                style="${INPUT_STYLE};font-size:16px">`
+      : "";
   return `
     <fieldset style="display:flex;flex-direction:column;gap:8px">
       <legend class="font-display font-semibold text-[13.5px] text-cream">${esc(control.title)}</legend>
       <p class="text-muted text-[12px]">${esc(control.help)}</p>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">${cards}</div>
+      ${libre}
     </fieldset>`;
 }
 
@@ -158,12 +190,44 @@ function renderLlmSection(settings: Record<string, string>, llmTest?: string): s
       <div style="display:flex;flex-direction:column;gap:6px">
         <label class="font-display font-semibold text-[12.5px] text-cream">Tu API key (opcional)</label>
         <p class="text-dim text-[11px]">${hasKey ? `Hay una key guardada (termina en …${esc(keyTail)}). Escribe una nueva para reemplazarla, o marca la casilla para quitarla.` : "Pégala aquí para que el consumo se cobre a tu cuenta. Vacío = usar la key incluida del sistema."}</p>
-        <input type="password" name="${SETTING_KEYS.llmApiKey}" value="" autocomplete="off"
+        <input type="password" name="${SETTING_KEYS.llmApiKey}" value="" autocomplete="new-password" data-1p-ignore data-lpignore="true"
                placeholder="${hasKey ? "••••••••••••" : "sk-ant-… o sk-…"}" style="${INPUT_STYLE}">
         ${hasKey ? `<label class="text-dim text-[11.5px]" style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" name="llm_api_key_clear" value="1"> Quitar mi API key y volver a la del sistema</label>` : ""}
       </div>
       <a href="/admin/config/llm-test" class="text-[12px] font-display font-semibold"
          style="width:fit-content;border:1px solid var(--line);color:var(--cream);padding:9px 14px;text-decoration:none">${ico("zap")} Probar mi configuración (guarda primero)</a>
+    </div>`;
+}
+
+/**
+ * El aviso que faltaba. `system_prompt_override` REEMPLAZA el prompt entero —
+ * catálogo, fuentes de verdad, contexto del negocio y trato de usted—, y hasta
+ * hoy este mismo formulario lo escribía desde un campo que decía "reglas
+ * especiales". Si hay uno guardado, se muestra aquí con la salida a un toque.
+ */
+function renderOverrideWarning(settings: Record<string, string>): string {
+  const override = (settings[SETTING_KEYS.systemPromptOverride] ?? "").trim();
+  if (!override) return "";
+  const corto = override.length <= 600;
+  return `
+    <div style="border:1px solid var(--bad);background:rgba(244,54,76,.08);padding:14px;display:flex;flex-direction:column;gap:10px">
+      <p class="text-[12.5px]" style="margin:0;color:var(--bad);font-weight:700">⚠ Hay un prompt personalizado que REEMPLAZA toda la configuración automática</p>
+      <p class="text-[12px] text-muted" style="margin:0">Mientras exista, el bot no ve el catálogo como fuente obligatoria, ni la información del negocio, ni el trato. Esto dice:</p>
+      <blockquote class="text-[12px] text-cream" style="margin:0;padding:8px 10px;border-left:2px solid var(--line);white-space:pre-wrap">${esc(override.slice(0, 600))}${override.length > 600 ? "…" : ""}</blockquote>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${
+          corto
+            ? `<button type="submit" formaction="/admin/config/override" name="accion" value="convertir" formnovalidate
+                 style="font-size:12px;font-weight:700;padding:10px 14px;min-height:44px;cursor:pointer;background:var(--accent);border:1px solid var(--accent);color:var(--on-accent)">
+                 Convertirlo en instrucción adicional
+               </button>`
+            : ""
+        }
+        <button type="submit" formaction="/admin/config/override" name="accion" value="borrar" formnovalidate
+                style="font-size:12px;font-weight:700;padding:10px 14px;min-height:44px;cursor:pointer;background:none;border:1px solid var(--line);color:var(--cream)">
+          Borrarlo y volver al automático
+        </button>
+      </div>
     </div>`;
 }
 
@@ -223,12 +287,14 @@ export function renderConfig(
           rows: 6,
         })}
 
+        ${renderOverrideWarning(settings)}
+
         ${renderTextArea({
-          name: SETTING_KEYS.systemPromptOverride,
-          label: "Instrucciones personalizadas",
-          help: "Personalidad o reglas especiales. Déjalo vacío para usar la configuración automática.",
-          value: settings[SETTING_KEYS.systemPromptOverride] ?? "",
-          placeholder: "Ej. Siempre ofrece agendar una cita al final.",
+          name: SETTING_KEYS.customInstructions,
+          label: "Instrucciones adicionales",
+          help: "Reglas especiales que se SUMAN a la configuración automática (no la reemplazan). Una por línea. Para que el bot se calle cuando usted contesta no hace falta escribir nada: eso ya pasa solo.",
+          value: settings[SETTING_KEYS.customInstructions] ?? "",
+          placeholder: "Ej. Si preguntan por envíos al interior, recuerde que salen los martes.",
           rows: 4,
         })}
 

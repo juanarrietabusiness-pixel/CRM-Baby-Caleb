@@ -20,16 +20,28 @@ on:
     # Lunes 12:00 UTC (7:00 a.m. en Panamá). Semanal y no diaria a propósito:
     # un aviso que llega todos los días se deja de leer a la semana.
     - cron: "0 12 * * 1"
+  # También la llama el pipeline después de cada despliegue (deploy.yml),
+  # en modo informativo: lo que encuentra es de los DATOS, no del código que
+  # se acaba de publicar, y no debe pintar de rojo un deploy correcto.
+  workflow_call:
+    inputs:
+      # Texto y no booleano a propósito: en las expresiones de Actions
+      # `null == false` da verdadero (los dos valen 0), y desde el cron
+      # `inputs` llega vacío. Con texto, vacío nunca es "informativo".
+      modo:
+        description: "estricto = un problema pone el run en rojo; informativo = solo avisa"
+        type: string
+        default: estricto
 
 jobs:
   auditar:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: "pnpm"
@@ -59,11 +71,16 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Marcar en rojo si el bot está diciendo algo falso
+        env:
+          # Desde el cron o a mano `inputs` viene vacío: ahí es estricta.
+          ESTRICTO: ${{ inputs.modo != 'informativo' }}
         run: |
           # Código 1 = hay problemas (el bot dice algo falso). Código 2 = faltan
           # credenciales de Cloudflare, que no es culpa de los datos.
+          nivel=error
+          [ "$ESTRICTO" = "true" ] || nivel=warning
           case "${{ steps.auditoria.outputs.codigo }}" in
             0) echo "La base dice lo mismo que el documento." ;;
-            2) echo "::error::Faltan las credenciales de Cloudflare (revise los secrets del repositorio)."; exit 1 ;;
-            *) echo "::error::La base contradice el documento. El detalle está en el resumen de este run."; exit 1 ;;
+            2) echo "::$nivel::Faltan las credenciales de Cloudflare (revise los secrets del repositorio)."; [ "$nivel" = warning ] || exit 1 ;;
+            *) echo "::$nivel::La base contradice el documento. El detalle está en el resumen de este run."; [ "$nivel" = warning ] || exit 1 ;;
           esac

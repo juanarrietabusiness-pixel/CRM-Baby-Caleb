@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 import type { Env } from "./env";
 import type { ChannelAdapter } from "./channels/shared";
-import { telegramAdapter } from "./channels/telegram";
+import { contestarMiId, mensajeDeTelegram, type TgUpdate } from "./channels/telegram";
+import { atenderAlDueno } from "./owner/consola";
+import { webhookConfiable } from "./owner/telegram";
 import { manychatAdapter } from "./channels/manychat";
 import { twilioAdapter } from "./channels/twilio";
 import { parseMetaEvents, verifyMetaSignature } from "./channels/meta";
 import { parseWhatsAppEvents, serveWhatsAppMedia } from "./channels/whatsapp";
-import { whatsappQrAdapter } from "./channels/whatsappQr";
+import { whatsappQrAdapter, parseRespuestaPropia } from "./channels/whatsappQr";
+import { registrarRespuestaDelTelefono } from "./takeover";
 import { adminApp } from "./admin/routes";
 import { purgeOldMessages } from "./crons/purgeOldMessages";
 import { reindexAll } from "./kb/docs";
@@ -56,7 +59,31 @@ async function routeToAgent(c: { req: { raw: Request }; env: Env; text: (t: stri
   }
 }
 
-app.post("/webhooks/telegram", (c) => routeToAgent(c, telegramAdapter));
+// Telegram tiene DOS públicos en el mismo bot: las clientas y el dueño. Lo del
+// dueño —sus comandos, sus botones, sus respuestas sobre un aviso, el código
+// que lo vincula— lo atiende la consola y no llega al agente. Siempre 200:
+// un 500 hace que Telegram reintente el mismo update una y otra vez.
+app.post("/webhooks/telegram", async (c) => {
+  let update: TgUpdate;
+  try {
+    update = (await c.req.json()) as TgUpdate;
+  } catch {
+    return c.text("ok", 200);
+  }
+  try {
+    const confiable = await webhookConfiable(c.env, c.req.header("x-telegram-bot-api-secret-token"));
+    if (await atenderAlDueno(c.env, update as any, { confiable })) return c.text("ok", 200);
+    if (await contestarMiId(update, c.env)) return c.text("ok", 200);
+    // Botones, ediciones, altas en grupos: nada que contestar.
+    if (!update.message) return c.text("ok", 200);
+    const msg = await mensajeDeTelegram(update, c.env);
+    const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
+    await c.env.AGENT.get(doId).ingest(msg);
+  } catch (e) {
+    console.error("telegram webhook error:", e);
+  }
+  return c.text("ok", 200);
+});
 app.post("/webhooks/manychat", (c) => routeToAgent(c, manychatAdapter));
 // WhatsApp (Twilio): rutea el mensaje entrante al bot de clientes (Claude). El
 // body se lee UNA vez; ack con TwiML vacío para que Twilio no reenvíe el cuerpo
@@ -82,12 +109,14 @@ app.post("/webhooks/twilio", async (c) => {
 //
 // Fail-closed como /kb/reindex: si WA_TOKEN faltara, un token vacío NO debe
 // abrir la puerta. La comparación es de tiempo constante.
-app.post("/webhooks/whatsapp-qr", async (c) => {
+function tokenDelPuenteValido(c: { req: { header: (n: string) => string | undefined }; env: Env }): boolean {
   const provided = c.req.header("x-wa-token") ?? "";
   const expected = c.env.WA_TOKEN ?? "";
-  if (!expected || !tokensMatch(provided, expected)) {
-    return c.text("no autorizado", 401);
-  }
+  return !!expected && tokensMatch(provided, expected);
+}
+
+app.post("/webhooks/whatsapp-qr", async (c) => {
+  if (!tokenDelPuenteValido(c)) return c.text("no autorizado", 401);
 
   let msg;
   try {
@@ -102,6 +131,24 @@ app.post("/webhooks/whatsapp-qr", async (c) => {
   const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
   await c.env.AGENT.get(doId).ingest(msg).catch((e) => console.error("ingest:", e));
   return c.json({ ok: true });
+});
+
+// La dueña contestó desde el teléfono del negocio (o desde WhatsApp Web): el
+// bot se calla en esa conversación. Ver src/takeover.ts.
+app.post("/webhooks/whatsapp-qr/propio", async (c) => {
+  if (!tokenDelPuenteValido(c)) return c.text("no autorizado", 401);
+  let datos;
+  try {
+    datos = parseRespuestaPropia(await c.req.json());
+  } catch (e) {
+    console.error("whatsapp-qr propio parse error:", e);
+    return c.text("no se pudo leer el mensaje", 400);
+  }
+  const r = await registrarRespuestaDelTelefono(c.env, datos);
+  if (r.accion === "pausada") {
+    console.log(`[whatsapp-qr] una persona contestó desde el teléfono — ${r.conversationId} en pausa`);
+  }
+  return c.json({ ok: true, ...r });
 });
 
 // --- Meta oficial (Facebook Messenger + Instagram DMs, sin ManyChat) --------
@@ -309,6 +356,14 @@ export default {
 
     // Daily cron (wrangler.toml: "0 3 * * *") — purge messages older than 90 days.
     await purgeOldMessages(env);
+    // Los botones y avisos de la consola del dueño de hace más de 30 días ya
+    // no los toca nadie: se podan para que las tablas no crezcan sin fin.
+    try {
+      const { purgarAcciones } = await import("./owner/acciones");
+      await purgarAcciones(env, Date.now() - 30 * 24 * 60 * 60 * 1000);
+    } catch (e) {
+      console.error("purga de la consola:", e);
+    }
     // Corrida nocturna del Analista de insights (F2). No debe tumbar la purga.
     await analyzeConversations(env, { limit: 50 }).catch((e) => console.error("insights:", e));
     // Flywheel (F5): detecta huecos de KB y lecciones de takeovers → propone

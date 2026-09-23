@@ -102,6 +102,24 @@ function envKeyFor(env: Env, provider: LlmProvider): string | undefined {
 }
 
 /**
+ * ¿Esto parece una API key de alguno de los proveedores?
+ *
+ * No valida que la llave funcione —eso lo hace "Probar mi configuración"—,
+ * solo que no sea otra cosa. Existe por un caso real: el navegador autocompletó
+ * el campo de la llave (tipo contraseña) con la contraseña del panel, y quedó
+ * guardada en D1 como llave de IA. Con ella, cada respuesta del bot habría
+ * terminado en "Algo falló de mi lado".
+ */
+export function pareceLlaveDeIa(llave: string, proveedor?: LlmProvider): boolean {
+  const k = llave.trim();
+  if (k.length < 20 || /\s/.test(k)) return false;
+  if (proveedor === "anthropic") return k.startsWith("sk-ant-");
+  if (proveedor === "openai") return k.startsWith("sk-") && !k.startsWith("sk-ant-");
+  if (proveedor === "xai") return k.startsWith("xai-");
+  return /^(sk-|xai-)/.test(k);
+}
+
+/**
  * Build the AI SDK model for the given tier. Dashboard overrides (BYO key /
  * provider / concrete model) win over env. Si el dueño eligió un proveedor
  * para el que no hay NINGUNA llave (ni suya ni del sistema), caemos al default
@@ -125,7 +143,14 @@ export function createModel(env: Env, tier: Tier, ov?: LlmOverrides): ResolvedMo
   }
   if (!provider) provider = resolveProvider(env);
 
-  const ovKey = (ov?.apiKey ?? "").trim();
+  // Una llave guardada que no es del proveedor elegido (o que no es una llave:
+  // ver pareceLlaveDeIa) se ignora y se usa la del sistema. Mandarla igual
+  // garantiza un 401 en cada mensaje; ignorarla deja al bot contestando.
+  let ovKey = (ov?.apiKey ?? "").trim();
+  if (ovKey && !pareceLlaveDeIa(ovKey, provider)) {
+    console.warn(`[llm] la API key guardada en el panel no es de "${provider}" — se usa la del sistema`);
+    ovKey = "";
+  }
   let apiKey = ovKey || envKeyFor(env, provider);
   let useOvModel = ovModel;
   if (!apiKey) {

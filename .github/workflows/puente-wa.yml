@@ -23,6 +23,15 @@ on:
         options:
           - desplegar
           - borrar-el-puente
+  # También solo, cuando un merge a main cambia el puente. Antes era siempre a
+  # mano, y el cambio se quedaba en el repo sin publicar hasta que alguien se
+  # acordara — y después había que acordarse OTRA vez de reiniciar el
+  # contenedor. Ahora un merge lo publica y lo reinicia (ver el último paso).
+  push:
+    branches: [main]
+    paths:
+      - "puente-wa/**"
+      - ".github/workflows/puente-wa.yml"
 
 # La versión de wrangler va CLAVADA, no en `@4`.
 #
@@ -42,6 +51,8 @@ on:
 # nada. Subir esta versión es una decisión deliberada, no un efecto secundario.
 env:
   WRANGLER: "4.132.0"
+  # Desde `push` no hay inputs: se despliega.
+  QUE_HACER: ${{ inputs.que_hacer || 'desplegar' }}
 
 concurrency:
   group: puente-wa
@@ -53,13 +64,13 @@ jobs:
       run:
         working-directory: puente-wa
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
       # Node 22: wrangler 4.x aborta en 20 con un mensaje que no nombra la causa
       # real. Ya nos costó un deploy — ver docs/bitacora-whatsapp-qr.md.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -84,7 +95,7 @@ jobs:
             echo "::error::Falta CLOUDFLARE_API_TOKEN."
             falta=1
           fi
-          if [ "${{ inputs.que_hacer }}" = "desplegar" ]; then
+          if [ "$QUE_HACER" = "desplegar" ]; then
             if [ -z "$WA_TOKEN" ]; then
               echo "::error::Falta el secret WA_TOKEN."
               echo "Genera uno en tu computador o teléfono y guárdalo en:"
@@ -120,7 +131,7 @@ jobs:
       # escribe; y por eso no falla si no puede — el id comiteado es correcto y
       # tumbar aqui el despliegue por un paso de comodidad seria peor.
       - name: Confirmar la base de la sesion
-        if: ${{ inputs.que_hacer == 'desplegar' }}
+        if: ${{ env.QUE_HACER == 'desplegar' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -142,13 +153,13 @@ jobs:
           grep '^database_id' wrangler.toml
 
       - name: Aplicar el esquema a D1
-        if: ${{ inputs.que_hacer == 'desplegar' }}
+        if: ${{ env.QUE_HACER == 'desplegar' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler@$WRANGLER d1 execute juancitoads-bot-wa-auth --file=esquema.sql --remote --yes
 
       - name: Guardar WA_TOKEN en el Worker
-        if: ${{ inputs.que_hacer == 'desplegar' }}
+        if: ${{ env.QUE_HACER == 'desplegar' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           WA_TOKEN: ${{ secrets.WA_TOKEN }}
@@ -160,31 +171,44 @@ jobs:
       # revisa primero el PLAN de la cuenta: en el plan gratis los contenedores
       # no existen y el error miente.
       - name: Desplegar el puente
-        if: ${{ inputs.que_hacer == 'desplegar' }}
+        if: ${{ env.QUE_HACER == 'desplegar' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler@$WRANGLER deploy
 
       # Un contenedor SANO no toma una imagen nueva: el latido lo ve corriendo y
-      # lo deja en paz. En el piloto costo ~30 minutos diagnosticando codigo
-      # viejo creyendo que era el nuevo. Ver el paso "Como seguir".
-      - name: Cómo seguir
-        if: ${{ inputs.que_hacer == 'desplegar' && success() }}
+      # lo deja en paz. En el piloto costó ~30 minutos diagnosticar código
+      # viejo creyendo que era el nuevo, y el paso quedaba en manos de alguien
+      # que se acordara de tocar "Reiniciar el servicio" en el panel.
+      #
+      # Aquí se hace lo mismo que ese botón: /api/reiniciar destruye el
+      # contenedor y lo levanta con la imagen nueva. La sesión vive en D1, así
+      # que vuelve en menos de un minuto SIN pedir QR. La pausa de antes es para
+      # que la versión nueva termine de propagarse.
+      - name: Reiniciar el contenedor (toma la imagen nueva)
+        if: ${{ env.QUE_HACER == 'desplegar' }}
+        working-directory: .
+        env:
+          WA_TOKEN: ${{ secrets.WA_TOKEN }}
         run: |
-          echo "Puente desplegado."
-          echo ""
-          echo "PASO OBLIGATORIO: entra al panel del bot, pestana Conexiones,"
-          echo "tarjeta 'WhatsApp (por codigo QR)' y toca 'Reiniciar el servicio'."
-          echo "Un contenedor sano NO toma la imagen nueva por su cuenta: el"
-          echo "latido lo ve corriendo y lo deja en paz. Sin ese reinicio se"
-          echo "sigue ejecutando el codigo anterior."
-          echo ""
-          echo "  https://juancitoads-bot.juanarrietabusiness.workers.dev/admin"
-          echo ""
-          echo "Y desde ahi mismo, con el telefono, se escanea el QR."
+          URL="$(grep -oP '^WA_PUENTE_URL\s*=\s*"\K[^"]+' wrangler.toml)"
+          if [ -z "$URL" ]; then
+            echo "::warning::No encontré WA_PUENTE_URL en wrangler.toml. Reinicie desde el panel: Conexiones → WhatsApp (QR) → Reiniciar el servicio."
+            exit 0
+          fi
+          sleep 30
+          TOKEN_B64="$(printf '%s' "$WA_TOKEN" | base64 -w0)"
+          if RESP="$(curl -sS --fail-with-body --retry 3 --retry-delay 10 --max-time 60 \
+                      -X POST "$URL/api/reiniciar" -H "x-wa-token-b64: $TOKEN_B64")"; then
+            echo "$RESP"
+            echo "Contenedor reiniciado con la imagen nueva. Vuelve solo, sin pedir QR."
+          else
+            echo "$RESP"
+            echo "::warning::No se pudo reiniciar solo. Hágalo desde el panel: Conexiones → WhatsApp (QR) → Reiniciar el servicio."
+          fi
 
       - name: Borrar el puente
-        if: ${{ inputs.que_hacer == 'borrar-el-puente' }}
+        if: ${{ env.QUE_HACER == 'borrar-el-puente' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         # La base `juancitoads-bot-wa-auth` NO se borra aquí: contiene la sesión de

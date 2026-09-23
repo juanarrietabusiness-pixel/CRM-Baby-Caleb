@@ -21,6 +21,8 @@ describe("control-levels data", () => {
         SETTING_KEYS.maxChunks,
         SETTING_KEYS.modelOverride,
         SETTING_KEYS.botPaused,
+        // Cuánto se calla el bot cuando una persona contesta (panel, teléfono, Telegram).
+        SETTING_KEYS.takeoverMinutes,
       ].sort(),
     );
   });

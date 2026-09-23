@@ -60,7 +60,8 @@ tildes, sin emojis, sin comillas curvas.
 
 ### Paso 1 · Desplegar el puente
 
-Pestaña **Actions** → *Puente WhatsApp · desplegar* → **Run workflow** →
+Se despliega solo cuando un merge a `main` cambia `puente-wa/`. A mano:
+pestaña **Actions** → *Puente WhatsApp · desplegar* → **Run workflow** →
 `desplegar`.
 
 Crea solo la base de la sesión, construye la imagen y publica el puente. Es un
@@ -78,8 +79,10 @@ esquema y reindexa la base de conocimiento.
 
 ### Paso 3 · Reiniciar el servicio
 
-Panel → **Conexiones** → tarjeta *WhatsApp (por código QR)* → botón **Reiniciar
-el servicio**.
+Desde el 23-sep-2026 lo hace el propio workflow al terminar de desplegar (último
+paso, *Reiniciar el contenedor*). Si ese paso avisa que no pudo, a mano: panel →
+**Conexiones** → tarjeta *WhatsApp (por código QR)* → botón **Reiniciar el
+servicio**.
 
 > **Este paso no es opcional después de desplegar el puente.** Un contenedor sano
 > **no toma la imagen nueva**: el servicio de vigilancia lo ve corriendo y lo deja

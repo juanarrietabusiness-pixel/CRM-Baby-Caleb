@@ -17,9 +17,10 @@ Cada turno, el bot arma su cabeza con esto, en este orden:
 
 | # | Capa | Dónde vive | Quién la escribe |
 |---|---|---|---|
-| 1 | `system_prompt_override` | D1 · `settings` | el panel, pestaña Agente |
+| 1 | `system_prompt_override` | D1 · `settings` | el panel, **solo** pestaña Agente |
 | 2 | `<business_context>` | D1 · `settings.business_context`, y si está vacío, `member/config.local.ts` | el panel, pestaña Config · o el repo |
 | 3 | Lecciones aprendidas | D1 · `settings.learned_lessons` | el flywheel, solo |
+| 3b | Instrucciones adicionales | D1 · `settings.custom_instructions` | el panel, pestaña Config — se **suman**, no reemplazan |
 | 4 | Catálogo | D1 · tabla `catalog_items` | el panel, pestaña Catálogo |
 | 5 | Base de conocimiento | Vectorize, alimentada por `member/kb/` **y** por D1 · `kb_docs` | el repo · o el panel, pestaña KB |
 
@@ -34,7 +35,15 @@ regla no es "trate de no duplicar", es la de la sección siguiente.
 ### La capa 1 es un interruptor de emergencia
 
 `system_prompt_override` **reemplaza el prompt entero**, incluido el bloque
-`<fuentes_de_verdad>` que obliga a consultar el catálogo. Si alguien pega un
+`<fuentes_de_verdad>` que obliga a consultar el catálogo.
+
+> **Pasó el 17-sep-2026.** La pestaña Config tenía un campo "Instrucciones
+> personalizadas" —"reglas especiales"— que escribía esta llave. La dueña puso
+> ahí una línea para que el bot se pausara cuando ella contestara por WhatsApp,
+> y esa línea pasó a ser el prompt entero. Desde el 23-sep ese campo se llama
+> *Instrucciones adicionales* y escribe `custom_instructions`, que se suma al
+> prompt generado; Config ya no toca el override, y si hay uno guardado lo
+> muestra en rojo con la salida a un toque. Ver `docs/AUDITORIA_CONOCIMIENTO.md`. Si alguien pega un
 prompt propio en la pestaña Agente, el bot pierde esa disciplina completa. Está
 bien que exista, pero es lo primero que hay que mirar cuando el bot empiece a
 contestar raro. La pestaña Agente lo indica: dice *"prompt personalizado"* en
@@ -97,6 +106,13 @@ Ahora el prompt lo dice explícito:
 
 **Un precio o el stock** → `/admin/catalogo`. Es lo único que cambia a diario y
 por eso vive en la base, no en el repo. La dueña lo hace sola, sin desplegar.
+
+**El stock también se mueve desde Telegram** (desde el 23-sep): `/venta`,
+`/devolucion` y `/ajuste` en la consola del dueño, o el botón *Registrar venta*
+de un aviso. Escriben la MISMA fila de `catalog_items` —el dato sigue teniendo
+un solo dueño— y cada movimiento queda en `stock_movements`, con quién lo hizo y
+cómo deshacerlo. El editor del catálogo no pisa un movimiento hecho mientras
+estaba abierto. Ver `docs/consola-del-dueno.md`.
 
 **Una política, una tarifa de envío, una respuesta nueva** → edite el `.md` que
 corresponda en `member/kb/` y **haga merge a `main`**. Nada más.

@@ -6,6 +6,8 @@ import { Db } from "../db/client";
 import { TicketsRepo } from "../db/tickets";
 import { ConversationsRepo } from "../db/conversations";
 import { isPro } from "../config";
+import { chatDelDueno } from "../owner/dueno";
+import { avisarAlDueno } from "../owner/avisos";
 
 export function handoffHumanTool(env: Env, getConversationId: () => string | null) {
   return tool({
@@ -54,7 +56,7 @@ export function handoffHumanTool(env: Env, getConversationId: () => string | nul
       // and, because this is a business-INITIATED message outside any 24h
       // session window, MUST use a pre-approved Content Template (HSM) — free
       // text would be rejected by WhatsApp. Both are best-effort.
-      await notifyOwner(env, { reason, summary, ticketId });
+      await notifyOwner(env, { reason, summary, ticketId, conversationId: convId });
 
       return { ticketId };
     },
@@ -65,6 +67,8 @@ interface HandoffNotice {
   reason: string;
   summary: string;
   ticketId: string;
+  /** La conversación de la clienta: el aviso de Telegram trae sus botones y se puede responder. */
+  conversationId?: string | null;
 }
 
 /**
@@ -72,9 +76,12 @@ interface HandoffNotice {
  * (Salud del bot) para hacer VISIBLE cuando un handoff no le avisaría a nadie
  * — antes fallaba en silencio y el ticket se quedaba huérfano.
  */
-export function handoffNotifyStatus(env: Env): { ok: boolean; channels: string[] } {
+export function handoffNotifyStatus(
+  env: Env,
+  ownerTelegramChatId: string | null = env.OWNER_TELEGRAM_CHAT_ID ?? null,
+): { ok: boolean; channels: string[] } {
   const channels: string[] = [];
-  if (env.TELEGRAM_BOT_TOKEN && env.OWNER_TELEGRAM_CHAT_ID) channels.push("Telegram");
+  if (env.TELEGRAM_BOT_TOKEN && ownerTelegramChatId) channels.push("Telegram");
   if (
     isPro(env) &&
     env.OWNER_WA_NUMBER &&
@@ -86,6 +93,14 @@ export function handoffNotifyStatus(env: Env): { ok: boolean; channels: string[]
     channels.push("WhatsApp");
   if (env.RESEND_API_KEY && env.OWNER_EMAIL) channels.push("Email");
   return { ok: channels.length > 0, channels };
+}
+
+/**
+ * Lo mismo, pero contando el Telegram vinculado desde el panel (D1), que no
+ * necesita secret. Es la que debe usar todo lo que pueda esperar un await.
+ */
+export async function estadoDelAvisoAlDueno(env: Env): Promise<{ ok: boolean; channels: string[] }> {
+  return handoffNotifyStatus(env, await chatDelDueno(env));
 }
 
 /**
@@ -116,7 +131,7 @@ export async function notifyOwner(env: Env, notice: HandoffNotice): Promise<void
   // Fail-LOUD (en logs) cuando no hay ningún canal de aviso configurado: el
   // ticket existe en el dashboard pero nadie se entera. El dashboard también
   // lo muestra en "Salud del bot" (handoffNotifyStatus).
-  if (!handoffNotifyStatus(env).ok && !waViaSetting) {
+  if (!(await estadoDelAvisoAlDueno(env)).ok && !waViaSetting) {
     console.error(
       `[notifyOwner] ticket ${notice.ticketId} creado pero SIN canal de aviso configurado ` +
         "(faltan OWNER_TELEGRAM_CHAT_ID, OWNER_WA_NUMBER+template o RESEND_API_KEY+OWNER_EMAIL) — el dueño no será notificado",
@@ -125,24 +140,17 @@ export async function notifyOwner(env: Env, notice: HandoffNotice): Promise<void
   }
 
   // --- Telegram DM (default) ------------------------------------------------
-  if (env.TELEGRAM_BOT_TOKEN && env.OWNER_TELEGRAM_CHAT_ID) {
-    try {
-      await fetch(
-        `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: env.OWNER_TELEGRAM_CHAT_ID,
-            text:
-              `🚨 Nuevo ticket [${notice.reason}]\n${notice.summary}\n\nVer: ${ticketUrl}`,
-          }),
-        },
-      );
-    } catch (e) {
-      console.error("[notifyOwner] telegram failed:", e);
-    }
-  }
+  // Con botones (devolver al bot, pausar, registrar venta) y contestable: lo
+  // que el dueño responda sobre el aviso le llega a la clienta. Ver
+  // src/owner/avisos.ts. El chat sale del secret o del vínculo del panel.
+  const alertaDeSalud = notice.ticketId === "watchdog";
+  await avisarAlDueno(env, {
+    titulo: alertaDeSalud ? `⚠️ ${notice.reason}` : `🚨 Ticket · ${notice.reason}`,
+    cuerpo: notice.summary,
+    conversationId: notice.conversationId ?? null,
+    ticketId: alertaDeSalud ? null : notice.ticketId,
+    conBotones: !alertaDeSalud,
+  });
 
   // --- Twilio WhatsApp via approved Content Template (optional) --------------
   // A business-initiated WhatsApp message outside a 24h session window REQUIRES

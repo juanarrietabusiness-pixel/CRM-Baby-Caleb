@@ -94,6 +94,7 @@ export function renderCatalogoEditor(
 
       <form method="post" action="/admin/catalogo/guardar" style="display:flex;flex-direction:column;gap:18px">
         <input type="hidden" name="original_code" value="${esNuevo ? "" : esc(p!.code)}">
+        <input type="hidden" name="loaded_at" value="${esNuevo ? "" : String(p!.updatedAt)}">
 
         <div class="bg-panel border border-line" style="padding:20px;display:flex;flex-direction:column;gap:16px">
           ${campo(
