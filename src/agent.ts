@@ -327,6 +327,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
      */
     const lastUserMsg = history[history.length - 1];
     let mediaEscalada = false;
+    let fotoEscalada: string | undefined;
     if (lastUserMsg) {
       const imgMatch = lastUserMsg.content.match(/\[IMAGE_URL: (.+?)\]/);
       const cleanText = lastUserMsg.content.replace(/\n?\[IMAGE_URL: .+?\]/, "").trim();
@@ -334,6 +335,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         aiMessages.push(buildMultimodalUserMessage(cleanText, imgMatch[1]));
       } else if (imgMatch && cfg.escalarMedia) {
         mediaEscalada = true;
+        fotoEscalada = imgMatch[1];
         aiMessages.push({
           role: "user",
           content:
@@ -365,9 +367,10 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         await convs.setOpenTicket(convId, ticketId);
         await notifyOwner(this.env, {
           reason: "archivo recibido",
-          summary: "La clienta envió un archivo que el bot no puede revisar (¿un comprobante de pago?). Revíselo en el teléfono o en el panel.",
+          summary: "La clienta envió un archivo que el bot no puede revisar (¿un comprobante de pago?). Aquí arriba se lo mando; también está en el teléfono y en el panel.",
           ticketId,
           conversationId: convId,
+          foto: fotoEscalada,
         });
       } catch (e) {
         console.error("[SupportAgent] no se pudo crear el ticket del archivo:", e);

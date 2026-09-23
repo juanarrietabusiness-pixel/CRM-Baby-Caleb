@@ -17,6 +17,21 @@ import { parsearItems, elegirBodega } from "../../src/owner/inventario";
 
 vi.mock("agents", () => ({ Agent: class {} }));
 
+// El modelo del asistente del dueño, cuando una prueba lo necesita: anota lo
+// que recibió y contesta lo que se le diga. Apagado, es el de verdad.
+const llm = vi.hoisted(() => ({ activo: false, respuesta: "", llamadas: [] as any[] }));
+vi.mock("ai", async (original) => {
+  const real: any = await original();
+  return {
+    ...real,
+    generateText: async (args: any) => {
+      if (!llm.activo) return real.generateText(args);
+      llm.llamadas.push(args);
+      return { text: llm.respuesta };
+    },
+  };
+});
+
 const DUENO = 777;
 /** Updates con la firma de Telegram. Los sin firma tienen su propia prueba. */
 const OK = { confiable: true };
@@ -31,9 +46,13 @@ function stubTelegram() {
   siguienteId = 100;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any, init?: any) => {
     const u = String(url);
-    const metodo = u.split("/").pop()!;
-    const cuerpo = init?.body ? JSON.parse(String(init.body)) : {};
+    if (u.includes("/file/bot")) return new Response(new Uint8Array([79, 103, 103, 83]));
+    const metodo = u.split("/").pop()!.split("?")[0];
+    let cuerpo: any = {};
+    if (init?.body instanceof FormData) cuerpo = Object.fromEntries([...init.body.keys()].map((k) => [k, true]));
+    else if (init?.body) cuerpo = JSON.parse(String(init.body));
     enviados.push({ metodo, cuerpo });
+    if (metodo === "getFile") return Response.json({ ok: true, result: { file_path: "voice/file_1.oga" } });
     if (metodo === "getMe") return Response.json({ ok: true, result: { username: "BabyCalebBot" } });
     if (metodo === "getWebhookInfo") return Response.json({ ok: true, result: { url: "" } });
     if (metodo === "setWebhook") return Response.json({ ok: true, result: true });
@@ -110,7 +129,12 @@ beforeEach(async () => {
   stubTelegram();
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  llm.activo = false;
+  llm.respuesta = "";
+  llm.llamadas = [];
+});
 
 async function vincular() {
   await new SettingsRepo(db).set(SETTING_KEYS.ownerTelegramChatId, String(DUENO));
@@ -457,5 +481,101 @@ describe("piezas", () => {
       ],
     };
     expect(elegirBodega(p, -1, "este")).toEqual({ ok: true, branch: "Bodega Ciudad de Panamá Este Línea 2" });
+  });
+});
+
+describe("la consola recuerda, oye y ve", () => {
+  const memoria = async () =>
+    ((await db.all<{ rol: string; contenido: string }>("SELECT rol, contenido FROM owner_chat ORDER BY id")) ?? []).map(
+      (f) => `${f.rol}: ${f.contenido}`,
+    );
+
+  it("una nota de voz se transcribe, se le muestra lo que se entendió y va al asistente", async () => {
+    await vincular();
+    llm.activo = true;
+    llm.respuesta = "Hoy le escribieron dos clientas.";
+    env.AI = { run: vi.fn(async () => ({ text: "¿quién me escribió hoy?" })) };
+    const voz = mensaje("", { voice: { file_id: "v1", duration: 4 } });
+    delete (voz.message as any).text;
+    expect(await atenderAlDueno(env, voz, OK)).toBe(true);
+
+    expect(textos()).toEqual(["🎤 «¿quién me escribió hoy?»", "Hoy le escribieron dos clientas."]);
+    expect(enviados.some((e) => e.metodo === "sendChatAction")).toBe(true);
+    const ultimo = llm.llamadas[0].messages.at(-1);
+    expect(ultimo).toEqual({ role: "user", content: "(nota de voz) ¿quién me escribió hoy?" });
+    // Sabe con quién habla y para qué es el canal.
+    expect(llm.llamadas[0].system).toMatch(/jefe de la empresa/);
+    expect(llm.llamadas[0].system).toMatch(/inventario/);
+    expect(Object.keys(llm.llamadas[0].tools)).toEqual(expect.arrayContaining(["verClientesRecientes", "verInteresadas", "consultarStock"]));
+  });
+
+  it("recuerda lo que se habló: el segundo mensaje lleva el primero y su respuesta", async () => {
+    await vincular();
+    llm.activo = true;
+    llm.respuesta = "De la NAT-M hay 7 cajas.";
+    await atenderAlDueno(env, mensaje("¿cuánto hay de la M?"), OK);
+    llm.respuesta = "De la L no hay.";
+    await atenderAlDueno(env, mensaje("¿y de la L?"), OK);
+
+    expect(llm.llamadas[1].messages).toEqual([
+      { role: "user", content: "¿cuánto hay de la M?" },
+      { role: "assistant", content: "De la NAT-M hay 7 cajas." },
+      { role: "user", content: "¿y de la L?" },
+    ]);
+  });
+
+  it("los comandos y lo que hicieron también son contexto", async () => {
+    await vincular();
+    await atenderAlDueno(env, mensaje("/venta NAT-M 2"), OK);
+    await atenderAlDueno(env, boton(datoDe("Deshacer")), OK);
+    const m = await memoria();
+    expect(m[0]).toBe("dueno: /venta NAT-M 2");
+    expect(m[1]).toMatch(/^consola: [\s\S]*NAT-M/);
+    expect(m.at(-1)).toMatch(/^consola: \[botón\]/);
+  });
+
+  it("/nuevo borra la memoria", async () => {
+    await vincular();
+    await atenderAlDueno(env, mensaje("/stock"), OK);
+    await atenderAlDueno(env, mensaje("/nuevo"), OK);
+    expect(await memoria()).toEqual(["consola: 🧹 Listo, empezamos de cero. Los avisos y los comandos siguen igual."]);
+  });
+
+  it("una foto con leyenda va al asistente como imagen", async () => {
+    await vincular();
+    llm.activo = true;
+    llm.respuesta = "Veo la factura: 10 cajas de NAT-M.";
+    await atenderAlDueno(env, mensaje("", { caption: "llegó esto del proveedor", photo: [{ file_id: "p1" }, { file_id: "p2" }] }), OK);
+    const contenido = llm.llamadas[0].messages.at(-1).content;
+    expect(contenido[0]).toMatchObject({ type: "image", mediaType: "image/jpeg" });
+    expect(contenido[1]).toEqual({ type: "text", text: "llegó esto del proveedor" });
+    expect(enviados.find((e) => e.metodo === "getFile")?.cuerpo).toBeDefined();
+  });
+
+  it("una nota de voz sobre un aviso es una instrucción sobre ESA conversación, y nada sale sin botón", async () => {
+    await vincular();
+    const conv = await new ConversationsRepo(db).getOrCreate("whatsapp-qr", "245161514766536@lid", "Ana");
+    await avisarAlDueno(env, { titulo: "🚨 Ticket", cuerpo: "Quiere pagar", conversationId: conv.id });
+    llm.activo = true;
+    llm.respuesta = "Le propongo el mensaje.";
+    env.AI = { run: vi.fn(async () => ({ text: "dile que sí tenemos talla M" })) };
+    const voz = mensaje("", { voice: { file_id: "v2", duration: 3 }, reply_to_message: { message_id: 100 } });
+    delete (voz.message as any).text;
+    await atenderAlDueno(env, voz, OK);
+
+    expect(alPuente).toEqual([]);
+    expect(llm.llamadas[0].messages.at(-1).content).toMatch(/aviso de la conversación de Ana/);
+  });
+
+  it("un comprobante que el bot escala le llega al dueño como foto, antes del aviso", async () => {
+    await vincular();
+    const conv = await new ConversationsRepo(db).getOrCreate("whatsapp-qr", "9@lid", "Eva");
+    const { guardarMedia, urlDeMedia } = await import("../../src/media/almacen");
+    const url = await urlDeMedia(env, await guardarMedia(env, new Uint8Array([255, 216, 255]), "image/jpeg"));
+    await avisarAlDueno(env, { titulo: "🚨 Ticket · archivo", cuerpo: "Un comprobante", conversationId: conv.id, foto: url });
+    const foto = enviados.findIndex((e) => e.metodo === "sendPhoto");
+    const aviso = enviados.findIndex((e) => e.metodo === "sendMessage");
+    expect(foto).toBeGreaterThanOrEqual(0);
+    expect(foto).toBeLessThan(aviso);
   });
 });

@@ -128,9 +128,20 @@ app.post("/webhooks/whatsapp-qr", async (c) => {
     return c.text("no se pudo leer el mensaje", 400);
   }
 
+  // Reacciones, ediciones, borrados y demás mensajes de protocolo: nada que
+  // contestar. Antes llegaban al agente como un mensaje vacío.
+  if (!msg.text && !msg.audioUrl && !msg.imageUrl) return c.json({ ok: true, ignorado: true });
+
   const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
   await c.env.AGENT.get(doId).ingest(msg).catch((e) => console.error("ingest:", e));
   return c.json({ ok: true });
+});
+
+// La nota de voz o la imagen del WhatsApp por QR, para el proveedor de IA. URL
+// firmada y con vencimiento; ver src/media/almacen.ts.
+app.get("/webhooks/whatsapp-qr/media/:id", async (c) => {
+  const { servirMedia } = await import("./media/almacen");
+  return servirMedia(c.env, c.req.param("id"), c.req.query("exp"), c.req.query("sig"));
 });
 
 // La dueña contestó desde el teléfono del negocio (o desde WhatsApp Web): el
@@ -369,6 +380,20 @@ export default {
       await purgarAcciones(env, Date.now() - 30 * 24 * 60 * 60 * 1000);
     } catch (e) {
       console.error("purga de la consola:", e);
+    }
+    // La memoria de la consola del dueño: lo de hace un mes ya no es contexto.
+    try {
+      const { purgarMemoria } = await import("./owner/memoria");
+      await purgarMemoria(env, Date.now() - 30 * 24 * 60 * 60 * 1000);
+    } catch (e) {
+      console.error("purga de la memoria de la consola:", e);
+    }
+    // Los audios e imágenes del WhatsApp por QR ya se usaron: se guardan dos días.
+    try {
+      const { purgarMedia } = await import("./media/almacen");
+      await purgarMedia(env, Date.now() - 2 * 24 * 60 * 60 * 1000);
+    } catch (e) {
+      console.error("purga de media:", e);
     }
     // Corrida nocturna del Analista de insights (F2). No debe tumbar la purga.
     await analyzeConversations(env, { limit: 50 }).catch((e) => console.error("insights:", e));

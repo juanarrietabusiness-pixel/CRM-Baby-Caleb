@@ -122,3 +122,33 @@ export function esRespuestaDelTelefono(msg, { enviados, yo = [], ahora = Date.no
   if (ts && ahora - ts > RESPUESTA_VIGENTE_MS) return false;
   return true;
 }
+
+// ── Notas de voz e imágenes que llegan ─────────────────────────────────────
+//
+// Hasta el 23-sep-2026 el contenedor solo reenviaba el texto: una nota de voz
+// le llegaba al CRM vacía, y una foto sin su leyenda. Baileys no deja una URL
+// para después —el archivo se descarga aquí, en el momento, o se pierde—, así
+// que ahora se descarga y viaja en base64 junto al mensaje.
+
+/** Tope por archivo. Una nota de voz o una foto de WhatsApp pesan mucho menos. */
+export const ARCHIVO_MAXIMO = 12 * 1024 * 1024;
+
+/**
+ * Si el mensaje trae una nota de voz o una imagen que el CRM sabe usar, qué es
+ * y cuánto pesa. `descargable: false` cuando pasa del tope: se reenvía sin el
+ * archivo y el CRM dice qué era.
+ */
+export function archivoDe(msg) {
+  const m = interior(msg);
+  const audio = m.audioMessage;
+  const imagen = m.imageMessage;
+  const cual = audio ? { clase: "audio", info: audio } : imagen ? { clase: "imagen", info: imagen } : null;
+  if (!cual) return null;
+  const tamano = Number(cual.info.fileLength ?? 0);
+  return {
+    clase: cual.clase,
+    mime: String(cual.info.mimetype ?? (cual.clase === "audio" ? "audio/ogg" : "image/jpeg")).split(";")[0].trim(),
+    tamano,
+    descargable: !tamano || tamano <= ARCHIVO_MAXIMO,
+  };
+}

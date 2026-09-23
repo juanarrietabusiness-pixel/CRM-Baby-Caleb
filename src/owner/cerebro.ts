@@ -1,5 +1,10 @@
-// Lo que el dueño escribe con sus palabras: "¿qué tengo pendiente?", "devuélvele
-// la conversación de Ana al bot", "vendí 2 cajas de la M".
+// Lo que el dueño escribe con sus palabras —o dice en una nota de voz, o manda
+// en una foto—: "¿qué tengo pendiente?", "devuélvele la conversación de Ana al
+// bot", "vendí 2 cajas de la M".
+//
+// Quien habla aquí es el JEFE, no una clienta: el canal es interno, para dar
+// seguimiento, trazabilidad, logística, inventario y ajustes. Y recuerda lo que
+// se habló (src/owner/memoria.ts): "¿y de la M?" se entiende por lo anterior.
 //
 // Es un asistente INTERNO: habla con el dueño, no con las clientas. Puede leer
 // y hacer lo reversible (pausar, devolver al bot). Lo que sale hacia afuera —un
@@ -7,7 +12,7 @@
 // el dueño confirma con un toque. Un modelo que entiende mal no puede mandar un
 // mensaje ni descontar una caja sin que nadie lo vea.
 
-import { generateText, tool } from "ai";
+import { generateText, tool, type ModelMessage } from "ai";
 import { z } from "zod";
 import { Db } from "../db/client";
 import { MessagesRepo } from "../db/messages";
@@ -17,19 +22,49 @@ import { devolverAlBot, pausarPorHumano } from "../takeover";
 import { buscarConversaciones, crearAccion, nombreDe, nuevoGrupo, refCorta } from "./acciones";
 import { textoDePendientes } from "./pendientes";
 import { EXTENSIONES } from "./extensiones";
+import { comoMensajes, historial } from "./memoria";
+import { CHANNEL_LABELS } from "../channels/labels";
 import type { Contexto, Respuesta } from "./tipos";
+
+/** Lo que llega del dueño: texto (o la transcripción de su nota de voz) y quizá una foto. */
+export interface Entrada {
+  texto: string;
+  /** Vino por nota de voz: la transcripción puede traer errores de oído. */
+  porVoz?: boolean;
+  imagen?: { bytes: Uint8Array; mime: string };
+  /** Contexto extra: p. ej. que responde sobre el aviso de una conversación. */
+  pista?: string;
+}
+
+function ahoraEnElNegocio(env: Contexto["env"]): string {
+  try {
+    return new Date().toLocaleString("es", {
+      timeZone: env.BOT_TIMEZONE || "America/Panama",
+      dateStyle: "full",
+      timeStyle: "short",
+    });
+  } catch {
+    return new Date().toISOString();
+  }
+}
 
 function instrucciones(ctx: Contexto): string {
   const extra = EXTENSIONES.map((e) => e.instrucciones).filter(Boolean).join("\n");
   return [
-    `Eres el asistente interno de ${ctx.env.BUSINESS_NAME}. Hablas con el DUEÑO por Telegram, no con clientas.`,
-    "Trátalo de usted, con frases cortas y concretas. Sin saludos largos.",
+    `Eres el asistente interno de ${ctx.env.BUSINESS_NAME}. Por este chat de Telegram te habla SIEMPRE el DUEÑO, el jefe de la empresa — nunca una clienta.`,
+    "Este canal es interno: seguimiento de clientas, trazabilidad, logística, inventario, ajustes y la operación del bot. Todo lo que te diga es una consulta o una instrucción del jefe sobre el negocio.",
+    `Ahora es ${ahoraEnElNegocio(ctx.env)}.`,
+    "Trátalo de usted, con frases cortas y concretas. Sin saludos largos ni relleno.",
+    "Tienes la conversación reciente con él: úsala. Si dice «la misma», «esa», «dile que sí» o «¿y la M?», resuélvelo con lo que se habló antes; pregunta solo si de verdad es ambiguo.",
+    "Si su mensaje viene de una nota de voz, la transcripción puede traer palabras mal oídas (nombres, códigos, tallas): interpreta con sentido común y confirma lo que mueva dinero o inventario.",
+    "Si manda una foto (una lista, una factura de proveedor, un comprobante, un producto), léela y úsala para lo que pida.",
     "Usa las herramientas para mirar datos reales antes de contestar; nunca inventes pedidos, clientas ni cifras.",
     "Las conversaciones se nombran por el nombre de la clienta o por su referencia corta (#k3f9a).",
     "Puedes devolver una conversación al bot o pausarla directamente: es reversible.",
     "Un mensaje a una clienta NUNCA sale directo: usa proponerMensaje y el dueño lo confirma con un botón.",
     "Si una herramienta devuelve varias conversaciones posibles, pregunta cuál antes de actuar.",
     extra,
+    "Dónde vive cada dato (por si pregunta cómo cambiar algo): precios y stock en el Catálogo del panel; políticas, envíos y formas de pago en la base de conocimiento; el tono y las instrucciones del bot en Config. Tú no cambias precios ni políticas: dile dónde se hace.",
     "Si piden algo que no puedes hacer, dilo y sugiere el comando: /ayuda los lista todos.",
   ]
     .filter(Boolean)
@@ -50,6 +85,48 @@ async function unaConversacion(ctx: Contexto, texto: string) {
 
 function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
   return {
+    verClientesRecientes: tool({
+      description:
+        "Seguimiento: las conversaciones con actividad en las últimas N horas, con su canal, su estado (en pausa, ticket abierto) y lo último que dijo la clienta.",
+      inputSchema: z.object({ horas: z.number().int().min(1).max(24 * 14).default(24) }),
+      execute: async ({ horas }) => {
+        const r = await ctx.env.DB.prepare(
+          `SELECT c.*, (SELECT content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user'
+                          ORDER BY m.created_at DESC LIMIT 1) AS ultimo
+             FROM conversations c WHERE c.last_message_at >= ? ORDER BY c.last_message_at DESC LIMIT 25`,
+        )
+          .bind(Date.now() - horas * 3_600_000)
+          .all<Record<string, any>>();
+        const filas = r.results ?? [];
+        if (!filas.length) return `Nadie escribió en las últimas ${horas} h.`;
+        return filas
+          .map((c) => {
+            const estado = [
+              c.paused_until && c.paused_until > Date.now() ? "la atiende una persona" : "",
+              c.open_ticket_id ? "ticket abierto" : "",
+            ].filter(Boolean);
+            const ultimo = String(c.ultimo ?? "").replace(/\s+/g, " ").slice(0, 140);
+            return `${nombreDe(c as any)} · #${refCorta(c.id)} · ${CHANNEL_LABELS[c.channel] ?? c.channel}${estado.length ? ` · ${estado.join(", ")}` : ""}${ultimo ? `\n  «${ultimo}»` : ""}`;
+          })
+          .join("\n");
+      },
+    }),
+    verInteresadas: tool({
+      description: "Seguimiento: las clientas que el bot anotó con intención de compra en los últimos N días (nombre, contacto, qué quería, estado).",
+      inputSchema: z.object({ dias: z.number().int().min(1).max(90).default(7) }),
+      execute: async ({ dias }) => {
+        const r = await ctx.env.DB.prepare(
+          "SELECT name, contact, intent, notes, status, created_at FROM leads WHERE created_at >= ? ORDER BY created_at DESC LIMIT 25",
+        )
+          .bind(Date.now() - dias * 86_400_000)
+          .all<Record<string, any>>();
+        const filas = r.results ?? [];
+        if (!filas.length) return `Ninguna en los últimos ${dias} días.`;
+        return filas
+          .map((l) => `${l.name ?? "(sin nombre)"} · ${l.contact ?? "sin contacto"} · ${l.intent}${l.notes ? ` · ${String(l.notes).slice(0, 120)}` : ""} · ${l.status ?? "new"}`)
+          .join("\n");
+      },
+    }),
     verPendientes: tool({
       description: "Tickets abiertos y conversaciones que una persona está atendiendo (bot en pausa).",
       inputSchema: z.object({}),
@@ -119,24 +196,57 @@ function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
   };
 }
 
-/** Contesta un mensaje libre del dueño. Nunca lanza: si algo falla, lo dice. */
-export async function entenderAlDueno(ctx: Contexto, texto: string): Promise<Respuesta[]> {
+/**
+ * Contesta lo que el dueño dijo con sus palabras (texto, voz o foto), con lo
+ * que se viene hablando. Nunca lanza: si algo falla, lo dice.
+ */
+export async function entenderAlDueno(ctx: Contexto, entrada: Entrada | string): Promise<Respuesta[]> {
+  const e: Entrada = typeof entrada === "string" ? { texto: entrada } : entrada;
   const salida: Respuesta[] = [];
   const tools: Record<string, any> = { ...herramientasBase(ctx, salida) };
-  for (const e of EXTENSIONES) Object.assign(tools, e.herramientas?.(ctx, salida) ?? {});
+  for (const x of EXTENSIONES) Object.assign(tools, x.herramientas?.(ctx, salida) ?? {});
+
+  // Lo anterior, sin el mensaje de ahora (la consola lo anota antes de llamar aquí).
+  const antes = await historial(ctx.env, ctx.chatId);
+  if (antes.length && antes[antes.length - 1].rol === "dueno") antes.pop();
+  const messages: ModelMessage[] = comoMensajes(antes);
+
+  const texto =
+    [e.pista ? `[${e.pista}]` : "", e.porVoz ? `(nota de voz) ${e.texto}` : e.texto].filter(Boolean).join("\n") ||
+    "(sin texto)";
+  messages.push(
+    e.imagen
+      ? {
+          role: "user",
+          content: [
+            { type: "image", image: e.imagen.bytes, mediaType: e.imagen.mime },
+            { type: "text", text: texto },
+          ],
+        }
+      : { role: "user", content: texto },
+  );
+  // Si lo anterior terminaba en el dueño (una respuesta que no salió), se juntan.
+  if (messages.length >= 2 && messages[messages.length - 2].role === "user") {
+    const previo = messages.splice(messages.length - 2, 1)[0];
+    const ultimo = messages[messages.length - 1];
+    if (typeof ultimo.content === "string") ultimo.content = `${previo.content}\n\n${ultimo.content}`;
+  }
+
   try {
-    const { model } = createModel(ctx.env, "fast", await loadLlmOverrides(ctx.env));
+    // El modelo bueno, no el barato: el dueño escribe poco y cada mensaje suyo
+    // mueve inventario o dinero. Con voz y memoria, entender bien importa más.
+    const { model } = createModel(ctx.env, "smart", await loadLlmOverrides(ctx.env));
     const r = await generateText({
       model,
       system: instrucciones(ctx),
-      messages: [{ role: "user", content: texto }],
+      messages,
       tools,
-      stopWhen: ({ steps }) => steps.length >= 6,
+      stopWhen: ({ steps }) => steps.length >= 8,
     });
     const respuesta = r.text.trim();
     return [...(respuesta ? [{ texto: respuesta }] : salida.length ? [] : [{ texto: "Listo." }]), ...salida];
-  } catch (e) {
-    console.error("[consola] el asistente del dueño falló:", e);
+  } catch (err) {
+    console.error("[consola] el asistente del dueño falló:", err);
     return [
       {
         texto:

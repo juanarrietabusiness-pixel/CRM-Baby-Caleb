@@ -16,6 +16,7 @@
 import type { ChannelAdapter, IncomingMessage, OutgoingReply } from "./shared";
 import type { Env } from "../env";
 import type { RespuestaDelTelefono } from "../takeover";
+import { guardarMedia, urlDeMedia } from "../media/almacen";
 
 /** Lo que el puente manda en `POST /webhooks/whatsapp-qr`. */
 interface EntranteDelPuente {
@@ -24,7 +25,26 @@ interface EntranteDelPuente {
   texto: string | null;
   tipo: string | null;
   recibidoEn: number;
+  /**
+   * La nota de voz o la imagen, en base64. La descarga el contenedor en el
+   * momento (Baileys no deja una URL para después). No viene si el mensaje es
+   * solo texto, ni si el contenedor no pudo descargarla — entonces `tipo` dice
+   * qué era.
+   */
+  media?: { clase: "audio" | "imagen"; mime: string; base64: string } | null;
 }
+
+/** Lo que se le dice al bot cuando el archivo no llegó: mejor que un mensaje vacío. */
+const SIN_ARCHIVO: Record<string, string> = {
+  audioMessage: "(la clienta mandó una nota de voz, pero no se pudo descargar)",
+  imageMessage: "(la clienta mandó una imagen, pero no se pudo descargar)",
+  videoMessage: "(la clienta mandó un video)",
+  documentMessage: "(la clienta mandó un documento)",
+  documentWithCaptionMessage: "(la clienta mandó un documento)",
+  stickerMessage: "(la clienta mandó un sticker)",
+  locationMessage: "(la clienta mandó una ubicación)",
+  contactMessage: "(la clienta mandó un contacto)",
+};
 
 /**
  * El JID de WhatsApp incluye el sufijo del servidor: `521555…@s.whatsapp.net`,
@@ -38,16 +58,34 @@ export function esJidDeGrupo(jid: string): boolean {
 }
 
 export const whatsappQrAdapter: ChannelAdapter = {
-  async parseIncoming(request: Request, _env: Env): Promise<IncomingMessage> {
+  async parseIncoming(request: Request, env: Env): Promise<IncomingMessage> {
     const cuerpo = (await request.json()) as EntranteDelPuente;
     const jid = cuerpo.de ?? "";
     if (!jid) throw new Error("El puente mandó un mensaje sin remitente.");
+
+    let audioUrl: string | undefined;
+    let imageUrl: string | undefined;
+    const media = cuerpo.media;
+    if (media?.base64) {
+      try {
+        const id = await guardarMedia(env, new Uint8Array(Buffer.from(media.base64, "base64")), media.mime);
+        const url = await urlDeMedia(env, id);
+        if (media.clase === "audio") audioUrl = url;
+        else imageUrl = url;
+      } catch (e) {
+        console.error("[whatsapp-qr] no se pudo guardar el archivo:", e);
+      }
+    }
+    let text = cuerpo.texto?.trim() || undefined;
+    if (!text && !audioUrl && !imageUrl && cuerpo.tipo && SIN_ARCHIVO[cuerpo.tipo]) text = SIN_ARCHIVO[cuerpo.tipo];
 
     return {
       channel: "whatsapp-qr",
       channelUserId: jid,
       displayName: cuerpo.nombre ?? undefined,
-      text: cuerpo.texto ?? undefined,
+      text,
+      audioUrl,
+      imageUrl,
       // Los mensajes propios (`key.fromMe`) NO llegan por aquí: el puente los
       // manda a /webhooks/whatsapp-qr/propio, que pausa la conversación. Lo
       // que llega a esta ruta siempre lo escribió la clienta.

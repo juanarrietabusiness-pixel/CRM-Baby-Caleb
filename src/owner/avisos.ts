@@ -10,7 +10,8 @@ import type { Env } from "../env";
 import { Db } from "../db/client";
 import { ConversationsRepo } from "../db/conversations";
 import { chatDelDueno, protegerConsolaUnaVez } from "./dueno";
-import { enviar, type Teclado } from "./telegram";
+import { enviar, enviarFoto, type Teclado } from "./telegram";
+import { bytesDeMedia } from "../media/almacen";
 import { anotarAviso, crearAccion, nombreDe } from "./acciones";
 import { EXTENSIONES } from "./extensiones";
 
@@ -26,6 +27,12 @@ export interface Aviso {
    * (la alerta de salud del bot, la prueba del panel).
    */
   conBotones?: boolean | "devolver";
+  /**
+   * La imagen que mandó la clienta (su URL, de cualquier canal). Se le manda al
+   * dueño antes del aviso: un comprobante de pago que el bot no puede revisar
+   * tiene que poder verlo alguien sin abrir el panel.
+   */
+  foto?: string | null;
 }
 
 /**
@@ -82,6 +89,17 @@ async function armarYEnviar(env: Env, aviso: Aviso): Promise<boolean> {
       ? `${base}/admin/conversations?c=${encodeURIComponent(convId)}`
       : `${base}/admin/tickets`;
     teclado.push([{ texto: "💬 Abrir en el panel", url }]);
+  }
+
+  if (aviso.foto) {
+    try {
+      const media = await bytesDeMedia(env, aviso.foto);
+      const fotoId = media ? await enviarFoto(env, chatId, media.bytes, media.mime, "📎 Lo que mandó la clienta") : null;
+      // "Responder" sobre la foto también le llega a la clienta.
+      if (fotoId !== null) await anotarAviso(env, chatId, fotoId, convId, aviso.ticketId ?? null);
+    } catch (e) {
+      console.error("[avisarAlDueno] no se pudo mandar la foto:", e);
+    }
   }
 
   const messageId = await enviar(env, chatId, lineas.join("\n"), teclado);

@@ -61,6 +61,37 @@ export async function enviar(
   return r?.message_id ?? null;
 }
 
+/**
+ * Manda una foto (los bytes, no una URL: la del WhatsApp por QR es firmada y la
+ * de Telegram lleva el token). Devuelve su message_id, o null si no salió.
+ */
+export async function enviarFoto(
+  env: Env,
+  chatId: string | number,
+  bytes: Uint8Array,
+  mime: string,
+  leyenda?: string,
+): Promise<number | null> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  if (leyenda) form.append("caption", leyenda.slice(0, 1000));
+  form.append("photo", new Blob([bytes], { type: mime }), mime.includes("png") ? "foto.png" : "foto.jpg");
+  try {
+    const res = await fetch(`${TG}${token}/sendPhoto`, { method: "POST", body: form });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; result?: { message_id: number }; description?: string } | null;
+    if (!res.ok || !json?.ok) {
+      console.error(`[telegram] sendPhoto ${res.status}: ${json?.description ?? "(sin detalle)"}`);
+      return null;
+    }
+    return json.result?.message_id ?? null;
+  } catch (e) {
+    console.error("[telegram] sendPhoto falló:", e);
+    return null;
+  }
+}
+
 /** Cambia el texto (y los botones) de un mensaje ya enviado. */
 export async function editar(
   env: Env,
@@ -76,6 +107,11 @@ export async function editar(
     reply_markup: marcado(teclado) ?? { inline_keyboard: [] },
     disable_web_page_preview: true,
   });
+}
+
+/** "escribiendo…" en el chat mientras se transcribe o piensa. Dura unos segundos. */
+export async function escribiendo(env: Env, chatId: string | number): Promise<void> {
+  await llamar(env, "sendChatAction", { chat_id: chatId, action: "typing" });
 }
 
 /** Quita el "reloj" del botón tocado. Sin esto Telegram lo deja girando. */
