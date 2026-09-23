@@ -5,7 +5,7 @@ import { costOfUsage, type ModelId } from "../../pricing";
 import { resolveAgentConfig, type AgentConfig } from "../../settings-loader";
 import { buildTools } from "../../tools";
 import { resolveProvider, modelIdFor } from "../../llm/provider";
-import { handoffNotifyStatus } from "../../tools/handoffHuman";
+import { estadoDelAvisoAlDueno } from "../../tools/handoffHuman";
 import { connectionsSummary } from "./conexiones";
 import { KbDocsRepo, FIXTURE_CHUNKS } from "../../kb/docs";
 import { InsightsRepo } from "../../db/insights";
@@ -49,6 +49,7 @@ function agentModelLabel(env: Env, cfg: AgentConfig): string {
 const DOW_LETTER = ["D", "L", "M", "M", "J", "V", "S"];
 
 export async function renderOverview(env: Env): Promise<string> {
+  const notify = await estadoDelAvisoAlDueno(env);
   const db = new Db(env.DB);
   const niche = getNiche(env);
   const oneDay = Date.now() - 86_400_000;
@@ -314,11 +315,12 @@ export async function renderOverview(env: Env): Promise<string> {
           }
           ${(() => {
             // Cuando el bot escala a humano, ¿alguien se entera? Antes esto
-            // fallaba en silencio; ahora se ve aquí en rojo si falta configurar.
-            const notify = handoffNotifyStatus(env);
+            // fallaba en silencio; ahora se ve aquí en rojo si falta configurar
+            // — y el rojo lleva a donde se arregla, sin terminal: vincular el
+            // Telegram del dueño es un enlace en Conexiones.
             return notify.ok
               ? `<span style="font-size:9px;color:var(--ok);border:1px solid var(--ok);padding:1px 6px;border-radius:999px">✓ handoff avisa por ${notify.channels.join(" + ")}</span>`
-              : `<span style="font-size:9px;color:var(--bad);border:1px solid var(--bad);padding:1px 6px;border-radius:999px">⚠ HANDOFF SIN AVISO — el bot crea tickets pero NADIE recibe notificación (configura Telegram, WhatsApp o email del dueño)</span>`;
+              : `<a href="/admin/conexiones#aviso-dueno" style="font-size:9px;color:var(--bad);border:1px solid var(--bad);padding:1px 6px;border-radius:999px;text-decoration:none">⚠ HANDOFF SIN AVISO — el bot crea tickets pero NADIE recibe notificación · vincular mi Telegram →</a>`;
           })()}
           ${(() => {
             const conn = connectionsSummary(env);

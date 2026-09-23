@@ -34,7 +34,7 @@ FROM node:22-bookworm-slim
 
 WORKDIR /app
 COPY --from=dependencias /app/node_modules ./node_modules
-COPY package.json servidor.mjs ./
+COPY package.json servidor.mjs propios.mjs ./
 
 # El Worker habla con este puerto vía ctx.container.getTcpPort(8080).
 EXPOSE 8080

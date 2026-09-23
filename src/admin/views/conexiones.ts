@@ -7,6 +7,7 @@ import type { Env } from "../../env";
 import { layout } from "./layout";
 import type { WhatsAppDiagnosis, DiagStatus } from "../../channels/whatsappDiag";
 import { renderWhatsappQrCard } from "./whatsappQr";
+import { renderAvisoDuenoCargando } from "./avisoDueno";
 
 interface ChannelStatus {
   id: string;
@@ -84,6 +85,9 @@ function channelStatuses(env: Env): ChannelStatus[] {
       missing: telegramMissing,
       webhookPath: "/webhooks/telegram",
       howTo: "Crea el bot con @BotFather, guarda el token como secret y registra el webhook.",
+      // El mismo bot le avisa al dueño y recibe sus órdenes. Vincularlo es un
+      // enlace, no un secret: ver views/avisoDueno.ts.
+      panel: telegramMissing.length === 0 ? renderAvisoDuenoCargando() : undefined,
     },
     {
       id: "whatsapp",

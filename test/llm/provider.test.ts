@@ -60,3 +60,24 @@ describe("createModel", () => {
     expect(r.modelId).toBe("gpt-4o");
   });
 });
+
+describe("pareceLlaveDeIa — lo que el navegador autocompleta no es una llave", () => {
+  it("acepta las formas de los tres proveedores", async () => {
+    const { pareceLlaveDeIa } = await import("../../src/llm/provider");
+    expect(pareceLlaveDeIa("sk-ant-api03-abcdefghijklmnopqrstuvwxyz")).toBe(true);
+    expect(pareceLlaveDeIa("sk-proj-abcdefghijklmnopqrstuvwxyz")).toBe(true);
+    expect(pareceLlaveDeIa("xai-abcdefghijklmnopqrstuvwxyz")).toBe(true);
+  });
+
+  it("rechaza una contraseña", async () => {
+    const { pareceLlaveDeIa } = await import("../../src/llm/provider");
+    expect(pareceLlaveDeIa("miClave123")).toBe(false);
+  });
+
+  it("createModel ignora una llave guardada que no es del proveedor y usa la del sistema", async () => {
+    const { createModel } = await import("../../src/llm/provider");
+    const r = createModel({ ANTHROPIC_API_KEY: "sk-ant-sistema-000000000000000" } as any, "fast", { apiKey: "miClave123" });
+    expect(r.provider).toBe("anthropic");
+    expect(r.modelId).toBe("claude-haiku-4-5-20251001");
+  });
+});

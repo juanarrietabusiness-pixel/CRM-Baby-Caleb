@@ -15,6 +15,7 @@
 
 import type { ChannelAdapter, IncomingMessage, OutgoingReply } from "./shared";
 import type { Env } from "../env";
+import type { RespuestaDelTelefono } from "../takeover";
 
 /** Lo que el puente manda en `POST /webhooks/whatsapp-qr`. */
 interface EntranteDelPuente {
@@ -47,8 +48,9 @@ export const whatsappQrAdapter: ChannelAdapter = {
       channelUserId: jid,
       displayName: cuerpo.nombre ?? undefined,
       text: cuerpo.texto ?? undefined,
-      // El puente ya filtra los mensajes propios (`key.fromMe`), así que lo que
-      // llega aquí siempre viene de otra persona.
+      // Los mensajes propios (`key.fromMe`) NO llegan por aquí: el puente los
+      // manda a /webhooks/whatsapp-qr/propio, que pausa la conversación. Lo
+      // que llega a esta ruta siempre lo escribió la clienta.
       isOwnerMessage: false,
       receivedAt: cuerpo.recibidoEn ?? Date.now(),
       rawPayload: cuerpo,
@@ -95,3 +97,26 @@ export const whatsappQrAdapter: ChannelAdapter = {
     }
   },
 };
+
+/**
+ * Lo que el puente manda en `POST /webhooks/whatsapp-qr/propio`: un mensaje
+ * que salió del NÚMERO del negocio pero no lo mandó el bot — la dueña contestó
+ * desde el teléfono, o desde WhatsApp Web en su computadora.
+ *
+ * Va por una ruta aparte y no con una marca dentro de la de entrantes a
+ * propósito: un bot desplegado antes que este cambio no conoce la marca, y
+ * trataría el texto de la dueña como si fuera de la clienta — le contestaría a
+ * su propia dueña. Una ruta que no existe devuelve 404, y el puente lo anota.
+ */
+export function parseRespuestaPropia(cuerpo: unknown): RespuestaDelTelefono {
+  const c = (cuerpo ?? {}) as Record<string, unknown>;
+  const jids = Array.isArray(c.jids) ? c.jids.filter((j): j is string => typeof j === "string") : [];
+  if (jids.length === 0) throw new Error("El puente mandó un mensaje propio sin chat.");
+  const enviadoEn = Number(c.enviadoEn);
+  return {
+    jids,
+    texto: typeof c.texto === "string" ? c.texto : null,
+    tipo: typeof c.tipo === "string" ? c.tipo : null,
+    enviadoEn: Number.isFinite(enviadoEn) && enviadoEn > 0 ? enviadoEn : Date.now(),
+  };
+}

@@ -15,13 +15,21 @@ import http from "node:http";
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
+  generateMessageIDV2,
   initAuthCreds,
+  jidNormalizedUser,
   BufferJSON,
   proto,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import pino from "pino";
 import QRCode from "qrcode";
+import {
+  crearRegistroDeEnvios,
+  esRespuestaDelTelefono as esRespuestaPropiaDePersona,
+  textoDe,
+  tipoDe,
+} from "./propios.mjs";
 
 const PUERTO = Number(process.env.PORT || 8080);
 const PUENTE = process.env.PUENTE_URL;
@@ -50,6 +58,9 @@ const estado = {
   proximoIntentoEn: null,
   mensajesRecibidos: 0,
   mensajesEnviados: 0,
+  // Mensajes que salieron del número del negocio SIN que los mandara el bot:
+  // la dueña contestando desde el teléfono. Cada uno pausa esa conversación.
+  respuestasDelTelefono: 0,
   ultimoError: null,
   credencialesVenianDeD1: false,
   // Cuántos códigos se han emitido. Si sube y nadie vincula, el QR de la
@@ -382,9 +393,24 @@ async function conectar() {
   // Los mensajes entrantes se reenvían al puente, que los pasa al CRM. El
   // contenedor no conoce al bot: así el token del CRM no viaja hasta aquí.
   s.ev.on("messages.upsert", ({ messages, type }) => {
-    if (!vigente() || type !== "notify") return;
+    if (!vigente()) return;
     for (const msg of messages) {
-      if (msg.key?.fromMe) continue;
+      // Un mensaje propio es del bot o de una persona usando el teléfono del
+      // negocio. Hasta el 23-sep-2026 se tiraban todos, y el bot seguía
+      // contestando encima de la dueña: los dos le escribían a la misma
+      // clienta a la vez. Ver `esRespuestaDelTelefono`.
+      if (msg.key?.fromMe) {
+        if (!esRespuestaDelTelefono(msg)) continue;
+        estado.respuestasDelTelefono += 1;
+        avisarRespuestaPropia(s, msg).catch((e) => {
+          estado.ultimoError = `propio: ${e.message}`;
+          console.error("No se pudo avisar una respuesta del teléfono:", e.message);
+        });
+        continue;
+      }
+      // Lo de otros solo en vivo: `append` es historial que llega al
+      // reconectar, y contestarlo sería responder mensajes viejos.
+      if (type !== "notify") continue;
       estado.mensajesRecibidos += 1;
       reenviar(msg).catch((e) => {
         estado.ultimoError = `reenviar: ${e.message}`;
@@ -392,6 +418,51 @@ async function conectar() {
       });
     }
   });
+}
+
+// ── Lo que manda el bot contra lo que manda una persona ────────────────────
+// La regla vive en propios.mjs, que se prueba sin socket. Aquí solo se usa.
+
+const enviadosPorElBot = crearRegistroDeEnvios();
+
+function esRespuestaDelTelefono(msg) {
+  return esRespuestaPropiaDePersona(msg, {
+    enviados: enviadosPorElBot,
+    yo: [socket?.user?.id, socket?.user?.lid],
+  });
+}
+
+/**
+ * Los nombres del chat que conocemos. WhatsApp está pasando a identificadores
+ * LID, y el mismo chat puede venir como `507…@s.whatsapp.net` o como `…@lid`
+ * según el mensaje. Se mandan todos: el CRM usa el que ya tenga conversación.
+ */
+async function nombresDelChat(s, msg) {
+  const nombres = [msg.key?.remoteJid, msg.key?.remoteJidAlt].filter(Boolean);
+  const mapa = s.signalRepository?.lidMapping;
+  for (const jid of [...nombres]) {
+    try {
+      if (jid.endsWith("@lid") && mapa?.getPNForLID) nombres.push(await mapa.getPNForLID(jid));
+      else if (jid.endsWith("@s.whatsapp.net") && mapa?.getLIDForPN) nombres.push(await mapa.getLIDForPN(jid));
+    } catch {
+      // El mapa es una ayuda, no un requisito: con el jid original alcanza casi siempre.
+    }
+  }
+  return [...new Set(nombres.filter(Boolean).map((j) => jidNormalizedUser(j)))];
+}
+
+async function avisarRespuestaPropia(s, msg) {
+  const r = await puente("/puente/propio", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jids: await nombresDelChat(s, msg),
+      texto: textoDe(msg),
+      tipo: tipoDe(msg),
+      enviadoEn: Number(msg.messageTimestamp ?? 0) * 1000 || Date.now(),
+    }),
+  });
+  if (!r.ok) throw new Error(`propio → ${r.status} · ${await porQue(r)}`);
 }
 
 /**
@@ -571,7 +642,11 @@ const servidor = http.createServer(async (req, res) => {
       }
       for (let i = 0; i < cuerpo.chunks.length; i++) {
         if (i > 0) await new Promise((r) => setTimeout(r, cuerpo.esperaMs ?? 1000));
-        await socket.sendMessage(cuerpo.para, { text: String(cuerpo.chunks[i]) });
+        // El id se genera y se anota ANTES de enviar: es lo que distingue el
+        // eco de este mensaje de una respuesta escrita desde el teléfono.
+        const messageId = generateMessageIDV2(socket.user?.id);
+        enviadosPorElBot.anotar(messageId);
+        await socket.sendMessage(cuerpo.para, { text: String(cuerpo.chunks[i]) }, { messageId });
         estado.mensajesEnviados += 1;
       }
       return json(200, { ok: true, enviados: cuerpo.chunks.length });

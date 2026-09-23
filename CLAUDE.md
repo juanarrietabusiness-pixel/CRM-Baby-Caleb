@@ -55,8 +55,17 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
   (para el dueño), `docs/plan-whatsapp-qr.md` (el procedimiento) y
   `docs/bitacora-whatsapp-qr.md` (**lee esto antes de diagnosticar**: qué se
   rompió, por qué, y cómo se consiguen los logs sin terminal).
-  **Después de desplegar el puente hay que reiniciar el contenedor desde el panel**:
-  uno sano no toma la imagen nueva.
+  **Un contenedor sano no toma la imagen nueva**: `puente-wa.yml` lo reinicia solo
+  al terminar (sale solo cuando un merge cambia `puente-wa/`). Si ese paso avisa
+  que no pudo, se reinicia desde el panel.
+- `src/takeover.ts` — cuando una persona contesta (panel, teléfono del WhatsApp
+  por QR o Telegram) el bot se calla en esa conversación. Un solo sitio para las
+  tres puertas; el plazo sale de Config.
+- `src/owner/` — la **consola del dueño por Telegram**: avisos con botones que se
+  pueden responder, comandos (`/pendientes`, `/venta`, `/devolucion`…) y un
+  asistente interno. El vínculo es un enlace del panel, sin terminal. Ver
+  `docs/consola-del-dueno.md`. El inventario es una extensión
+  (`src/owner/inventario.ts`); cada movimiento queda en `stock_movements`.
 - `skill/` — asistentes para el usuario.
 
 ## Skills disponibles
@@ -94,8 +103,10 @@ Hay tests en `test/babycaleb/` que fallan si esa regla se rompe. Y como los test
 vigilan los archivos pero el bot lee D1, **`pnpm auditar`** compara la base en vivo
 contra el documento de la dueña (solo lectura). El dueño de este bot **no usa la
 terminal**: la auditoría también corre desde la pestaña Actions ("Auditar la verdad"),
-y el despliegue entero —pruebas, esquema, Worker y reindexado de la base de
-conocimiento— lo hace `.github/workflows/deploy.yml` con cada merge a `main`.
+y el despliegue entero —pruebas, esquema, Worker, reindexado de la base de
+conocimiento y la auditoría en modo informativo— lo hace
+`.github/workflows/deploy.yml` con cada merge a `main`. Lo que se carga desde el
+panel contra lo que llega por GitHub: `docs/AUDITORIA_CONOCIMIENTO.md`.
 No le indiques comandos de terminal como único camino.
 
 La verdad del negocio es el documento de la dueña (**PREGUNTAS_BABY_CALEB_usted.docx**,

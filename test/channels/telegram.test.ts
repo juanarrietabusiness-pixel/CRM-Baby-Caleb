@@ -94,7 +94,10 @@ describe("telegramAdapter.parseIncoming", () => {
     expect(msg.text).toBe("mira esto");
   });
 
-  it("flags the owner's own message via OWNER_TELEGRAM_CHAT_ID", async () => {
+  it("el adaptador ya no marca al dueño: sus mensajes los atiende la consola antes de llegar aquí", async () => {
+    // Antes se marcaba isOwnerMessage y eso solo pausaba la conversación del
+    // dueño con su propio bot. Ahora /webhooks/telegram le entrega lo del dueño
+    // a src/owner/consola.ts, y lo que llega al adaptador es siempre una clienta.
     const ownerEnv = { TELEGRAM_BOT_TOKEN: "t", OWNER_TELEGRAM_CHAT_ID: "999" } as Env;
     const msg = await telegramAdapter.parseIncoming(
       makeReq({
@@ -109,7 +112,50 @@ describe("telegramAdapter.parseIncoming", () => {
       }),
       ownerEnv,
     );
-    expect(msg.isOwnerMessage).toBe(true);
+    expect(msg.isOwnerMessage).toBe(false);
+  });
+});
+
+describe("POST /webhooks/telegram", () => {
+  it("lo del dueño lo consume la consola y NO llega al agente; siempre contesta 200", async () => {
+    vi.doMock("agents", () => ({ Agent: class {} }));
+    const { createTestMiniflare } = await import("../helpers/miniflareSetup");
+    const mf = await createTestMiniflare();
+    const d1 = await mf.getD1Database("DB");
+    const ingest = vi.fn();
+    const env: any = {
+      DB: d1,
+      TELEGRAM_BOT_TOKEN: "t",
+      OWNER_TELEGRAM_CHAT_ID: "999",
+      BUSINESS_NAME: "Negocio",
+      AGENT: { idFromName: () => "id", get: () => ({ ingest }) },
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ ok: true, result: { message_id: 1 } }));
+    const { default: worker } = await import("../../src/index");
+    const llamar = (update: unknown) =>
+      worker.fetch(
+        new Request("https://bot/webhooks/telegram", { method: "POST", body: JSON.stringify(update) }),
+        env,
+        {} as any,
+      );
+
+    const delDueno = await llamar({
+      update_id: 1,
+      message: { message_id: 1, from: { id: 999 }, chat: { id: 999, type: "private" }, date: 1, text: "/pendientes" },
+    });
+    expect(delDueno.status).toBe(200);
+    expect(ingest).not.toHaveBeenCalled();
+
+    const deClienta = await llamar({
+      update_id: 2,
+      message: { message_id: 2, from: { id: 5, first_name: "Ana" }, chat: { id: 5, type: "private" }, date: 1, text: "hola" },
+    });
+    expect(deClienta.status).toBe(200);
+    expect(ingest).toHaveBeenCalledTimes(1);
+
+    // Un update sin mensaje (edición, alta en un grupo) ya no devuelve 500.
+    const raro = await llamar({ update_id: 3, edited_message: { text: "x" } });
+    expect(raro.status).toBe(200);
   });
 });
 

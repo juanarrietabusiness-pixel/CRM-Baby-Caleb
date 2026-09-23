@@ -3,7 +3,7 @@ import type { Env } from "../env";
 
 const TG_API = "https://api.telegram.org/bot";
 
-interface TgUpdate {
+export interface TgUpdate {
   update_id: number;
   message?: {
     message_id: number;
@@ -31,40 +31,46 @@ export async function resolveTelegramFileUrl(
   return `https://api.telegram.org/file/bot${token}/${json.result.file_path}`;
 }
 
+/**
+ * Un update de Telegram como mensaje de una CLIENTA. Lo del dueño no llega
+ * aquí: la ruta /webhooks/telegram se lo entrega antes a la consola del dueño
+ * (src/owner/consola.ts). Antes se marcaba `isOwnerMessage` y eso solo
+ * pausaba la propia conversación del dueño con su bot — que no le servía a
+ * nadie.
+ */
+export async function mensajeDeTelegram(update: TgUpdate, env: Env): Promise<IncomingMessage> {
+  const msg = update.message;
+  if (!msg) throw new Error("not a message update");
+  const channelUserId = String(msg.from.id);
+  const displayName = msg.from.first_name;
+  let text = msg.text;
+  let audioUrl: string | undefined;
+  let imageUrl: string | undefined;
+  const token = env.TELEGRAM_BOT_TOKEN ?? "";
+  if (msg.voice) {
+    // Resolve to a real, fetchable HTTPS URL via getFile (see docs above).
+    audioUrl = (await resolveTelegramFileUrl(msg.voice.file_id, token)) ?? undefined;
+  } else if (msg.photo) {
+    const largest = msg.photo[msg.photo.length - 1];
+    imageUrl = (await resolveTelegramFileUrl(largest.file_id, token)) ?? undefined;
+    text = msg.caption;
+  }
+  return {
+    channel: "telegram",
+    channelUserId,
+    displayName,
+    text,
+    audioUrl,
+    imageUrl,
+    isOwnerMessage: false,
+    receivedAt: Date.now(),
+    rawPayload: update,
+  };
+}
+
 export const telegramAdapter: ChannelAdapter = {
   async parseIncoming(request: Request, env: Env): Promise<IncomingMessage> {
-    const update = (await request.json()) as TgUpdate;
-    const msg = update.message;
-    if (!msg) throw new Error("not a message update");
-    const channelUserId = String(msg.from.id);
-    const displayName = msg.from.first_name;
-    let text = msg.text;
-    let audioUrl: string | undefined;
-    let imageUrl: string | undefined;
-    const token = env.TELEGRAM_BOT_TOKEN ?? "";
-    if (msg.voice) {
-      // Resolve to a real, fetchable HTTPS URL via getFile (see docs above).
-      audioUrl = (await resolveTelegramFileUrl(msg.voice.file_id, token)) ?? undefined;
-    } else if (msg.photo) {
-      const largest = msg.photo[msg.photo.length - 1];
-      imageUrl = (await resolveTelegramFileUrl(largest.file_id, token)) ?? undefined;
-      text = msg.caption;
-    }
-    return {
-      channel: "telegram",
-      channelUserId,
-      displayName,
-      text,
-      audioUrl,
-      imageUrl,
-      // The owner intervenes from their own Telegram account: detect by matching
-      // the sender against OWNER_TELEGRAM_CHAT_ID (the same id used for handoff DMs).
-      isOwnerMessage:
-        env.OWNER_TELEGRAM_CHAT_ID != null &&
-        channelUserId === String(env.OWNER_TELEGRAM_CHAT_ID),
-      receivedAt: Date.now(),
-      rawPayload: update,
-    };
+    return mensajeDeTelegram((await request.json()) as TgUpdate, env);
   },
 
   async sendReply(reply: OutgoingReply, env: Env): Promise<void> {

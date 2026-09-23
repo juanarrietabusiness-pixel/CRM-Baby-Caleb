@@ -13,7 +13,7 @@
 import { parsePeerBots } from "./projects";
 import { Hono } from "hono";
 import { generateText } from "ai";
-import { createModel } from "../llm/provider";
+import { createModel, pareceLlaveDeIa } from "../llm/provider";
 import { loadLlmOverrides, effectiveBusinessContext } from "../settings-loader";
 import type { Env } from "../env";
 import { checkBasicCredentials, timingSafeEqual } from "./auth";
@@ -59,8 +59,17 @@ import {
   type ProductInput,
   type StockInput,
 } from "../catalog/validation";
-import { renderConfig } from "./views/config";
+import { renderConfig, CONSERVAR } from "./views/config";
 import { renderConexiones, renderWhatsAppDiag } from "./views/conexiones";
+import { pausarPorHumano, devolverAlBot } from "../takeover";
+import { chatDelDueno, crearCodigoDeVinculo, desvincular } from "../owner/dueno";
+import { asegurarWebhook, nombreDelBot } from "../owner/telegram";
+import { avisarAlDueno } from "../owner/avisos";
+import {
+  renderAvisoDuenoEnlace,
+  renderAvisoDuenoSinVincular,
+  renderAvisoDuenoVinculado,
+} from "./views/avisoDueno";
 import { renderWhatsappQrPanel, type EstadoDelPuente } from "./views/whatsappQr";
 import { diagnoseWhatsAppCloud } from "../channels/whatsappDiag";
 import { renderCampanas } from "./views/campanas";
@@ -234,6 +243,58 @@ adminApp.post("/kb/:id/delete", async (c) => {
 adminApp.post("/kb/reindex", async (c) => {
   const r = await reindexAll(c.env);
   return c.redirect(`/admin/kb?reindexed=${r.indexed}`);
+});
+
+// --- Aviso al dueño por Telegram (vincular sin terminal) -----------------------
+//
+// El fragmento vive en la tarjeta de Telegram de Conexiones. `esperando=1` es
+// el sondeo mientras la dueña abre el enlace: contesta 204 (htmx no toca nada)
+// hasta que el vínculo existe, y entonces pinta el verde.
+adminApp.get("/telegram/dueno", async (c) => {
+  const chat = await chatDelDueno(c.env);
+  if (chat) {
+    return c.html(renderAvisoDuenoVinculado({ chatId: chat, porSecret: !!c.env.OWNER_TELEGRAM_CHAT_ID?.trim() }));
+  }
+  if (c.req.query("esperando")) return c.body(null, 204);
+  return c.html(renderAvisoDuenoSinVincular());
+});
+
+adminApp.post("/telegram/vincular", async (c) => {
+  if (!c.env.TELEGRAM_BOT_TOKEN) return c.html(renderAvisoDuenoSinVincular("Falta el token del bot de Telegram."));
+  // Primero se protege el webhook: la consola solo obedece updates firmados
+  // por Telegram, y el código que la dueña va a mandar tiene que llegar firmado.
+  const webhook = await asegurarWebhook(c.env);
+  if (!webhook.ok) return c.html(renderAvisoDuenoSinVincular(webhook.error));
+  const { codigo } = await crearCodigoDeVinculo(c.env);
+  return c.html(renderAvisoDuenoEnlace({ bot: await nombreDelBot(c.env), codigo }));
+});
+
+adminApp.post("/telegram/prueba", async (c) => {
+  const chat = await chatDelDueno(c.env);
+  if (!chat) return c.html(renderAvisoDuenoSinVincular());
+  // También protege el webhook: un dueño vinculado por el secret
+  // OWNER_TELEGRAM_CHAT_ID nunca pasó por "Vincular", y sin la firma la
+  // consola no le obedece.
+  await asegurarWebhook(c.env);
+  const ok = await avisarAlDueno(c.env, {
+    titulo: "🔔 Aviso de prueba",
+    cuerpo: "Así le van a llegar los avisos del bot. Escriba /ayuda para ver lo que puede hacer desde aquí.",
+    conBotones: false,
+  });
+  return c.html(
+    renderAvisoDuenoVinculado({
+      chatId: chat,
+      porSecret: !!c.env.OWNER_TELEGRAM_CHAT_ID?.trim(),
+      resultado: ok
+        ? "✓ Enviado. Revise su Telegram."
+        : "✕ Telegram no lo aceptó. Abra el bot en Telegram y toque Iniciar (un bot no puede escribirle a quien nunca le habló).",
+    }),
+  );
+});
+
+adminApp.post("/telegram/desvincular", async (c) => {
+  await desvincular(c.env);
+  return c.html(renderAvisoDuenoSinVincular());
 });
 
 // --- Handoff: plantilla HSM del aviso al dueño ---------------------------------
@@ -515,6 +576,36 @@ adminApp.post("/catalogo/guardar", async (c) => {
     );
   }
 
+  // El stock ya no tiene un solo escritor: desde el 23-sep también lo mueven
+  // las ventas y devoluciones que la dueña registra por Telegram. Este
+  // formulario guarda el stock que tenía EN PANTALLA, así que si el producto
+  // cambió mientras estaba abierto, guardar pisaría esa venta en silencio. En
+  // ese caso no se guarda: se vuelve a mostrar con el stock actual y lo demás
+  // que ella escribió, para que lo revise y guarde de nuevo.
+  const cargadoEn = Number(form.get("loaded_at") ?? 0);
+  if (codigoOriginal && cargadoEn > 0) {
+    const actual = await repo.getForAdmin(codigoOriginal);
+    if (actual && actual.updatedAt > cargadoEn) {
+      return c.html(
+        renderCatalogoEditor(c.env, {
+          product: {
+            code,
+            name,
+            salePrice: input.salePrice,
+            costPrice: input.costPrice,
+            active,
+            stock: actual.stock,
+            stockTotal: actual.stockTotal,
+            updatedAt: actual.updatedAt,
+          },
+          errors: [
+            "El stock de este producto cambió mientras usted lo editaba (una venta o devolución registrada desde Telegram, u otra pestaña abierta). No se guardó nada: le cargamos el stock actual. Revíselo y vuelva a guardar.",
+          ],
+        }),
+      );
+    }
+  }
+
   // Renombrar el código borra el producto viejo y crea el nuevo: son la misma
   // ficha, no dos.
   if (codigoOriginal && codigoOriginal !== code) await repo.delete(codigoOriginal);
@@ -769,21 +860,43 @@ adminApp.post("/config", async (c) => {
   for (const key of Object.keys(CONTROLS)) {
     const picked = form.get(key);
     if (picked === null) continue; // control not submitted — leave as-is
+    // "Personalizado": un valor que no es ninguna tarjeta. Se deja como está —
+    // antes se reemplazaba por la primera tarjeta al guardar cualquier otra cosa.
+    if (String(picked) === CONSERVAR) continue;
     const value = levelToValue(key, String(picked));
     if (value !== null) await repo.set(key, value);
   }
 
+  // Un tono escrito con sus palabras le gana a la tarjeta elegida.
+  const tonoLibre = String(form.get("tone_libre") ?? "").trim().slice(0, 120);
+  if (tonoLibre) await repo.set(SETTING_KEYS.tone, tonoLibre);
+
   // Free-text controls (stored verbatim, trimmed).
+  //
+  // system_prompt_override YA NO se escribe desde aquí: reemplaza el prompt
+  // entero y es cosa de la pestaña Agente. El campo de este formulario es
+  // "Instrucciones adicionales", que se SUMAN (custom_instructions).
   const textKeys: SettingKey[] = [
     SETTING_KEYS.botName,
-    SETTING_KEYS.businessContext,
-    SETTING_KEYS.systemPromptOverride,
+    SETTING_KEYS.customInstructions,
     SETTING_KEYS.escalationKeywords,
   ];
   for (const key of textKeys) {
     const raw = form.get(key);
     if (raw === null) continue;
     await repo.set(key, String(raw).trim());
+  }
+
+  // La información del negocio: si es IGUAL a la del repo, se guarda vacía.
+  //
+  // El formulario la pre-llena con la del repo (member/config.local.ts). Al
+  // guardar la página por cualquier otro motivo, esa copia quedaba en D1 y le
+  // ganaba al repo para siempre: lo siguiente que se mergeara en GitHub no le
+  // llegaba al bot, sin error y sin aviso. Vacía = "use la del repo".
+  const contexto = form.get(SETTING_KEYS.businessContext);
+  if (contexto !== null) {
+    const limpio = String(contexto).replace(/\r\n/g, "\n").trim();
+    await repo.set(SETTING_KEYS.businessContext, limpio === renderBusinessContext().trim() ? "" : limpio);
   }
 
   // BYO-LLM: proveedor y modelo se guardan tal cual (allow-list de valores).
@@ -806,10 +919,38 @@ adminApp.post("/config", async (c) => {
   } else {
     const keyRaw = form.get(SETTING_KEYS.llmApiKey);
     if (keyRaw !== null && String(keyRaw).trim() !== "") {
-      await repo.set(SETTING_KEYS.llmApiKey, String(keyRaw).trim());
+      // Solo si PARECE una llave. El navegador autocompleta los campos de
+      // contraseña con la del panel: en Baby Caleb quedó guardada una
+      // contraseña como llave de IA, y con ella cada respuesta del bot habría
+      // sido "Algo falló de mi lado".
+      const llave = String(keyRaw).trim();
+      if (!pareceLlaveDeIa(llave)) {
+        return c.redirect(
+          `/admin/config?llmtest=${encodeURIComponent("err:Eso no parece una API key (empiezan con sk-ant-, sk- o xai-). No se guardó: si su navegador la autocompletó, bórrela del campo antes de guardar.")}`,
+        );
+      }
+      await repo.set(SETTING_KEYS.llmApiKey, llave);
     }
   }
 
+  return c.redirect("/admin/config?saved=1");
+});
+
+// El aviso rojo de Config: un system_prompt_override guardado reemplaza el
+// prompt entero. "convertir" lo pasa a Instrucciones adicionales (se suman);
+// "borrar" lo quita. Solo toca esas dos llaves, aunque el formulario mande todo.
+adminApp.post("/config/override", async (c) => {
+  const form = await c.req.formData();
+  const repo = new SettingsRepo(new Db(c.env.DB));
+  const accion = String(form.get("accion") ?? "");
+  const override = ((await repo.get(SETTING_KEYS.systemPromptOverride)) ?? "").trim();
+  if (accion === "convertir" && override) {
+    const previas = ((await repo.get(SETTING_KEYS.customInstructions)) ?? "").trim();
+    await repo.set(SETTING_KEYS.customInstructions, previas ? `${previas}\n${override}` : override);
+  }
+  if (accion === "convertir" || accion === "borrar") {
+    await repo.set(SETTING_KEYS.systemPromptOverride, "");
+  }
   return c.redirect("/admin/config?saved=1");
 });
 
@@ -852,8 +993,9 @@ adminApp.post("/tickets/:id/resolve", async (c) => {
 
 // --- Inbox actions (F1) -------------------------------------------------------
 
-/** Owner takes over for this long after replying/pausing from the dashboard. */
-const TAKEOVER_MS = 60 * 60 * 1000;
+// Cuánto se calla el bot cuando la dueña contesta o pausa desde el panel: lo
+// decide el ajuste `takeover_minutes` (pestaña Config), el mismo que usan el
+// teléfono del WhatsApp por QR y Telegram. Ver src/takeover.ts.
 
 // Reply AS A HUMAN from the dashboard: sends through the conversation's channel
 // adapter (Twilio/Telegram/Meta/ManyChat), persists the message as role=owner,
@@ -891,7 +1033,7 @@ adminApp.post("/conversations/:id/reply", async (c) => {
   const msgs = new MessagesRepo(db);
   await msgs.append(id, "owner", text);
   await convs.touchLastMessage(id);
-  await convs.setPausedUntil(id, Date.now() + TAKEOVER_MS);
+  await pausarPorHumano(c.env, id, "panel");
 
   c.header("X-Sent", "1");
   return c.html(
@@ -904,8 +1046,7 @@ adminApp.post("/conversations/:id/reply", async (c) => {
 // customer for themselves). Returns the refreshed thread fragment.
 adminApp.post("/conversations/:id/pause", async (c) => {
   const id = c.req.param("id");
-  const convs = new ConversationsRepo(new Db(c.env.DB));
-  await convs.setPausedUntil(id, Date.now() + TAKEOVER_MS);
+  await pausarPorHumano(c.env, id, "panel");
   return c.html(await renderThreadLive(c.env, id));
 });
 
@@ -930,22 +1071,23 @@ adminApp.post("/conversations/:id/delete", async (c) => {
 });
 
 // Return a paused conversation back to the bot. Clears paused_until AND appends
-// an owner-authored summary of the human handoff to the message history, so the
-// bot resumes with context about what the owner already resolved.
+// an owner-authored note to the message history, so the bot resumes with
+// context about what the owner already resolved.
+//
+// La nota es OPCIONAL. Antes era obligatoria y el formulario vivía dentro del
+// bloque que se refresca cada 5 s: devolver una conversación costaba varios
+// intentos. Y se cierran los tickets abiertos de la conversación: devolverla
+// al bot es decir "esto ya lo atendí". Sin cerrarlos, la conversación se
+// quedaba para siempre en el filtro "Atención", y en PanaClaw el siguiente
+// aviso al dueño se perdía porque "ya había un ticket abierto".
 adminApp.post("/conversations/:id/resume", async (c) => {
   const id = c.req.param("id");
-  const convs = new ConversationsRepo(new Db(c.env.DB));
-  await convs.setPausedUntil(id, null);
-  // Insert a system-style owner note summarizing the human handoff so the bot
-  // has context when it picks the conversation back up. The summary field is
-  // optional, so tolerate a request with no form body (formData() throws on an
-  // empty/no-content-type body).
-  const form = await c.req.formData().catch(() => null);
-  const summary =
-    String(form?.get("summary") ?? "").trim() ||
-    "(El dueño habló con el cliente y resolvió la consulta.)";
-  const msgs = new MessagesRepo(new Db(c.env.DB));
-  await msgs.append(id, "owner", summary);
+  await devolverAlBot(c.env, id, {
+    nota: String((await c.req.formData().catch(() => null))?.get("summary") ?? ""),
+    quien: "panel",
+  });
+  // Desde htmx se devuelve el hilo ya actualizado; sin JavaScript, la página.
+  if (c.req.header("HX-Request")) return c.html(await renderThreadLive(c.env, id));
   return c.redirect(`/admin/conversations?c=${encodeURIComponent(id)}`);
 });
 

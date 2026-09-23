@@ -431,6 +431,29 @@ function conTope<T>(promesa: Promise<T>, ms: number, respaldo: T): Promise<T> {
   ]);
 }
 
+/**
+ * Reenvía al webhook de WhatsApp por QR del CRM.
+ *
+ * Con binding el host da igual: se conserva la ruta, que es lo que el bot
+ * enruta. Sin binding se usa la URL pública, que solo funciona si el bot vive
+ * en OTRA cuenta de Cloudflare.
+ *
+ * Se devuelve el resultado tal cual: si el CRM rechaza, el contenedor lo anota
+ * y se ve en el estado, en vez de perderse el mensaje en silencio.
+ */
+async function alCrm(env: Env, sufijo: string, cuerpo: string): Promise<Response> {
+  const destino = env.CRM
+    ? `https://crm/webhooks/whatsapp-qr${sufijo}`
+    : `${(env.CRM_WEBHOOK_URL ?? "").replace(/\/$/, "")}${sufijo}`;
+  const peticion = new Request(destino, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-wa-token": env.WA_TOKEN },
+    body: cuerpo,
+  });
+  const r = env.CRM ? await env.CRM.fetch(peticion) : await fetch(peticion);
+  return json(r.ok ? 200 : 502, { ok: r.ok, estadoDelCrm: r.status });
+}
+
 /** Un solo contenedor: dos sockets sobre el mismo número se tumban entre sí. */
 function instancia(env: Env) {
   return env.WA.get(env.WA.idFromName("unico"));
@@ -498,22 +521,17 @@ export default {
     // CRM no viaja al contenedor y cambiar el destino no obliga a reconstruir
     // la imagen.
     if (url.pathname === "/puente/entrante" && request.method === "POST") {
-      const cuerpo = await request.text();
-      const peticion = new Request(
-        // Con binding el host da igual: se conserva la ruta, que es lo que el
-        // bot enruta. Sin binding se usa la URL pública, que solo funciona si
-        // el bot vive en OTRA cuenta de Cloudflare.
-        env.CRM ? "https://crm/webhooks/whatsapp-qr" : env.CRM_WEBHOOK_URL,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-wa-token": env.WA_TOKEN },
-          body: cuerpo,
-        },
-      );
-      const r = env.CRM ? await env.CRM.fetch(peticion) : await fetch(peticion);
-      // Se devuelve el resultado tal cual: si el CRM rechaza, el contenedor lo
-      // anota y se ve en el estado, en vez de perderse el mensaje en silencio.
-      return json(r.ok ? 200 : 502, { ok: r.ok, estadoDelCrm: r.status });
+      return alCrm(env, "", await request.text());
+    }
+
+    // ── Una persona contestó desde el teléfono del negocio ──────────────────
+    //
+    // Ruta aparte de la de entrantes, y a propósito: un bot que todavía no
+    // conoce este aviso contesta 404 y el contenedor lo anota. Con una marca
+    // dentro de /entrante, ese mismo bot trataría el texto de la dueña como si
+    // fuera de la clienta y le contestaría a su propia dueña.
+    if (url.pathname === "/puente/propio" && request.method === "POST") {
+      return alCrm(env, "/propio", await request.text());
     }
 
     const stub = instancia(env);

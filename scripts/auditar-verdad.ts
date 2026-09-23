@@ -23,6 +23,7 @@ import { spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCTOS, DESCATALOGADOS, AJUSTES } from "../test/babycaleb/verdad-del-cliente";
+import { renderBusinessContext } from "../src/businessContext";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -103,26 +104,53 @@ console.log(`\nAuditoría de la verdad — base "${db}" (solo lectura)\n`);
 
 // ── 1. settings: lo que se inyecta en el prompt de cada turno ──────────────
 console.log("1 · Ajustes que le pueden ganar al catálogo");
-const settings = Object.fromEntries(
-  consultar<{ key: string; value: string }>(db, "SELECT key, value FROM settings").map((r) => [
-    r.key,
-    r.value ?? "",
-  ]),
+const filasDeSettings = consultar<{ key: string; value: string; updated_at: number }>(
+  db,
+  "SELECT key, value, updated_at FROM settings",
 );
+const settings = Object.fromEntries(filasDeSettings.map((r) => [r.key, r.value ?? ""]));
+const guardadoEl = (key: string) => {
+  const t = filasDeSettings.find((r) => r.key === key)?.updated_at;
+  return t ? new Date(t).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "fecha desconocida";
+};
 
 const override = (settings["system_prompt_override"] ?? "").trim();
 if (override) {
   mal(
-    "Hay un system_prompt_override guardado: REEMPLAZA el prompt entero, incluido\n" +
-      "    el bloque <fuentes_de_verdad> que obliga a consultar el catálogo. Bórrelo\n" +
-      "    desde /admin (pestaña Agente) salvo que sepa exactamente por qué está ahí.",
+    `Hay un system_prompt_override guardado (${guardadoEl("system_prompt_override")}): REEMPLAZA el prompt\n` +
+      "    entero, incluido el bloque <fuentes_de_verdad> que obliga a consultar el catálogo.\n" +
+      `    Dice: "${override.slice(0, 90)}${override.length > 90 ? "…" : ""}"\n` +
+      "    Arréglelo desde /admin → Config: el aviso rojo tiene 'Convertirlo en instrucción\n" +
+      "    adicional' (se suma, no reemplaza) y 'Borrarlo'.",
   );
   problemas++;
 } else ok("Sin system_prompt_override: el bot usa el prompt generado, con sus fuentes de verdad.");
 
+// La llave de IA del panel. Si no parece una llave, casi seguro es una
+// contraseña que el navegador autocompletó en el campo (pasó en Baby Caleb).
+// Desde el 23-sep el bot la ignora y usa la del sistema, así que no hace decir
+// nada falso — pero es una contraseña guardada en texto plano en la base.
+const llave = (settings["llm_api_key"] ?? "").trim();
+if (llave && !/^(sk-|xai-)\S{16,}$/.test(llave)) {
+  ojo(
+    `llm_api_key tiene algo que NO es una API key (${llave.length} caracteres, guardado ${guardadoEl("llm_api_key")}).\n` +
+      "    Suele ser una contraseña que el navegador autocompletó. El bot la ignora, pero está\n" +
+      "    guardada en la base: bórrela en /admin → Config → 'Quitar mi API key'.",
+  );
+  avisos++;
+}
+
 const contexto = (settings["business_context"] ?? "").trim();
+const delRepo = renderBusinessContext().trim();
 if (!contexto) {
   ok("business_context vacío: cae al del repo (member/config.local.ts), que es el bueno.");
+} else if (contexto.replace(/\r\n/g, "\n") === delRepo) {
+  ojo(
+    "business_context en D1 es una COPIA idéntica del repo. Hoy dicen lo mismo, pero la copia\n" +
+      "    le gana al repo: lo próximo que se mergee en member/config.local.ts no le llega al bot.\n" +
+      "    Se arregla solo al guardar /admin → Config una vez (una copia igual al repo ya se guarda vacía).",
+  );
+  avisos++;
 } else {
   const precios = PRODUCTOS.map((p) => `$${(p.precioCents / 100).toFixed(0)}`).filter((p) =>
     contexto.includes(p),
@@ -179,7 +207,7 @@ if (tono !== AJUSTES.tono) {
 } else ok("El tono es el del documento, con el trato de usted dentro.");
 
 if ((settings["bot_paused"] ?? "") === "1") {
-  ojo("El bot está EN PAUSA desde el panel: no está contestando a nadie.");
+  ojo(`El bot está EN PAUSA desde el panel (desde ${guardadoEl("bot_paused")}): no le contesta a nadie.`);
   avisos++;
 }
 
@@ -276,16 +304,30 @@ if (envenenadas.length) {
   avisos++;
 } else ok("Ninguna sugerencia pendiente.");
 
-const factosConPrecio = consultar<{ n: number }>(
+// Un dato recordado con un PRECIO DE PRODUCTO sí es un problema: se congela y
+// le gana al catálogo. Uno que registra un PAGO que la clienta hizo ("pagó un
+// abono de $5 por Yappy") no lo es — es historia, y el bot debe recordarla.
+// Hasta el 23-sep se marcaba cualquier "$" y la auditoría salía roja por eso.
+const PAGO = /pag[oó]|abon[oó]|deposit|transfiri|transferencia|yappy|comprobante|adelant/i;
+const preciosDelCatalogo = PRODUCTOS.map((p) => (p.precioCents / 100).toFixed(0));
+const factosConDinero = consultar<{ conversation_id: string; fact: string }>(
   db,
-  "SELECT COUNT(*) AS n FROM customer_facts WHERE fact LIKE '%$%'",
+  "SELECT conversation_id, fact FROM customer_facts WHERE fact LIKE '%$%'",
 );
-if ((factosConPrecio[0]?.n ?? 0) > 0) {
+const conPrecioDeProducto = factosConDinero.filter(
+  (f) =>
+    !PAGO.test(f.fact) &&
+    preciosDelCatalogo.some((p) => new RegExp(`\\$\\s?${p}(?![\\d])`).test(f.fact)),
+);
+if (conPrecioDeProducto.length > 0) {
   mal(
-    `${factosConPrecio[0].n} dato(s) recordados de clientes llevan un precio dentro. Se inyectan\n` +
-      "    en la conversación como bloque <cliente> y no se actualizan cuando cambie el catálogo.",
+    `${conPrecioDeProducto.length} dato(s) recordados de clientes llevan un precio de producto dentro. Se inyectan\n` +
+      "    en la conversación como bloque <cliente> y no se actualizan cuando cambie el catálogo:\n" +
+      conPrecioDeProducto.map((f) => `      · ${f.conversation_id}: "${f.fact.slice(0, 80)}"`).join("\n"),
   );
   problemas++;
+} else if (factosConDinero.length > 0) {
+  ok(`${factosConDinero.length} dato(s) recordados mencionan dinero, pero son pagos de la clienta, no precios del catálogo.`);
 } else ok("Ningún dato recordado de cliente lleva precios congelados.");
 
 // ── 3. kb_docs del panel contra member/kb/ ────────────────────────────────

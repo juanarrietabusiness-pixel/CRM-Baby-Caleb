@@ -277,7 +277,8 @@ describe("admin routes — config save (POST /config)", () => {
     const body = new URLSearchParams({
       [SETTING_KEYS.botName]: "  Barbería Pro  ",
       [SETTING_KEYS.businessContext]: "Abrimos 9-7. Corte $150.",
-      [SETTING_KEYS.systemPromptOverride]: "",
+      [SETTING_KEYS.customInstructions]: "  Ofrezca agendar al final.  ",
+      [SETTING_KEYS.systemPromptOverride]: "ESTO YA NO SE ESCRIBE DESDE CONFIG",
       [SETTING_KEYS.escalationKeywords]: "queja, reembolso",
     });
     await adminApp.fetch(
@@ -292,8 +293,84 @@ describe("admin routes — config save (POST /config)", () => {
     const writes = settingsWrites(runLog);
     expect(writes[SETTING_KEYS.botName]).toBe("Barbería Pro");
     expect(writes[SETTING_KEYS.businessContext]).toBe("Abrimos 9-7. Corte $150.");
-    expect(writes[SETTING_KEYS.systemPromptOverride]).toBe("");
+    expect(writes[SETTING_KEYS.customInstructions]).toBe("Ofrezca agendar al final.");
+    // Reemplaza el prompt ENTERO: es cosa de la pestaña Agente, no de Config.
+    expect(writes[SETTING_KEYS.systemPromptOverride]).toBeUndefined();
     expect(writes[SETTING_KEYS.escalationKeywords]).toBe("queja, reembolso");
+  });
+
+  it("un tono propio ('Personalizado') no se pisa al guardar otra cosa", async () => {
+    const runLog: Array<{ sql: string; params: unknown[] }> = [];
+    const env = makeEnv(makeStubDb([], runLog));
+    const body = new URLSearchParams({ [SETTING_KEYS.tone]: "__actual__", [SETTING_KEYS.bufferSeconds]: "15" });
+    await adminApp.fetch(
+      req("/config", { method: "POST", headers: { ...authHeaders, "Content-Type": "application/x-www-form-urlencoded" }, body }),
+      env,
+    );
+    const writes = settingsWrites(runLog);
+    expect(writes[SETTING_KEYS.tone]).toBeUndefined();
+    expect(writes[SETTING_KEYS.bufferSeconds]).toBe("15");
+  });
+
+  it("un tono escrito con sus palabras le gana a la tarjeta", async () => {
+    const runLog: Array<{ sql: string; params: unknown[] }> = [];
+    const env = makeEnv(makeStubDb([], runLog));
+    const body = new URLSearchParams({
+      [SETTING_KEYS.tone]: "cálido y cercano",
+      tone_libre: "cálido y servicial, tratando siempre de usted",
+    });
+    await adminApp.fetch(
+      req("/config", { method: "POST", headers: { ...authHeaders, "Content-Type": "application/x-www-form-urlencoded" }, body }),
+      env,
+    );
+    expect(settingsWrites(runLog)[SETTING_KEYS.tone]).toBe("cálido y servicial, tratando siempre de usted");
+  });
+
+  it("la información del negocio igual a la del repo se guarda vacía (no se congela una copia)", async () => {
+    const { renderBusinessContext } = await import("../../src/businessContext");
+    const runLog: Array<{ sql: string; params: unknown[] }> = [];
+    const env = makeEnv(makeStubDb([], runLog));
+    const body = new URLSearchParams({ [SETTING_KEYS.businessContext]: renderBusinessContext().replace(/\n/g, "\r\n") });
+    await adminApp.fetch(
+      req("/config", { method: "POST", headers: { ...authHeaders, "Content-Type": "application/x-www-form-urlencoded" }, body }),
+      env,
+    );
+    expect(settingsWrites(runLog)[SETTING_KEYS.businessContext]).toBe("");
+  });
+
+  it("no guarda como API key algo que no lo es (el navegador autocompleta contraseñas)", async () => {
+    const runLog: Array<{ sql: string; params: unknown[] }> = [];
+    const env = makeEnv(makeStubDb([], runLog));
+    const body = new URLSearchParams({ [SETTING_KEYS.llmApiKey]: "miClave123" });
+    const res = await adminApp.fetch(
+      req("/config", { method: "POST", headers: { ...authHeaders, "Content-Type": "application/x-www-form-urlencoded" }, body }),
+      env,
+    );
+    expect(res.headers.get("location")).toMatch(/llmtest=err/);
+    expect(settingsWrites(runLog)[SETTING_KEYS.llmApiKey]).toBeUndefined();
+  });
+
+  it("'Convertir en instrucción adicional' mueve el prompt que reemplazaba todo", async () => {
+    const runLog: Array<{ sql: string; params: unknown[] }> = [];
+    const env = makeEnv(
+      makeStubDb(
+        [
+          { frag: "SELECT value FROM settings", first: { value: "- Cuando un humano responda por whatsapp el bot se pone en pausa" } },
+        ],
+        runLog,
+      ),
+    );
+    await adminApp.fetch(
+      req("/config/override", {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ accion: "convertir" }),
+      }),
+      env,
+    );
+    const writes = settingsWrites(runLog);
+    expect(writes[SETTING_KEYS.systemPromptOverride]).toBe("");
+    expect(writes[SETTING_KEYS.customInstructions]).toContain("el bot se pone en pausa");
   });
 
   it("falls back to the first option for an unknown card value", async () => {

@@ -236,3 +236,53 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 );
 CREATE INDEX IF NOT EXISTS idx_catalog_code ON catalog_items(code);
 CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(active);
+
+-- ── Movimientos de inventario ──────────────────────────────────────────────
+-- Cada cambio de stock que NO hace el editor del panel queda anotado aquí:
+-- una venta registrada desde Telegram, una devolución, un ajuste. El número
+-- vivo sigue siendo catalog_items.stock_qty (un dato, un solo dueño), esto es
+-- la bitácora que permite contestar "¿por qué el M bajó a 3?" y deshacer.
+-- delta: unidades que se sumaron (positivo) o restaron (negativo). Una
+-- devolución que NO vuelve al inventario (producto abierto) se anota con 0.
+-- kind: venta | devolucion | ajuste | deshacer
+-- actor: quién lo pidió (telegram:<chat id>, panel, bot)
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id              TEXT PRIMARY KEY,
+  code            TEXT NOT NULL,
+  branch          TEXT NOT NULL,
+  delta           INTEGER NOT NULL,
+  kind            TEXT NOT NULL,
+  note            TEXT,
+  conversation_id TEXT,
+  actor           TEXT,
+  undone_at       INTEGER,
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_code ON stock_movements(code, created_at);
+
+-- ── Consola del dueño por Telegram ─────────────────────────────────────────
+-- Una acción que espera el SÍ del dueño: la venta que el bot propone, la
+-- devolución que pregunta si vuelve al inventario. El botón de Telegram solo
+-- carga el id (callback_data tiene tope de 64 bytes), el detalle vive aquí.
+-- status: pendiente | hecha | descartada
+CREATE TABLE IF NOT EXISTS owner_actions (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  payload    TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'pendiente',
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER
+);
+
+-- Cada aviso que se le manda al dueño por Telegram, con la conversación de la
+-- que habla. Es lo que permite que el dueño toque "Responder" sobre el aviso y
+-- su texto le llegue a ESA clienta, sin tener que copiar ningún identificador.
+CREATE TABLE IF NOT EXISTS owner_notices (
+  tg_chat_id      TEXT NOT NULL,
+  tg_message_id   INTEGER NOT NULL,
+  conversation_id TEXT,
+  ticket_id       TEXT,
+  created_at      INTEGER NOT NULL,
+  PRIMARY KEY (tg_chat_id, tg_message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_owner_notices_conv ON owner_notices(conversation_id);

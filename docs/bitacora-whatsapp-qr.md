@@ -203,6 +203,52 @@ después de desplegar.
 
 ---
 
+## 23-sep-2026 · El bot contestaba encima de la dueña
+
+**Síntoma.** Con el canal ya estable, la dueña contestaba a una clienta desde el
+teléfono del negocio y el bot seguía respondiendo en la misma conversación. Los
+dos le escribían a la vez. En Telegram y en la API oficial eso no pasaba: ahí la
+respuesta humana pausa el bot.
+
+**Causa.** El contenedor tiraba **todo** mensaje propio:
+
+    if (msg.key?.fromMe) continue;
+
+Un mensaje que sale del número del negocio es `fromMe` lo mande el bot o lo
+escriba una persona, así que el CRM nunca se enteraba de que alguien había
+tomado la conversación.
+
+**Arreglo.**
+
+- El bot genera el id de cada mensaje ANTES de enviarlo y lo anota
+  (`puente-wa/contenedor/propios.mjs`). Tiene que ser antes: Baileys emite el
+  eco de lo enviado en el mismo tick en que termina `sendMessage`, y el id que
+  devuelve llegaría tarde a su propio eco.
+- Un `fromMe` que no está anotado, con contenido de verdad (no una reacción ni
+  un borrado), de un chat uno a uno y reciente → lo escribió una persona. Va por
+  una ruta APARTE: `/puente/propio` → `/webhooks/whatsapp-qr/propio`. Aparte a
+  propósito: un bot sin este cambio contesta 404 en vez de tratar el texto de
+  la dueña como si fuera de la clienta.
+- El CRM anota el mensaje como `owner` y pausa la conversación
+  (`src/takeover.ts`). Segunda red: si el texto es igual a lo que el bot acaba
+  de decir, es un eco que se coló tras un reinicio y no pausa.
+- WhatsApp mezcla identificadores LID y número para el mismo chat: el puente
+  manda los dos (y los que resuelve su mapa), y el CRM usa el que ya tenga
+  conversación.
+- El agente revisa la pausa en tres momentos: al llegar el mensaje, al vencer
+  la espera del buffer y **justo antes de enviar** — el modelo tarda segundos,
+  y en esos segundos la dueña pudo haber contestado.
+
+**Orden de despliegue.** Primero el bot (merge a `main`), después el puente
+(sale solo con el mismo merge porque cambia `puente-wa/`, y se reinicia solo).
+Al revés tampoco rompe nada: un bot viejo contesta 404 a la ruta nueva.
+
+**Lo que se vio en la base ese día**, y que no era de este canal: el bot estaba
+en pausa global desde el 17-sep y con una línea como prompt entero. Ver
+`docs/AUDITORIA_CONOCIMIENTO.md`.
+
+---
+
 ## Cómo se consiguen los logs sin abrir una terminal
 
 El dueño de este bot no usa la terminal, y el fallo de arriba era invisible
@@ -228,5 +274,5 @@ encontraron la causa:
 - **El costo de 24 h del Durable Object no está medido.** Ahora hay una alarma
   cada 30 s más un cron cada minuto, permanentes. El contenedor `lite` prendido
   24/7 se midió en ~$1.50–2.00/mes; esta parte, no.
-- **La pestaña Conversaciones muestra `whatsapp-qr` en crudo**, sin nombre
-  legible. Mismo pendiente en PanaClaw.
+- ~~**La pestaña Conversaciones muestra `whatsapp-qr` en crudo**~~ — resuelto
+  el 23-sep: se lee *WhatsApp (QR)*.
