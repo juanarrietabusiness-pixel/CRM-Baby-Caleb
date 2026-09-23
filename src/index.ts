@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "./env";
 import type { ChannelAdapter } from "./channels/shared";
-import { mensajeDeTelegram, type TgUpdate } from "./channels/telegram";
+import { contestarMiId, mensajeDeTelegram, type TgUpdate } from "./channels/telegram";
 import { atenderAlDueno } from "./owner/consola";
 import { webhookConfiable } from "./owner/telegram";
 import { manychatAdapter } from "./channels/manychat";
@@ -73,6 +73,7 @@ app.post("/webhooks/telegram", async (c) => {
   try {
     const confiable = await webhookConfiable(c.env, c.req.header("x-telegram-bot-api-secret-token"));
     if (await atenderAlDueno(c.env, update as any, { confiable })) return c.text("ok", 200);
+    if (await contestarMiId(update, c.env)) return c.text("ok", 200);
     // Botones, ediciones, altas en grupos: nada que contestar.
     if (!update.message) return c.text("ok", 200);
     const msg = await mensajeDeTelegram(update, c.env);

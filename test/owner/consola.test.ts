@@ -172,7 +172,9 @@ describe("sin la firma de Telegram, la consola no obedece", () => {
     await vincular();
     expect(await atenderAlDueno(env, mensaje("/venta NAT-M 2"), { confiable: false })).toBe(true);
     expect(await stockDe("NAT-M")).toBe(5);
-    expect(textos().at(-1)).toMatch(/Por seguridad/);
+    // Se protege solo: registra el webhook con el secreto y pide repetir.
+    expect(textos().at(-1)).toMatch(/activé la protección/);
+    expect(enviados.some((e) => e.metodo === "setWebhook" && e.cuerpo.secret_token)).toBe(true);
   });
 
   it("un botón falso tampoco", async () => {
@@ -365,6 +367,14 @@ describe("dos escritores de stock: el editor del panel no pisa una venta de Tele
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("cambió mientras usted lo editaba");
     expect(await stockDe("NAT-M")).toBe(3);
+  });
+});
+
+describe("/miid", () => {
+  it("el dueño vinculado también lo puede pedir en la consola", async () => {
+    await vincular();
+    await atenderAlDueno(env, mensaje("/miid"), OK);
+    expect(textos().at(-1)).toContain(String(DUENO));
   });
 });
 

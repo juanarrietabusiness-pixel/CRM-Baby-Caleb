@@ -153,6 +153,15 @@ describe("POST /webhooks/telegram", () => {
     expect(deClienta.status).toBe(200);
     expect(ingest).toHaveBeenCalledTimes(1);
 
+    // /miid lo contesta el bot sin pasar por el agente (es el número que va
+    // en el secret OWNER_TELEGRAM_CHAT_ID).
+    const miid = await llamar({
+      update_id: 4,
+      message: { message_id: 4, from: { id: 55, first_name: "Luz" }, chat: { id: 55, type: "private" }, date: 1, text: "/miid" },
+    });
+    expect(miid.status).toBe(200);
+    expect(ingest).toHaveBeenCalledTimes(1);
+
     // Un update sin mensaje (edición, alta en un grupo) ya no devuelve 500.
     const raro = await llamar({ update_id: 3, edited_message: { text: "x" } });
     expect(raro.status).toBe(200);

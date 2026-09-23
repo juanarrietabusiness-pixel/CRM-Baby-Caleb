@@ -16,7 +16,7 @@
 import type { Env } from "../env";
 import { canjearCodigo, chatDelDueno, desvincular, enModoCliente, esElDueno, ponerModoCliente } from "./dueno";
 import { anotarAviso, buscarConversaciones, conversacionDelAviso, nombreDe, refCorta, responderACliente, tomarAccion } from "./acciones";
-import { contestarBoton, editar, enviar } from "./telegram";
+import { asegurarWebhook, contestarBoton, editar, enviar } from "./telegram";
 import { pendientes } from "./pendientes";
 import { entenderAlDueno } from "./cerebro";
 import { EXTENSIONES } from "./extensiones";
@@ -116,6 +116,7 @@ const COMANDOS: Record<string, (ctx: Contexto, args: string) => Promise<Respuest
     await ponerModoCliente(ctx.env, false);
     return [{ texto: "👤 Modo dueño. /ayuda para ver qué puede hacer." }];
   },
+  miid: async (ctx) => [{ texto: `Su chat id es:\n${ctx.chatId}` }],
   olvidarme: async (ctx) => {
     await desvincular(ctx.env);
     return [{ texto: "Listo: este Telegram ya no recibe los avisos. Para volver, genere un código en el panel (Conexiones → Telegram)." }];
@@ -185,12 +186,13 @@ export async function atenderAlDueno(
     }
     const m = update.message;
     if (m && (codigoDeVinculo(m.text ?? "") || (await esElDueno(env, m.chat.id)))) {
-      await enviar(
-        env,
-        m.chat.id,
-        "⚠️ Por seguridad, la consola del dueño necesita que el webhook de Telegram esté protegido. " +
-          "Abra el panel → Conexiones → Telegram y toque «Enviarme un aviso de prueba» (lo protege solo).",
-      );
+      // La primera vez (p. ej. un dueño que puso su chat id como secret y
+      // nunca pasó por "Vincular" en el panel), el webhook todavía no va
+      // firmado. Se registra con el secreto aquí mismo: es inofensivo aunque
+      // el mensaje fuera falso —solo reapunta NUESTRO webhook con NUESTRO
+      // secreto— y el mensaje sin firma se descarta igual.
+      const r = await asegurarWebhook(env);
+      await enviar(env, m.chat.id, r.ok ? "🔒 Listo: activé la protección de su consola (el webhook ahora va firmado por Telegram). Vuelva a enviar su mensaje." : "⚠️ Por seguridad, la consola necesita que el webhook de Telegram esté protegido y no pude hacerlo solo: " + r.error + " Abra el panel → Conexiones → Telegram y toque «Enviarme un aviso de prueba».");
       return true;
     }
     return false;

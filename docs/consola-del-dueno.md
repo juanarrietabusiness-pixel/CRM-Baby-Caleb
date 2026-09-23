@@ -9,17 +9,36 @@ maneja el inventario.
 
 ## 1. Vincular su Telegram (una sola vez)
 
+Hay dos caminos, los dos sin terminal. Elija uno.
+
+**A · Con el secret de GitHub (su ID fijo, como los demás secrets)**
+
+1. En Telegram, abra el bot del negocio y envíele **`/miid`**. Le contesta un
+   número: es su chat id.
+2. GitHub → este repositorio → **Settings → Secrets and variables → Actions →
+   New repository secret**. Nombre: `OWNER_TELEGRAM_CHAT_ID`. Valor: ese
+   número, sin espacios.
+3. Pestaña **Actions → CI y despliegue → Run workflow** (rama `main`). El paso
+   *Cargar los avisos al dueño en el Worker* lo pone en Cloudflare.
+4. Escríbale **`/ayuda`** al bot. La primera vez contesta *"Listo: activé la
+   protección…"*; escríbale `/ayuda` otra vez y ya le muestra la consola.
+
+**B · Con el enlace del panel**
+
 1. Panel → **Conexiones** → tarjeta **Telegram** → **Vincular mi Telegram**.
 2. Abra el enlace en el teléfono donde tiene Telegram y toque **Iniciar**.
-3. La tarjeta se pone en verde sola. Toque **Enviarme un aviso de prueba** para
-   confirmar.
+3. La tarjeta se pone en verde sola.
 
-El código dura 15 minutos y sirve una sola vez. Si el enlace no abre, envíele al
-bot el mensaje que aparece en pantalla (`/dueno 123456`).
+El código del panel dura 15 minutos y sirve una sola vez. Si el enlace no abre,
+envíele al bot el mensaje que aparece en pantalla (`/dueno 123456`). Si usa los
+dos caminos, manda el secret.
 
-> Antes esto exigía guardar el secret `OWNER_TELEGRAM_CHAT_ID` con una terminal,
-> y por eso el panel decía **⚠ HANDOFF SIN AVISO**: el bot creaba tickets y nadie
-> se enteraba. El secret, si existe, sigue funcionando y manda sobre el vínculo.
+Para comprobar cualquiera de los dos: panel → Conexiones → Telegram →
+**Enviarme un aviso de prueba**. En el Resumen, *Salud del bot* debe decir
+**✓ handoff avisa por Telegram**.
+
+> Antes esto exigía `wrangler secret put` en una terminal, y por eso el panel
+> decía **⚠ HANDOFF SIN AVISO**: el bot creaba tickets y nadie se enteraba.
 
 ## 2. Qué le llega
 
@@ -56,6 +75,7 @@ en esa conversación mientras usted la atiende.
 | `/ajuste NAT-M +3` · `-1` · `=10` | Corrige el stock. |
 | `/movimientos [código]` | Lo último que se movió en el inventario. |
 | `/cliente` | Probar el bot como si fuera una clienta. `/dueno` para volver. |
+| `/miid` | Su chat id (el número del secret `OWNER_TELEGRAM_CHAT_ID`). |
 | `/ayuda` | Esta lista. |
 
 También puede escribir con sus palabras: *"¿qué tengo pendiente?"*, *"devuélvele

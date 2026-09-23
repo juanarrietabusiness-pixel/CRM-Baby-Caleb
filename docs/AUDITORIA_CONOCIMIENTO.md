@@ -97,17 +97,25 @@ para lo que cambia todos los días.**
 
 ---
 
-## 5. Lo que queda por hacer en el panel (5 minutos, sin terminal)
+## 5. Lo que se corrigió en la base (23-sep-2026, con autorización del dueño)
 
-Después de que este cambio se despliegue:
+Hecho por el MCP de Cloudflare, mientras el bot seguía en pausa:
 
-1. **/admin → Config**: en el aviso rojo, *Convertirlo en instrucción adicional*
-   (o *Borrarlo* — la regla que dice ya no hace falta: el bot se pausa solo
-   cuando usted contesta desde el teléfono).
-2. **/admin → Config → Modelo de IA**: marcar *Quitar mi API key* y guardar.
-3. **/admin → Config → Tono**: en el campo *"…o escríbalo con sus palabras"*,
-   poner *"cálido y servicial, tratando siempre de usted"* y guardar.
-4. **/admin → Mejoras**: rechazar la lección de "ofrece contacto directo".
-5. **/admin → Config → Estado → Activo**, cuando quiera que el bot vuelva a
-   contestar.
-6. Pestaña Actions → *Auditar la verdad* → *Run workflow*: debería salir en verde.
+1. `system_prompt_override` **borrado**. Era la dueña probando si por ahí se
+   podía pausar el bot; ya no hace falta: el bot se calla solo cuando ella
+   contesta desde el teléfono.
+2. `llm_api_key` **vaciada** (era una contraseña autocompletada). El bot usa la
+   llave del sistema.
+3. `tone` = *"cálido y servicial, tratando siempre de usted"*, el del documento.
+4. `business_context` **vaciado**: era una copia idéntica del repo; ahora el bot
+   usa la del repo y lo que se mergee le llega.
+5. **Mejoras**: rechazadas la de "ofrece contacto directo" (contradice la regla
+   de usar handoffHuman) y la de "confirma con el dueño antes de responder"
+   (ambigua); aplicada la de "si repite el mensaje, no repitas la respuesta".
+
+El dato *"pagó abono de $5 por Yappy"* se deja: es un pago de la clienta, no un
+precio. La auditoría ahora los distingue, así que ya no sale como problema.
+
+**Queda en manos del dueño:** despausar el bot (**Config → Estado → Activo**)
+**después** de desplegar este cambio. Con el código viejo, al despausar el bot
+contestaría de golpe lo acumulado en el buffer desde el 17-sep.

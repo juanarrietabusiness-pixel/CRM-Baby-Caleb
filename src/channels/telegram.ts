@@ -32,6 +32,34 @@ export async function resolveTelegramFileUrl(
 }
 
 /**
+ * `/miid` → el bot contesta el chat id de quien lo escribe.
+ *
+ * Es el número que va en el secret OWNER_TELEGRAM_CHAT_ID para que los avisos
+ * le lleguen al dueño. Sin esto, la única forma de conocerlo era llamar a la
+ * API de Telegram a mano. Lo contesta a cualquiera —cada quien ve solo el
+ * suyo— y NO intercepta `/start`: una clienta nueva tiene que recibir el
+ * saludo del bot, no un número.
+ */
+export async function contestarMiId(update: TgUpdate, env: Env): Promise<boolean> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const msg = update?.message;
+  const cmd = msg?.text?.trim().toLowerCase().split(/[\s@]/)[0];
+  if (!token || !msg || cmd !== "/miid") return false;
+  await fetch(`${TG_API}${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: msg.chat.id,
+      text:
+        `Su chat id es:\n${msg.from.id}\n\n` +
+        "Si usted es el dueño, ese número va en el secret OWNER_TELEGRAM_CHAT_ID " +
+        "(GitHub → Settings → Secrets and variables → Actions).",
+    }),
+  }).catch((e) => console.error("[telegram] /miid falló:", e));
+  return true;
+}
+
+/**
  * Un update de Telegram como mensaje de una CLIENTA. Lo del dueño no llega
  * aquí: la ruta /webhooks/telegram se lo entrega antes a la consola del dueño
  * (src/owner/consola.ts). Antes se marcaba `isOwnerMessage` y eso solo
