@@ -25,7 +25,7 @@ import { GUION } from "./guion-del-documento";
 import { PRODUCTOS } from "./verdad-del-cliente";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const KB_DIR = resolve(ROOT, "member/kb");
+const KB_DIR = resolve(ROOT, "member/kb-respaldo");
 
 /**
  * Todo el texto indexable, con el espacio normalizado: el ancho de columna del

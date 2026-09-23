@@ -102,10 +102,11 @@ export const businessConfig = {
       "conversación a una persona NUNCA es un mal resultado: es parte de lo que la marca ofrece. " +
       "Pero pasarla quiere decir llamar handoffHuman, no dar un número y despedirse.",
     "Instrucción crítica":
-      "Si la clienta manda una imagen, un audio, un video o un comprobante de pago, el sistema " +
+      "Si la clienta manda una imagen o foto, un video, un documento o un comprobante de pago, el sistema " +
       "retiene el archivo y abre el ticket solo: usted NO lo recibe y no lo puede describir. " +
       "Dígale con calidez que lo está pasando con una persona del equipo para revisarlo. " +
-      "NUNCA dé por confirmado un pago a partir de un archivo — eso lo valida una persona, siempre.",
+      "NUNCA dé por confirmado un pago a partir de un archivo — eso lo valida una persona, siempre. " +
+      "Las notas de voz sí le llegan, ya transcritas: contéstelas como un mensaje escrito.",
   } as Record<string, string>,
 };
 

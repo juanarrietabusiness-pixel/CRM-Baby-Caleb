@@ -7,7 +7,7 @@ import { buildTools } from "../../tools";
 import { resolveProvider, modelIdFor } from "../../llm/provider";
 import { estadoDelAvisoAlDueno } from "../../tools/handoffHuman";
 import { connectionsSummary } from "./conexiones";
-import { KbDocsRepo, FIXTURE_CHUNKS } from "../../kb/docs";
+import { KbDocsRepo } from "../../kb/docs";
 import { InsightsRepo } from "../../db/insights";
 import { SuggestionsRepo } from "../../db/suggestions";
 import { channelLabel } from "../../channels/labels";
@@ -110,7 +110,7 @@ export async function renderOverview(env: Env): Promise<string> {
   const toolNames = Object.keys(buildTools({ env, getConversationId: () => null }));
   const agentCfg = await resolveAgentConfig(env, toolNames);
   const kbDocs = await new KbDocsRepo(db).list();
-  const totalKbDocs = kbDocs.length + FIXTURE_CHUNKS.length;
+  const totalKbDocs = kbDocs.length;
   const insight7d = await new InsightsRepo(db).stats(sevenDays);
   const resolvedPct7d =
     insight7d.analyzed > 0 ? Math.round((insight7d.resolvedNoHuman / insight7d.analyzed) * 100) : null;
@@ -178,7 +178,7 @@ export async function renderOverview(env: Env): Promise<string> {
         <div style="height:1px;background:var(--line)"></div>
         <div class="flex items-center justify-between">
           <span class="text-muted">Docs de conocimiento</span>
-          <span class="font-semibold">${totalKbDocs} <span class="text-dim font-normal">(${FIXTURE_CHUNKS.length} precargados)</span></span>
+          <span class="font-semibold">${totalKbDocs}</span>
         </div>
         <div style="height:1px;background:var(--line)"></div>
         <div class="flex items-center justify-between">

@@ -314,3 +314,27 @@ CREATE TABLE IF NOT EXISTS media_temporal (
   PRIMARY KEY (id, parte)
 );
 CREATE INDEX IF NOT EXISTS idx_media_temporal_fecha ON media_temporal(created_at);
+
+-- Qué pedazos hay en el índice de la base de conocimiento (Vectorize) y de qué
+-- documento del panel salió cada uno. Vectorize no deja listar lo que tiene:
+-- sin esta tabla, un reindex solo puede SUMAR, y lo que se borró o se acortó se
+-- queda contestando para siempre. Con ella, el índice es un espejo del panel.
+CREATE TABLE IF NOT EXISTS kb_indice (
+  vector_id  TEXT PRIMARY KEY,
+  doc_id     TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kb_indice_doc ON kb_indice(doc_id);
+
+-- Los seguimientos a clientas que dejaron de contestar: 5 horas, 3 días y 7
+-- días (src/followup/run.ts). `ciclo` es la hora del último mensaje de la
+-- clienta: si vuelve a escribir, empieza un ciclo nuevo. La llave primaria es
+-- el claim — un paso de un ciclo sale una sola vez.
+CREATE TABLE IF NOT EXISTS seguimientos (
+  conversation_id TEXT NOT NULL,
+  ciclo           INTEGER NOT NULL,
+  paso            INTEGER NOT NULL,
+  enviado_en      INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, ciclo, paso)
+);
+CREATE INDEX IF NOT EXISTS idx_seguimientos_fecha ON seguimientos(enviado_en);

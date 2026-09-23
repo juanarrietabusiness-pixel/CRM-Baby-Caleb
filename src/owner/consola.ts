@@ -148,7 +148,7 @@ const COMANDOS: Record<string, (ctx: Contexto, args: string) => Promise<Respuest
 // ── Lo que hace cada botón ─────────────────────────────────────────────────
 
 /** Botones que responden sobre su propio mensaje (quitan sus botones). */
-const EDITAN_SU_MENSAJE = new Set(["venta", "devolucion", "descartar", "enviar", "deshacer"]);
+const EDITAN_SU_MENSAJE = new Set(["venta", "devolucion", "descartar", "enviar", "deshacer", "regla"]);
 
 const ACCIONES: Record<string, (ctx: Contexto, p: Record<string, unknown>) => Promise<Respuesta>> = {
   devolver: async (ctx, p) => {
@@ -164,6 +164,32 @@ const ACCIONES: Record<string, (ctx: Contexto, p: Record<string, unknown>) => Pr
     return r.ok ? { texto: `✅ Enviado a ${r.nombre}.` } : { texto: `❌ ${r.error}` };
   },
   descartar: async () => ({ texto: "❌ Descartado." }),
+  // Enseñarle algo al bot de clientas: el texto va a la base de conocimiento del
+  // panel (la única fuente) y se indexa en el acto.
+  regla: async (ctx, p) => {
+    const { KbDocsRepo, indexDoc } = await import("../kb/docs");
+    const repo = new KbDocsRepo(new Db(ctx.env.DB));
+    const texto = String(p.texto).trim();
+    const existente = p.docId ? await repo.getById(String(p.docId)) : null;
+    let contenido: string;
+    if (existente) {
+      const reemplazar = p.reemplazar ? String(p.reemplazar) : "";
+      contenido =
+        reemplazar && existente.content.includes(reemplazar)
+          ? existente.content.replace(reemplazar, texto)
+          : `${existente.content.trimEnd()}\n\n${texto}`;
+    } else {
+      contenido = texto;
+    }
+    const slug = String(p.titulo).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+    let id = existente?.id ?? (slug || crypto.randomUUID());
+    // Un documento nuevo nunca pisa a otro que ya use ese id.
+    if (!existente && (await repo.getById(id))) id = `${id}-${Date.now().toString(36)}`;
+    await repo.upsert({ id, title: existente?.title ?? String(p.titulo), content: contenido });
+    const doc = await repo.getById(id);
+    if (doc) await indexDoc(ctx.env, doc);
+    return { texto: `✅ Guardado en «${doc?.title ?? p.titulo}». El bot de clientas lo usa desde ya.` };
+  },
 };
 
 function accionDe(kind: string) {

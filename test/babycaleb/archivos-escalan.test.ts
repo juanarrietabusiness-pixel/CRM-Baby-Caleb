@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const AGENT = readFileSync(resolve(ROOT, "src/agent.ts"), "utf8");
-const KB = readFileSync(resolve(ROOT, "member/kb/06-cuando-escalar-a-humano.md"), "utf8");
+const KB = readFileSync(resolve(ROOT, "member/kb-respaldo/cuando-pasar-a-una-persona.md"), "utf8");
 const CONFIG = readFileSync(resolve(ROOT, "member/config.local.ts"), "utf8");
 
 describe("el archivo no llega al modelo", () => {

@@ -102,7 +102,7 @@ WA_PUENTE_URL = "https://juancitoads-bot-wa.juanarrietabusiness.workers.dev"
 #   CONTROL_PLANE_URL          optional (var) — base URL of the control plane (future reports / license check)
 
 [triggers]
-crons = ["0 3 * * *"]  # daily 3am UTC: purge old messages
+crons = ["0 * * * *", "0 3 * * *"]  # cada hora: seguimientos a clientas (src/followup/run.ts) · 3am UTC: purga y análisis nocturno
 
 # DASHBOARD_PASSWORD  (secret) — HTTP Basic Auth password for the admin dashboard; username is always "admin".
 # Set it with: wrangler secret put DASHBOARD_PASSWORD

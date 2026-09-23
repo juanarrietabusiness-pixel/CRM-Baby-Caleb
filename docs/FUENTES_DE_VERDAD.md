@@ -22,7 +22,7 @@ Cada turno, el bot arma su cabeza con esto, en este orden:
 | 3 | Lecciones aprendidas | D1 · `settings.learned_lessons` | el flywheel, solo |
 | 3b | Instrucciones adicionales | D1 · `settings.custom_instructions` | el panel, pestaña Config — se **suman**, no reemplazan |
 | 4 | Catálogo | D1 · tabla `catalog_items` | el panel, pestaña Catálogo |
-| 5 | Base de conocimiento | Vectorize, alimentada por `member/kb/` **y** por D1 · `kb_docs` | el repo · o el panel, pestaña KB |
+| 5 | Base de conocimiento | Vectorize, espejo de D1 · `kb_docs` | **solo** el panel, pestaña KB (o el botón ✅ de la consola de Telegram) |
 
 Las capas 1 a 3 van **enteras dentro del system prompt, en cada turno**. Las
 capas 4 y 5 solo llegan al modelo si él decide llamar una tool.
@@ -60,16 +60,16 @@ vez de *"prompt automático"*.
 | Cuántos pañales trae la caja | el **nombre** del producto en `catalog_items` | `catalogQuery` | KB |
 | Si hay o no hay | `catalog_items` | `catalogQuery` (etiqueta, no número) | ningún lado |
 | Costo interno | `catalog_items.cost_price` | **nunca** — no sale de la base | ningún lado |
-| Rangos de peso por talla | `member/kb/01-…` | `searchKb` | catálogo |
-| Tarifas de delivery por zona | `member/kb/02-…` | `searchKb` | catálogo |
-| Formas de pago, abono mínimo | `member/kb/03-…` | `searchKb` | catálogo |
-| Uso del producto | `member/kb/04-…` | `searchKb` | — |
-| Cuándo escalar | `member/kb/06-…` + prompt | `searchKb` / `handoffHuman` | — |
+| Rangos de peso por talla | panel · KB «Tallas y productos» | `searchKb` | catálogo |
+| Tarifas de delivery por zona | tool `cotizarEnvio` (reglas en KB «Envíos y delivery») | `cotizarEnvio` | catálogo |
+| Formas de pago, abono mínimo | panel · KB «Pagos, abonos y facturación» | `searchKb` | catálogo |
+| Uso del producto, cambios, retiro, agotados | panel · KB (un documento por tema) | `searchKb` | — |
+| Cuándo escalar | panel · KB «Cuándo pasar la conversación a una persona» + prompt | `searchKb` / `handoffHuman` | — |
 | Trato (usted), qué no se maneja | `member/config.local.ts` | va en el prompt | catálogo |
 
 Dos consecuencias prácticas:
 
-- **En `member/kb/` no hay precios de producto.** Están prohibidos y hay un
+- **En la base de conocimiento no hay precios de producto.** Están prohibidos y hay un
   test que falla si aparecen (`test/babycaleb/kb.test.ts`). Si el precio
   estuviera en los dos sitios, el del KB se quedaría congelado el día que la
   dueña cambie el del panel, y el bot podría contestar sin llamar la tool.
@@ -114,27 +114,25 @@ un solo dueño— y cada movimiento queda en `stock_movements`, con quién lo hi
 cómo deshacerlo. El editor del catálogo no pisa un movimiento hecho mientras
 estaba abierto. Ver `docs/consola-del-dueno.md`.
 
-**Una política, una tarifa de envío, una respuesta nueva** → edite el `.md` que
-corresponda en `member/kb/` y **haga merge a `main`**. Nada más.
+**Una política, una respuesta nueva, un cambio de regla** → en el panel,
+pestaña **KB**: se edita el documento del tema y se guarda. Se indexa al
+instante; no hace falta desplegar nada. Desde Telegram también: la consola le
+propone el texto y el documento, y usted lo guarda con ✅.
 
-GitHub Actions se encarga del resto (`.github/workflows/deploy.yml`): corre las
-pruebas, aplica el esquema, publica el Worker y **reindexa la base de
-conocimiento**. No hace falta abrir una terminal en ningún momento.
+**El panel es la única fuente** desde el 23-sep-2026. Antes había dos —los
+documentos del panel y los `.md` de `member/kb/` que subía cada despliegue—, el
+bot buscaba en los dos a la vez y se contradecían (cambios de talla, retiro,
+recomendar talla). Ahora:
 
-> Ese último paso —el reindexado— es el que de verdad sube los vectores, y
-> durante un tiempo no estuvo en el workflow: el deploy salía verde y el bot
-> seguía contestando con el conocimiento anterior. La peor combinación, porque
-> todo parecía bien. Si el paso falla por falta del secret `KB_REINDEX_TOKEN`,
-> el propio run le dice qué hacer.
-
-Con una terminal, si la tiene, el equivalente es `pnpm kb:reindex && pnpm test`
-antes de subir; pero el despliegue sigue saliendo del repositorio, no de una
-máquina.
-
-> Se puede editar la KB desde `/admin/kb` y se indexa al instante. Sirve para
-> una urgencia. Pero lo que se escribe ahí **no está en git**: nadie lo revisa,
-> nadie ve el diff, y la próxima vez que alguien corra el reindex general
-> conviven las dos versiones. Para algo permanente, va en `member/kb/`.
+- **El índice es un espejo del panel.** Cada reindex (el del despliegue o el
+  botón del panel) sube lo que hay y **borra lo que ya no está**. La tabla
+  `kb_indice` anota qué se subió; sin ella un reindex solo podía sumar.
+- **GitHub guarda una copia, en una sola dirección.** `respaldar-kb.yml` baja
+  cada noche los documentos del panel a `member/kb-respaldo/`. Es historial: el
+  bot no la lee, el despliegue la ignora y una prueba falla si alguien la
+  conecta al índice. **Editar esa carpeta no cambia nada en el bot.**
+- Las pruebas de `test/babycaleb/` leen esa copia: si un cambio en el panel
+  contradice el documento de la dueña, la próxima corrida lo marca.
 
 **El catálogo desde cero** → `src/db/seed-catalog.sql`, aplicado con wrangler. Ojo: **borra el stock
 cargado**. Para corregir precios en una base que ya está en producción sin
@@ -163,9 +161,9 @@ Contesta tres preguntas, en orden de qué tan callado es el daño:
 2. **¿Los precios de `catalog_items` son los del documento?** Producto por
    producto, y avisa de los que están inactivos o con stock en cero (el bot los
    ofrece como agotados) y de los que están en la base pero no en el documento.
-3. **¿Hay documentos escritos desde `/admin/kb`?** No están en git: nadie los
-   revisa, nadie ve el diff, y conviven en el mismo índice con los de
-   `member/kb/`.
+3. **¿La base de conocimiento del panel existe y no trae precios de producto?**
+   Es la única fuente: vacía es un problema; un monto que no sea el abono o el
+   cargo a Ferguson es un aviso.
 
 Distingue **problemas** (el bot dice algo falso — sale con código 1) de
 **avisos** (el bot se calla o se queda corto). Sirve igual en CI que a mano.

@@ -28,7 +28,9 @@ import { chunkContent } from "../src/kb/chunk";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
-const KB_DIR = resolve(ROOT, "member/kb");
+// El respaldo del panel (member/kb-respaldo/): el bot NO lo indexa; esto solo
+// alimenta las pruebas que comparan la base con el documento de la dueña.
+const KB_DIR = resolve(ROOT, "member/kb-respaldo");
 const OUT_FILE = resolve(HERE, "kb-fixtures.json");
 
 const TEXT_EXT = new Set([".md", ".mdx", ".txt"]);

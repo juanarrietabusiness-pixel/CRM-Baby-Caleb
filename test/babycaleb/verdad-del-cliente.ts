@@ -142,7 +142,9 @@ export const ESCALADAS: Array<{ id: string; pistas: string[] }> = [
   { id: "comprobante", pistas: ["comprobante"] },
   { id: "a-que-cuenta", pistas: ["a qué cuenta"] },
   { id: "pago-recibido", pistas: ["pago fue recibido"] },
-  { id: "imagenes", pistas: ["imagen", "video", "audio"] },
+  // 23-sep-2026, decisión de la dueña: las notas de voz se transcriben y se
+  // contestan; imágenes, videos y documentos siguen escalando.
+  { id: "imagenes", pistas: ["imagen", "video", "documento"] },
   { id: "fuera-de-guion", pistas: ["no está en la base de conocimiento"] },
   { id: "medico-legal", pistas: ["médicos, legales"] },
   { id: "fuera-de-catalogo", pistas: ["no está en el catálogo"] },

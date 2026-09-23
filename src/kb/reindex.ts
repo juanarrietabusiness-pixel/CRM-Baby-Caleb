@@ -1,11 +1,10 @@
 import type { Env } from "../env";
-import kbChunks from "../../scripts/kb-fixtures.json";
 
 /**
  * KB → Vectorize ingestion pipeline.
  *
- * Reads the build-time manifest produced by `scripts/generate-fixtures.ts`
- * (`scripts/kb-fixtures.json`), embeds every chunk's `content` with the
+ * Embeds the chunks it is given (the panel's documents — see ./docs.ts; the
+ * repo's member/kb-respaldo/ is a backup and is NEVER indexed), embeds every chunk's `content` with the
  * multilingual `@cf/baai/bge-m3` model (1024-dim — the SAME model `searchKb`
  * uses for queries, so vectors actually match), and upserts the results into
  * the Vectorize index bound as `KB`.
@@ -28,7 +27,7 @@ const BATCH_SIZE = 100;
 
 export async function reindexKb(
   env: Env,
-  chunks: KbChunk[] = kbChunks as KbChunk[],
+  chunks: KbChunk[],
 ): Promise<{ indexed: number }> {
   if (!Array.isArray(chunks) || chunks.length === 0) {
     return { indexed: 0 };
