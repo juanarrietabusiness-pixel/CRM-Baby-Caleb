@@ -9,7 +9,7 @@
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { ConversationsRepo } from "../db/conversations";
-import { chatDelDueno } from "./dueno";
+import { chatDelDueno, protegerConsolaUnaVez } from "./dueno";
 import { enviar, type Teclado } from "./telegram";
 import { anotarAviso, crearAccion, nombreDe } from "./acciones";
 import { EXTENSIONES } from "./extensiones";
@@ -47,6 +47,8 @@ export async function avisarAlDueno(env: Env, aviso: Aviso): Promise<boolean> {
 async function armarYEnviar(env: Env, aviso: Aviso): Promise<boolean> {
   const chatId = await chatDelDueno(env);
   if (!chatId || !env.TELEGRAM_BOT_TOKEN) return false;
+  // Antes del primer botón: sin la firma, la consola lo rechazaría.
+  await protegerConsolaUnaVez(env);
 
   const lineas = [aviso.titulo];
   const teclado: Teclado = [];

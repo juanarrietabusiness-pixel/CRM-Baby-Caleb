@@ -107,14 +107,28 @@ export async function nombreDelBot(env: Env): Promise<string | null> {
 // X-Telegram-Bot-Api-Secret-Token si el webhook se registró con `secret_token`.
 //
 // El secreto se DERIVA del token del bot: no hay otro secret que guardar ni
-// que olvidar, y nadie que no tenga el token lo puede calcular. El panel lo
-// registra al vincular el Telegram del dueño (asegurarWebhook).
+// que olvidar, y nadie que no tenga el token lo puede calcular. Se registra
+// solo (protegerConsolaUnaVez, en src/owner/dueno.ts): el dueño no tiene que
+// pasar por el panel.
+
+async function sha256hex(texto: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 export async function secretoDelWebhook(env: Env): Promise<string | null> {
   const token = env.TELEGRAM_BOT_TOKEN;
   if (!token) return null;
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`telegram-webhook:${token}`));
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 48);
+  return (await sha256hex(`telegram-webhook:${token}`)).slice(0, 48);
+}
+
+/**
+ * Una huella del secreto, para anotar en D1 con qué token quedó protegido el
+ * webhook sin guardar el secreto mismo. Cambia si cambia el token del bot.
+ */
+export async function huellaDelWebhook(env: Env): Promise<string | null> {
+  const secreto = await secretoDelWebhook(env);
+  return secreto ? (await sha256hex(`huella:${secreto}`)).slice(0, 16) : null;
 }
 
 /** ¿El update trae la firma de Telegram? */

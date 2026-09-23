@@ -16,8 +16,10 @@
 #   KB_REINDEX_TOKEN       — el MISMO valor que el secret del Worker; sin él la
 #                            base de conocimiento no se actualiza al desplegar
 #   WA_TOKEN               — opcional: el del canal de WhatsApp por QR
-#   OWNER_TELEGRAM_CHAT_ID — opcional: el chat de Telegram del dueño, para los
-#                            avisos. El bot le dice el suyo con /miid.
+#
+# El chat de Telegram del dueño (OWNER_TELEGRAM_CHAT_ID) NO va aquí: se pone
+# directo en Cloudflare como Secret, o con el enlace del panel. Ver
+# docs/consola-del-dueno.md.
 #
 # `workflow_dispatch` permite dispararlo a mano desde la pestaña Actions
 # eligiendo la rama — útil para probar antes de mergear a main.
@@ -87,12 +89,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # Los avisos al dueño, desde los secrets de GitHub — sin terminal.
-      #
-      # El dueño de este bot no usa la terminal, y OWNER_TELEGRAM_CHAT_ID solo
-      # se podía guardar con `wrangler secret put`: por eso el panel decía
-      # "⚠ HANDOFF SIN AVISO". Ahora se guarda en GitHub (Settings → Secrets
-      # and variables → Actions) y este paso lo carga en el Worker.
+      # Los otros avisos al dueño (correo, WhatsApp), desde los secrets de
+      # GitHub — sin terminal. El de Telegram NO pasa por aquí: su chat id se
+      # pone directo en Cloudflare o con el enlace del panel, y tenerlo en dos
+      # sitios solo servía para que uno pisara al otro en cada despliegue.
       #
       # Solo carga los de la lista y solo si existen: NUNCA borra ni vacía un
       # secret que ya esté en el Worker. Imprime los nombres, nunca los valores.
@@ -100,26 +100,17 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          OWNER_TELEGRAM_CHAT_ID: ${{ secrets.OWNER_TELEGRAM_CHAT_ID }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           OWNER_WA_NUMBER: ${{ secrets.OWNER_WA_NUMBER }}
         run: |
           set -euo pipefail
           trap 'rm -f cf-secrets.json' EXIT
-          # El chat id de Telegram es un número (negativo si es un grupo). Algo
-          # distinto —un @usuario, un espacio pegado— haría que el aviso falle
-          # en silencio: mejor no cargarlo y decirlo.
-          if [ -n "${OWNER_TELEGRAM_CHAT_ID:-}" ] && ! printf '%s' "$OWNER_TELEGRAM_CHAT_ID" | grep -Eq '^-?[0-9]{5,15}$'; then
-            echo "::warning::OWNER_TELEGRAM_CHAT_ID no es un número de chat (mándele /miid al bot en Telegram para saber el suyo). No se cargó."
-            OWNER_TELEGRAM_CHAT_ID=""
-          fi
           jq -n \
-            --arg tg "${OWNER_TELEGRAM_CHAT_ID:-}" \
             --arg email "${OWNER_EMAIL:-}" \
             --arg resend "${RESEND_API_KEY:-}" \
             --arg wa "${OWNER_WA_NUMBER:-}" '
-            {OWNER_TELEGRAM_CHAT_ID: $tg, OWNER_EMAIL: $email, RESEND_API_KEY: $resend, OWNER_WA_NUMBER: $wa}
+            {OWNER_EMAIL: $email, RESEND_API_KEY: $resend, OWNER_WA_NUMBER: $wa}
             | with_entries(select(.value != ""))
           ' > cf-secrets.json
           if [ "$(jq 'length' cf-secrets.json)" -eq 0 ]; then

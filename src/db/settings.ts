@@ -44,6 +44,10 @@ export const SETTING_KEYS = {
   // "cliente" = el dueño está probando el bot como si fuera una clienta: sus
   // mensajes van al agente y no a la consola. Vacío = consola del dueño.
   ownerTelegramMode: "owner_tg_modo",
+  // Huella del secreto con el que se registró el webhook de Telegram. Si
+  // coincide con la del token actual, la consola ya está protegida y no se
+  // vuelve a llamar a setWebhook (ver protegerConsolaUnaVez).
+  ownerWebhookFirmado: "owner_tg_webhook_firmado",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];

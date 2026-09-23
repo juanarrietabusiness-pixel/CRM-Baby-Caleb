@@ -14,9 +14,17 @@
 // llega a esta consola. Lo demás sigue siendo una clienta.
 
 import type { Env } from "../env";
-import { canjearCodigo, chatDelDueno, desvincular, enModoCliente, esElDueno, ponerModoCliente } from "./dueno";
+import {
+  canjearCodigo,
+  chatDelDueno,
+  desvincular,
+  enModoCliente,
+  esElDueno,
+  ponerModoCliente,
+  protegerConsola,
+} from "./dueno";
 import { anotarAviso, buscarConversaciones, conversacionDelAviso, nombreDe, refCorta, responderACliente, tomarAccion } from "./acciones";
-import { asegurarWebhook, contestarBoton, editar, enviar } from "./telegram";
+import { contestarBoton, editar, enviar } from "./telegram";
 import { pendientes } from "./pendientes";
 import { entenderAlDueno } from "./cerebro";
 import { EXTENSIONES } from "./extensiones";
@@ -178,20 +186,31 @@ export async function atenderAlDueno(
   // Sin la firma de Telegram, la consola no ejecuta NADA: ni botones, ni
   // comandos, ni el código de vínculo. Lo que diga venir del dueño se le avisa
   // a su chat real y se descarta; lo de una clienta sigue al agente como siempre.
+  //
+  // Si el webhook todavía no va firmado (protegerConsolaUnaVez casi siempre lo
+  // evita, pero alguien pudo re-registrarlo a mano sin secreto), se registra
+  // con el secreto aquí mismo: es inofensivo aunque el update fuera falso
+  // —solo reapunta NUESTRO webhook con NUESTRO secreto— y se descarta igual.
   if (!opts.confiable) {
     const cb = update.callback_query;
     if (cb) {
-      await contestarBoton(env, cb.id, "Por seguridad, abra el panel → Conexiones → Telegram y vuelva a vincular.");
+      if (!(await esElDueno(env, cb.from.id))) {
+        await contestarBoton(env, cb.id, "Este botón es solo para el dueño del negocio.");
+        return true;
+      }
+      // El botón no se consumió (tomarAccion no corrió): el segundo toque, ya
+      // firmado, lo hace.
+      const r = await protegerConsola(env);
+      await contestarBoton(
+        env,
+        cb.id,
+        r.ok ? "🔒 Activé la protección de su consola. Toque el botón otra vez." : `⚠️ No pude proteger la consola: ${r.error}`,
+      );
       return true;
     }
     const m = update.message;
     if (m && (codigoDeVinculo(m.text ?? "") || (await esElDueno(env, m.chat.id)))) {
-      // La primera vez (p. ej. un dueño que puso su chat id como secret y
-      // nunca pasó por "Vincular" en el panel), el webhook todavía no va
-      // firmado. Se registra con el secreto aquí mismo: es inofensivo aunque
-      // el mensaje fuera falso —solo reapunta NUESTRO webhook con NUESTRO
-      // secreto— y el mensaje sin firma se descarta igual.
-      const r = await asegurarWebhook(env);
+      const r = await protegerConsola(env);
       await enviar(env, m.chat.id, r.ok ? "🔒 Listo: activé la protección de su consola (el webhook ahora va firmado por Telegram). Vuelva a enviar su mensaje." : "⚠️ Por seguridad, la consola necesita que el webhook de Telegram esté protegido y no pude hacerlo solo: " + r.error + " Abra el panel → Conexiones → Telegram y toque «Enviarme un aviso de prueba».");
       return true;
     }

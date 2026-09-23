@@ -350,6 +350,12 @@ export default {
     const { checkBotHealth } = await import("./watchdog");
     await checkBotHealth(env).catch((e) => console.error("watchdog:", e));
 
+    // La firma del webhook de la consola del dueño, por si todavía no está (un
+    // dueño que puso su chat id en Cloudflare y aún no recibe avisos). Una sola
+    // vez por token; después es una lectura de D1.
+    const { protegerConsolaUnaVez } = await import("./owner/dueno");
+    await protegerConsolaUnaVez(env);
+
     // Los trabajos nocturnos SOLO corren en el tick diario (3am UTC) — un tick
     // más frecuente (si el miembro lo configura) no debe purgar/analizar de más.
     if (event.cron && event.cron !== "0 3 * * *") return;

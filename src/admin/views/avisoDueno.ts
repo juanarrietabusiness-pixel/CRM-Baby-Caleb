@@ -49,7 +49,7 @@ export function renderAvisoDuenoVinculado(opts: { chatId: string; porSecret: boo
                      hx-confirm="¿Dejar de recibir los avisos en este Telegram?">Desvincular</button>`
       }
     </div>
-    ${opts.porSecret ? `<p class="text-dim text-[12px]" style="margin:0">Vinculado por el secret OWNER_TELEGRAM_CHAT_ID.</p>` : ""}`);
+    ${opts.porSecret ? `<p class="text-dim text-[12px]" style="margin:0">Vinculado por el secret OWNER_TELEGRAM_CHAT_ID de Cloudflare. No hace falta nada más.</p>` : ""}`);
 }
 
 export function renderAvisoDuenoSinVincular(nota?: string): string {
