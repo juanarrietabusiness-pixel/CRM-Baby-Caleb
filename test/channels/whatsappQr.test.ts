@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { whatsappQrAdapter, esJidDeGrupo } from "../../src/channels/whatsappQr";
+import { whatsappQrAdapter, esJidDeGrupo, esChatDeUnaPersona } from "../../src/channels/whatsappQr";
 import { pickAdapter } from "../../src/replies/sender";
 import type { Env } from "../../src/env";
 
@@ -176,5 +176,70 @@ describe("esJidDeGrupo", () => {
   it("no confunde un chat normal ni un @lid con un grupo", () => {
     expect(esJidDeGrupo("5215555550000@s.whatsapp.net")).toBe(false);
     expect(esJidDeGrupo("82953669472492@lid")).toBe(false);
+  });
+});
+
+// El 24-sep-2026: el bot "contestaba" los ESTADOS de los contactos. Llegan a
+// Baileys como mensajes de `status@broadcast`; el CRM los tomaba por una
+// clienta mandando una foto, y la conversación existía en el panel pero no en
+// el teléfono.
+describe("los estados de WhatsApp no son una conversación", () => {
+  it("esChatDeUnaPersona: fuera estados, difusiones, grupos, canales y bots", () => {
+    for (const j of [
+      "status@broadcast",
+      "1234567890@broadcast",
+      "120363000000000000@g.us",
+      "120363000000000000@newsletter",
+      "13135550002@bot",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(esChatDeUnaPersona(j), String(j)).toBe(false);
+    }
+  });
+
+  it("esChatDeUnaPersona: dentro los chats de persona, también los formatos nuevos", () => {
+    for (const j of ["5215555550000@s.whatsapp.net", "82953669472492@lid", "573001112233@hosted"]) {
+      expect(esChatDeUnaPersona(j), j).toBe(true);
+    }
+  });
+
+  it("la foto de un estado ni se guarda: llega sin texto ni imagen", async () => {
+    const msg = await whatsappQrAdapter.parseIncoming(
+      entrante({
+        de: "status@broadcast",
+        nombre: "Un contacto",
+        texto: "de paseo",
+        tipo: "imageMessage",
+        media: { clase: "imagen", mime: "image/jpeg", base64: "AAAA" },
+        recibidoEn: 1,
+      }),
+      env,
+    );
+    expect(msg.text).toBeUndefined();
+    expect(msg.imageUrl).toBeUndefined();
+  });
+
+  it("sendReply se niega a escribirle a status@broadcast (eso PUBLICARÍA un estado)", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(
+      whatsappQrAdapter.sendReply(
+        { channel: "whatsapp-qr", channelUserId: "status@broadcast", chunks: ["hola"] },
+        env,
+      ),
+    ).rejects.toThrow(/no es el chat de una persona/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("la ruta del webhook lo ignora antes de despertar al agente", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/index.ts", "utf8");
+    const ruta = src.slice(src.indexOf('app.post("/webhooks/whatsapp-qr"'));
+    const filtro = ruta.indexOf("esChatDeUnaPersona(msg.channelUserId)");
+    const agente = ruta.indexOf("AGENT.get(");
+    expect(filtro).toBeGreaterThan(-1);
+    expect(agente).toBeGreaterThan(filtro);
   });
 });

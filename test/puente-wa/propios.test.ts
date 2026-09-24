@@ -164,3 +164,42 @@ describe("archivoDe — la nota de voz o la foto que hay que descargar", () => {
     expect(src).toMatch(/import makeWASocket, \{[^}]*downloadMediaMessage/);
   });
 });
+
+// El 24-sep-2026: los ESTADOS de los contactos llegaban al CRM como si una
+// clienta hubiera mandado una foto. Llegan a Baileys desde `status@broadcast`.
+describe("esChatDeUnaPersona — los estados no son una conversación", () => {
+  it("fuera estados, difusiones, grupos, canales y bots de Meta", () => {
+    for (const j of ["status@broadcast", "123@broadcast", "1203@g.us", "1203@newsletter", "1313@bot", "", null]) {
+      expect(propios.esChatDeUnaPersona(j), String(j)).toBe(false);
+    }
+  });
+
+  it("dentro los chats de persona, también @lid y formatos nuevos", () => {
+    for (const j of ["5215555550000@s.whatsapp.net", "82953669472492@lid", "57300@hosted"]) {
+      expect(propios.esChatDeUnaPersona(j), j).toBe(true);
+    }
+  });
+
+  it("el contenedor no reenvía lo que no es chat de persona, y no le escribe", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("puente-wa/contenedor/servidor.mjs", "utf8");
+    const entrada = src.slice(src.indexOf('s.ev.on("messages.upsert"'));
+    const filtro = entrada.indexOf("esChatDeUnaPersona(msg.key?.remoteJid)");
+    expect(filtro).toBeGreaterThan(-1);
+    expect(entrada.indexOf("reenviar(msg)")).toBeGreaterThan(filtro);
+
+    const envio = src.slice(src.indexOf('url.pathname === "/enviar"'));
+    const guarda = envio.indexOf("esChatDeUnaPersona(cuerpo.para)");
+    expect(guarda).toBeGreaterThan(-1);
+    expect(envio.indexOf("socket.sendMessage(")).toBeGreaterThan(guarda);
+  });
+
+  it("una respuesta propia a un estado tampoco pausa a nadie", () => {
+    const msg = {
+      key: { fromMe: true, id: "X1", remoteJid: "status@broadcast" },
+      message: { conversation: "mi estado" },
+      messageTimestamp: Math.floor(Date.now() / 1000),
+    };
+    expect(propios.esRespuestaDelTelefono(msg, { enviados: propios.crearRegistroDeEnvios() })).toBe(false);
+  });
+});

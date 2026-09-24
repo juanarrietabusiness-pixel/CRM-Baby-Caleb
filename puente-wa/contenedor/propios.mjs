@@ -90,6 +90,34 @@ export function textoDe(msg) {
   );
 }
 
+/**
+ * ¿Este chat es una persona escribiéndole al negocio, uno a uno?
+ *
+ * Hasta el 24-sep-2026 el contenedor reenviaba al CRM TODO lo que no fuera
+ * propio, y eso incluía los ESTADOS de los contactos: cuando alguien publica
+ * una foto en su estado, a Baileys le llega como un mensaje del chat
+ * `status@broadcast`. El CRM lo tomaba por una clienta mandando una foto, el
+ * bot le contestaba… a `status@broadcast`, y la conversación existía en el
+ * panel pero no en el teléfono. Una conversación fantasma — y, peor, lo que el
+ * bot "contestaba" iba al canal de los estados, no a una persona.
+ *
+ * Fuera: los estados y las listas de difusión (`@broadcast`), los grupos
+ * (`@g.us`), los canales (`@newsletter`) y los bots de Meta (`@bot`). Es una
+ * lista de lo que NO es, y no de lo que sí, a propósito: WhatsApp estrena
+ * formatos de chat de persona (`@lid`, `@hosted`…) más seguido que formatos de
+ * chat que no lo son, y un formato nuevo de persona no debe perder mensajes.
+ */
+export function esChatDeUnaPersona(jid) {
+  const j = String(jid ?? "");
+  return (
+    !!j &&
+    !j.endsWith("@broadcast") &&
+    !j.endsWith("@g.us") &&
+    !j.endsWith("@newsletter") &&
+    !j.endsWith("@bot")
+  );
+}
+
 /** Sin el sufijo de dispositivo: `507…:12@s.whatsapp.net` → `507…@s.whatsapp.net`. */
 export function sinDispositivo(jid) {
   if (!jid) return jid;
@@ -111,9 +139,7 @@ export function esRespuestaDelTelefono(msg, { enviados, yo = [], ahora = Date.no
   if (!id || enviados.tiene(id)) return false;
   const jid = msg.key.remoteJid ?? "";
   // Solo chats uno a uno: ni grupos, ni estados, ni canales.
-  if (!jid || jid.endsWith("@g.us") || jid.endsWith("@broadcast") || jid.endsWith("@newsletter")) {
-    return false;
-  }
+  if (!esChatDeUnaPersona(jid)) return false;
   // Un mensaje a uno mismo (las notas personales de WhatsApp) no es una clienta.
   const propios = yo.filter(Boolean).map(sinDispositivo);
   if (propios.includes(sinDispositivo(jid))) return false;

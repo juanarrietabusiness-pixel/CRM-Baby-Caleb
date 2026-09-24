@@ -19,6 +19,8 @@ import { Db } from "./db/client";
 import { ConversationsRepo } from "./db/conversations";
 import { MessagesRepo } from "./db/messages";
 import { SettingsRepo, SETTING_KEYS } from "./db/settings";
+// El bot solo atiende chats uno a uno: ni grupos, ni estados, ni canales.
+import { esChatDeUnaPersona } from "./channels/whatsappQr";
 
 /** Lo de siempre: una hora. Es lo que hacía el panel antes de ser configurable. */
 export const TAKEOVER_DEFAULT_MIN = 60;
@@ -122,16 +124,6 @@ export type ResultadoDelTelefono =
   | { accion: "pausada"; conversationId: string; hasta: number }
   | { accion: "ignorada"; motivo: string };
 
-/** El bot solo atiende chats uno a uno: ni grupos, ni estados, ni canales. */
-function jidAtendible(jid: string): boolean {
-  return (
-    !!jid &&
-    !jid.endsWith("@g.us") &&
-    !jid.endsWith("@broadcast") &&
-    !jid.endsWith("@newsletter")
-  );
-}
-
 /**
  * Cuánto se mira hacia atrás para reconocer un eco del propio bot. El eco
  * llega en el mismo instante en que el bot envía; el margen es para los
@@ -173,7 +165,7 @@ export async function registrarRespuestaDelTelefono(
   env: Env,
   r: RespuestaDelTelefono,
 ): Promise<ResultadoDelTelefono> {
-  const jids = [...new Set(r.jids.map((j) => (j ?? "").trim()).filter(jidAtendible))];
+  const jids = [...new Set(r.jids.map((j) => (j ?? "").trim()).filter(esChatDeUnaPersona))];
   if (jids.length === 0) return { accion: "ignorada", motivo: "no es un chat uno a uno" };
 
   const db = new Db(env.DB);

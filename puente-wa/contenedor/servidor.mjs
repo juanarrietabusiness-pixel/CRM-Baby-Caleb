@@ -28,6 +28,7 @@ import QRCode from "qrcode";
 import {
   archivoDe,
   crearRegistroDeEnvios,
+  esChatDeUnaPersona,
   esRespuestaDelTelefono as esRespuestaPropiaDePersona,
   textoDe,
   tipoDe,
@@ -60,6 +61,10 @@ const estado = {
   proximoIntentoEn: null,
   mensajesRecibidos: 0,
   mensajesEnviados: 0,
+  // Estados de los contactos, grupos y canales que llegaron y NO se
+  // reenviaron: no son una persona escribiéndole al negocio. Ver
+  // `esChatDeUnaPersona` en propios.mjs.
+  ignoradosNoSonChat: 0,
   // Mensajes que salieron del número del negocio SIN que los mandara el bot:
   // la dueña contestando desde el teléfono. Cada uno pausa esa conversación.
   respuestasDelTelefono: 0,
@@ -415,6 +420,12 @@ async function conectar() {
       // Lo de otros solo en vivo: `append` es historial que llega al
       // reconectar, y contestarlo sería responder mensajes viejos.
       if (type !== "notify") continue;
+      // Un estado que alguien publicó no es un mensaje al negocio. Antes se
+      // reenviaba y el bot "contestaba" una conversación que no existía.
+      if (!esChatDeUnaPersona(msg.key?.remoteJid)) {
+        estado.ignoradosNoSonChat += 1;
+        continue;
+      }
       estado.mensajesRecibidos += 1;
       reenviar(msg).catch((e) => {
         estado.ultimoError = `reenviar: ${e.message}`;
@@ -666,6 +677,11 @@ const servidor = http.createServer(async (req, res) => {
       const cuerpo = JSON.parse(await leer(req));
       if (!cuerpo?.para || !Array.isArray(cuerpo.chunks)) {
         return json(400, { error: "Se esperaba { para, chunks: [] }" });
+      }
+      // Nunca a un estado, un grupo ni un canal: mandarle texto a
+      // `status@broadcast` es PUBLICAR un estado con el número del negocio.
+      if (!esChatDeUnaPersona(cuerpo.para)) {
+        return json(400, { error: `No se le escribe a ${cuerpo.para}: no es el chat de una persona.` });
       }
       if (estado.conexion !== "conectada") {
         return json(409, { error: "No hay conexión con WhatsApp.", estado: estado.conexion });
