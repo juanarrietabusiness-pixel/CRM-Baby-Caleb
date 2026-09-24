@@ -28,6 +28,10 @@ name: CI y despliegue
 on:
   push:
     branches: [main]
+    # La copia diaria de la base de conocimiento (respaldar-kb.yml) no despliega
+    # nada: es historial del panel, y el bot no la lee.
+    paths-ignore:
+      - "member/kb-respaldo/**"
   pull_request:
     branches: [main]
   workflow_dispatch:

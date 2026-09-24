@@ -1,27 +1,11 @@
 /**
- * Tests del Follow-up bot: selección conservadora (caliente / activo),
- * ventana 3-20h, exclusiones (pausadas, instagram, último mensaje
- * del cliente, ya enviado), claim único de por vida y caps. LLM + adapter
- * mockeados; D1 real via miniflare.
+ * El seguimiento de la dueña: 5 horas, 3 días y 7 días sin respuesta, cordial,
+ * en horario, y nunca a quien dijo que no le interesa. D1 real (miniflare); el
+ * adapter del canal es un doble que anota lo que se mandó.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const generateTextMock = vi.fn();
 const sendReplyMock = vi.fn();
-
-vi.mock("ai", () => ({
-  generateText: (...args: unknown[]) => generateTextMock(...args),
-}));
-
-vi.mock("../../src/llm/provider", () => ({
-  createModel: () => ({
-    provider: "anthropic",
-    modelId: "modelo-test",
-    model: {},
-    supportsPromptCache: true,
-  }),
-}));
-
 vi.mock("../../src/replies/sender", () => ({
   pickAdapter: () => ({ sendReply: (...a: unknown[]) => sendReplyMock(...a) }),
 }));
@@ -29,168 +13,158 @@ vi.mock("../../src/replies/sender", () => ({
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
-import { MessagesRepo } from "../../src/db/messages";
-import { InsightsRepo } from "../../src/db/insights";
-import {
-  pickFollowupCandidates,
-  runFollowups,
-  MIN_IDLE_MS,
-  MAX_IDLE_MS,
-} from "../../src/followup/run";
-import type { Env } from "../../src/env";
+import { runFollowups, noQuiereSeguimiento, enHorario, textoDelPaso } from "../../src/followup/run";
 
-let env: Env;
+const HORA = 60 * 60 * 1000;
+const DIA = 24 * HORA;
+// Martes 22-sep-2026, 10:00 a.m. de Panamá (15:00 UTC): en horario.
+const MARTES_10AM = Date.UTC(2026, 8, 22, 15, 0, 0);
+
+let env: any;
 let db: Db;
 let convs: ConversationsRepo;
-let msgs: MessagesRepo;
-let insights: InsightsRepo;
-
-const NOW = Date.now();
-const IDLE_OK = NOW - MIN_IDLE_MS - 60 * 60 * 1000; // 4h atrás: dentro de la ventana
-
-/** Conversación con user→assistant terminada hace `userAt`. */
-async function seed(
-  userId: string,
-  opts: { channel?: string; userMsgs?: number; userAt?: number; endsWithUser?: boolean } = {},
-): Promise<string> {
-  const channel = opts.channel ?? "manychat";
-  const userAt = opts.userAt ?? IDLE_OK;
-  const conv = await convs.getOrCreate(channel, userId, `Lead ${userId}`);
-  const n = opts.userMsgs ?? 1;
-  for (let i = 0; i < n; i++) {
-    await msgs.append(conv.id, "user", `pregunta ${i + 1}`, { createdAt: userAt - (n - i) * 1000 });
-  }
-  if (!opts.endsWithUser) {
-    await msgs.append(conv.id, "assistant", "respuesta del bot", { createdAt: userAt + 500 });
-  }
-  await convs.touchLastMessage(conv.id, userAt + (opts.endsWithUser ? 0 : 500));
-  return conv.id;
-}
-
-async function markHot(convId: string) {
-  await insights.upsert({
-    conversationId: convId,
-    sentiment: "positive",
-    resolution: "unresolved",
-    botScore: 4,
-    topics: [],
-    summary: "interesado",
-    missedKb: null,
-    saleOpportunity: true,
-  });
-}
 
 beforeEach(async () => {
   const mf = await createTestMiniflare();
-  const d1 = (await mf.getD1Database("DB")) as any;
-  env = {
-    DB: d1,
-    BOT_NAME: "Ana",
-    BUSINESS_NAME: "Mi Negocio",
-    BOT_LANGUAGE: "es",
-    BOT_TIER: "pro",
-    BUFFER_SECONDS: "8",
-    MANYCHAT_API_KEY: "mc-test",
-  } as unknown as Env;
-  db = new Db(d1);
+  const d1 = await mf.getD1Database("DB");
+  db = new Db(d1 as any);
   convs = new ConversationsRepo(db);
-  msgs = new MessagesRepo(db);
-  insights = new InsightsRepo(db);
-  generateTextMock.mockReset().mockResolvedValue({ text: "¿Quedaste con alguna duda? Aquí ando." });
-  sendReplyMock.mockReset().mockResolvedValue(undefined);
+  env = { DB: d1, BOT_TIMEZONE: "America/Panama" };
+  sendReplyMock.mockReset();
+  sendReplyMock.mockResolvedValue(undefined);
 });
 
-describe("pickFollowupCandidates — selección", () => {
-  it("elige calientes (sale_opportunity) y activos (4+ msgs); ignora al resto", async () => {
-    const hot = await seed("hot");
-    await markHot(hot);
-    await seed("active", { userMsgs: 4 });
-    await seed("quiet"); // 1 mensaje, sin señales → NO
+/** La clienta escribió en `userAt`, el bot contestó en `botAt`. */
+async function conversacion(id: string, userAt: number, botAt: number, opts: { channel?: string; texto?: string } = {}) {
+  const conv = await convs.getOrCreate(opts.channel ?? "whatsapp-qr", id, `Clienta ${id}`);
+  await db.run("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)", [
+    `${id}-u`,
+    conv.id,
+    opts.texto ?? "¿cuánto cuesta la talla M?",
+    userAt,
+  ]);
+  await db.run("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'assistant', 'La M está a la venta…', ?)", [
+    `${id}-a`,
+    conv.id,
+    botAt,
+  ]);
+  await db.run("UPDATE conversations SET last_message_at = ? WHERE id = ?", [botAt, conv.id]);
+  return conv.id;
+}
 
-    const c = await pickFollowupCandidates(env, NOW, 10);
-    const byId = Object.fromEntries(c.map((x) => [x.id, x.reason]));
-    expect(byId[hot]).toBe("hot");
-    expect(byId["manychat:active"]).toBe("active");
-    expect(byId["manychat:quiet"]).toBeUndefined();
-    expect(c).toHaveLength(2);
+const enviados = () => sendReplyMock.mock.calls.map((c) => (c[0] as any).chunks[0] as string);
+
+describe("los tres pasos", () => {
+  it("a las 5 horas sale el mensaje de la dueña, y antes no", async () => {
+    await conversacion("a", MARTES_10AM - 6 * HORA, MARTES_10AM - 4 * HORA);
+    expect((await runFollowups(env, { now: MARTES_10AM })).sent).toBe(0);
+
+    await runFollowups(env, { now: MARTES_10AM + HORA + 1 });
+    expect(enviados()).toHaveLength(1);
+    expect(enviados()[0]).toMatch(/¿Desea algún pedido\? Estoy agendando los pedidos de mañana/);
   });
 
-  it("respeta la ventana 3-20h y las exclusiones", async () => {
-    const fresh = await seed("fresh", { userAt: NOW - 30 * 60 * 1000 }); // hace 30 min
-    await markHot(fresh);
-    const stale = await seed("stale", { userAt: NOW - MAX_IDLE_MS - 60 * 60 * 1000 }); // hace 21h
-    await markHot(stale);
-    const pending = await seed("pending", { endsWithUser: true }); // terminó hablando el cliente
-    await markHot(pending);
-    const ig = await seed("igdead", { channel: "instagram" });
-    await markHot(ig);
-    const paused = await seed("paused");
-    await markHot(paused);
-    await convs.setPausedUntil(paused, NOW + 60 * 60 * 1000);
-
-    const c = await pickFollowupCandidates(env, NOW, 10);
-    expect(c).toHaveLength(0);
-  });
-});
-
-describe("runFollowups — envío y garantías", () => {
-  it("manda UN follow-up por candidato, lo persiste como assistant y lo registra", async () => {
-    const hot = await seed("h1");
-    await markHot(hot);
-
-    const r = await runFollowups(env, { now: NOW });
-    expect(r).toEqual({ sent: 1, skipped: 0, errors: 0 });
-    expect(sendReplyMock).toHaveBeenCalledTimes(1);
-    const [payload] = sendReplyMock.mock.calls[0];
-    expect(payload.channelUserId).toBe("h1");
-    expect(payload.chunks[0]).toContain("duda");
-
-    const history = await msgs.lastN(hot, 5);
-    expect(history[history.length - 1].role).toBe("assistant");
-    expect(history[history.length - 1].content).toContain("duda");
-
-    // El prompt llevó contexto real y la razón
-    const prompt = (generateTextMock.mock.calls[0][0] as { prompt: string }).prompt;
-    expect(prompt).toContain("pregunta 1");
-    expect(prompt).toContain("venta o interés abierto");
+  it("3 días después sale el segundo, 7 días después el tercero, y ahí se para", async () => {
+    await conversacion("b", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA);
+    await runFollowups(env, { now: MARTES_10AM });
+    // Viernes 10 a.m. (3 días después)
+    await runFollowups(env, { now: MARTES_10AM + 3 * DIA });
+    // Viernes siguiente 10 a.m. (7 días después del segundo)
+    await runFollowups(env, { now: MARTES_10AM + 10 * DIA });
+    // Nada más, aunque pase el tiempo.
+    await runFollowups(env, { now: MARTES_10AM + 17 * DIA });
+    expect(enviados()).toHaveLength(3);
+    expect(enviados()[1]).toMatch(/todavía le interesa su pedido/);
+    expect(enviados()[2]).toMatch(/seguimos a la orden/);
   });
 
-  it("NUNCA repite: la segunda corrida no le manda a nadie", async () => {
-    const hot = await seed("h2");
-    await markHot(hot);
-    await runFollowups(env, { now: NOW });
-    const r2 = await runFollowups(env, { now: NOW });
-    expect(r2.sent).toBe(0);
-    expect(sendReplyMock).toHaveBeenCalledTimes(1);
+  it("si la clienta contesta, el ciclo vuelve a empezar desde el primero", async () => {
+    const id = await conversacion("c", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA);
+    await runFollowups(env, { now: MARTES_10AM });
+    await db.run("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('c-u2', ?, 'user', 'mañana le confirmo', ?)", [
+      id,
+      MARTES_10AM + HORA,
+    ]);
+    await db.run("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('c-a2', ?, 'assistant', 'Con gusto', ?)", [
+      id,
+      MARTES_10AM + HORA,
+    ]);
+    await runFollowups(env, { now: MARTES_10AM + 7 * HORA });
+    expect(enviados()).toHaveLength(2);
+    expect(enviados()[1]).toMatch(/¿Desea algún pedido\?/);
   });
 
-  it("si el envío falla, el claim se queda (no reintenta a ese cliente)", async () => {
-    sendReplyMock.mockRejectedValueOnce(new Error("manychat 500"));
-    const hot = await seed("h3");
-    await markHot(hot);
-
-    const r = await runFollowups(env, { now: NOW });
-    expect(r.errors).toBe(1);
-    const r2 = await runFollowups(env, { now: NOW });
-    expect(r2.sent).toBe(0); // claimed — no double touch
-  });
-
-  it("respeta el cap diario", async () => {
-    for (const u of ["c1", "c2", "c3"]) {
-      const id = await seed(u);
-      await markHot(id);
+  it("todos son de usted, nunca tutean", () => {
+    for (const p of [0, 1, 2]) {
+      const t = textoDelPaso(p, 10);
+      expect(t).not.toMatch(/\b(tú|tu bebé|quieres|necesitas|te ayudo)\b/i);
     }
-    const r = await runFollowups(env, { now: NOW, dailyCap: 2 });
-    expect(r.sent).toBe(2);
+  });
+});
+
+describe("a quién NO se le escribe", () => {
+  it("nunca más a quien dijo que no le interesa (y queda marcada)", async () => {
+    const id = await conversacion("d", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA, { texto: "No, gracias, ya no me interesa" });
+    const r = await runFollowups(env, { now: MARTES_10AM });
+    expect(r.sent).toBe(0);
+    const conv = await convs.getById(id);
+    expect(JSON.parse(conv!.metadata!).sin_seguimiento).toBe(true);
   });
 
-  it("no hace nada con el bot pausado globalmente", async () => {
-    const { SettingsRepo, SETTING_KEYS } = await import("../../src/db/settings");
-    await new SettingsRepo(db).set(SETTING_KEYS.botPaused, "1");
-    const hot = await seed("h4");
-    await markHot(hot);
-    const r = await runFollowups(env, { now: NOW });
-    expect(r.sent).toBe(0);
-    expect(sendReplyMock).not.toHaveBeenCalled();
+  it("reconoce las formas comunes de decir que no", () => {
+    for (const t of ["no me interesa", "No estoy interesada", "ya compré en otro lado", "no me escriba más", "ya no lo necesito"]) {
+      expect(noQuiereSeguimiento(t)).toBe(true);
+    }
+    for (const t of ["¿cuánto cuesta?", "me interesa la talla M", "no sé qué talla", "gracias!"]) {
+      expect(noQuiereSeguimiento(t)).toBe(false);
+    }
+  });
+
+  it("ni a una conversación que atiende una persona, ni con un ticket abierto", async () => {
+    const pausada = await conversacion("e", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA);
+    await convs.setPausedUntil(pausada, MARTES_10AM + DIA);
+    const conTicket = await conversacion("f", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA);
+    await convs.setOpenTicket(conTicket, "t1");
+    expect((await runFollowups(env, { now: MARTES_10AM })).sent).toBe(0);
+  });
+
+  it("ni fuera de horario: de noche o en fin de semana espera", async () => {
+    await conversacion("g", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA);
+    const MARTES_10PM = MARTES_10AM + 12 * HORA;
+    expect(enHorario(env, MARTES_10PM)).toBe(false);
+    expect((await runFollowups(env, { now: MARTES_10PM })).sent).toBe(0);
+    const SABADO_10AM = MARTES_10AM + 4 * DIA;
+    expect(enHorario(env, SABADO_10AM)).toBe(false);
+  });
+
+  it("WhatsApp oficial: pasadas 24 h ya no se puede escribir primero (sin plantilla)", async () => {
+    await conversacion("h", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA, { channel: "whatsapp" });
+    await runFollowups(env, { now: MARTES_10AM }); // el de 5 h sí cabe
+    await runFollowups(env, { now: MARTES_10AM + 3 * DIA }); // el de 3 días no
+    expect(enviados()).toHaveLength(1);
+  });
+});
+
+describe("garantías", () => {
+  it("el mismo paso nunca sale dos veces, aunque dos corridas se crucen", async () => {
+    await conversacion("i", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA);
+    await Promise.all([runFollowups(env, { now: MARTES_10AM }), runFollowups(env, { now: MARTES_10AM })]);
+    expect(enviados()).toHaveLength(1);
+  });
+
+  it("el bot en pausa global no manda nada", async () => {
+    await conversacion("j", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA);
+    await db.run("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('bot_paused', '1', ?)", [Date.now()]);
+    expect((await runFollowups(env, { now: MARTES_10AM })).sent).toBe(0);
+  });
+
+  it("el seguimiento queda en la conversación, visible en el panel", async () => {
+    const id = await conversacion("k", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA);
+    await runFollowups(env, { now: MARTES_10AM });
+    const ultimo = await db.first<{ role: string; model_used: string }>(
+      "SELECT role, model_used FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1",
+      [id],
+    );
+    expect(ultimo).toEqual({ role: "assistant", model_used: "seguimiento-1" });
   });
 });

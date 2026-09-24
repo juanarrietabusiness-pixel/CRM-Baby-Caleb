@@ -5,7 +5,7 @@
 // siguiente mensaje. Los fragmentos precargados del repo conviven con estos.
 import type { Env } from "../../env";
 import { Db } from "../../db/client";
-import { KbDocsRepo, FIXTURE_CHUNKS, MAX_DOC_CHARS, chunkContent, type KbDoc } from "../../kb/docs";
+import { KbDocsRepo, MAX_DOC_CHARS, chunkContent, type KbDoc } from "../../kb/docs";
 import {layout, ico, emptyState} from "./layout";
 
 function esc(s: string): string {
@@ -82,7 +82,7 @@ export async function renderKbList(
     </div>
 
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px" class="text-dim text-[11.5px]">
-      <span>Además, tu bot trae <b class="text-cream">${FIXTURE_CHUNKS.length}</b> fragmentos precargados del repo.</span>
+      <span>Lo que el bot sabe es exactamente lo de esta página. GitHub guarda una copia cada día (solo historial: no se lee).</span>
       <form method="POST" action="/admin/kb/reindex" style="margin-left:auto">
         <button class="ghostbtn cursor-pointer" style="display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);color:var(--muted);padding:8px 14px;font-size:11.5px;transition:all .12s ease">
           <i data-lucide="refresh-cw" width="13" height="13"></i> Reindexar todo

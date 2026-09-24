@@ -119,3 +119,31 @@ precio. La auditoría ahora los distingue, así que ya no sale como problema.
 **Queda en manos del dueño:** despausar el bot (**Config → Estado → Activo**)
 **después** de desplegar este cambio. Con el código viejo, al despausar el bot
 contestaría de golpe lo acumulado en el buffer desde el 17-sep.
+
+---
+
+## Segunda auditoría (23-sep-2026, tarde): una sola fuente
+
+La dueña cargó 6 documentos en el panel que chocaban con `member/kb/`, y la
+consola de Telegram le dijo "Entendido… respondo exactamente eso" sin guardar
+nada (no tenía cómo).
+
+**Contradicciones encontradas y decisión de la dueña:**
+
+| Tema | Panel | Repo | Decisión |
+|---|---|---|---|
+| Cambio de talla/caja | dos docs: "no hacemos cambios" y "excepción" | "a una persona" | Excepción con paquetes cerrados; la aprueba una persona |
+| Recomendar talla | "NUNCA recomendar" | orienta por peso | Orientar, con aviso de que no hay cambios por talla mal elegida |
+| Retiro | L-V, última opción | 7–5, un día antes | L-V 7–5, un día antes, solo como última opción |
+| Notas de voz | — | "todo audio escala" | Se transcriben y se contestan |
+| Talla agotada | (en Telegram) | "avisar cuando entre" | Apartar con abono de $5 y avisar a la dueña |
+| Seguimiento | "a las 5 h" (no podía cumplirse) | 1 al día, 10 p.m., IA en tuteo | 5 h, 3 días, 7 días, de usted, y nunca a quien no le interesa |
+| "8 paquetes" por caja | panel | catálogo no lo tiene | Se quitó el número |
+
+**Qué cambió:** el panel es la única fuente; el índice es su espejo (borra lo
+que ya no está); `member/kb/` pasó a `member/kb-respaldo/`, una copia diaria que
+el bot no lee; la consola propone reglas con botón (`proponerRegla`) y tiene
+prohibido decir "entendido" sin guardarlas. Ver `docs/FUENTES_DE_VERDAD.md`.
+
+**Pendiente de la dueña:** DANY-AW1200 está inactivo con 5 cajas en Ciudad de
+Panamá — se dejó como está.

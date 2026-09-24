@@ -43,8 +43,12 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 - `src/db/catalog.ts` + `src/catalog/validation.ts` — el catálogo (D1, tabla `catalog_items`):
   código, nombre, costo, venta, stock y bodega. El costo **nunca** sale hacia el bot y la
   cantidad exacta de stock tampoco — ver `docs/PLAN_CATALOGO_BABY_CALEB.md`.
-- `member/kb/` — la base de conocimiento versionada (políticas, tarifas de envío, pagos,
-  uso del producto, cuándo escalar). `pnpm kb:reindex` la vuelca a `scripts/kb-fixtures.json`.
+- La base de conocimiento vive **solo en el panel** (`/admin/kb`, D1 `kb_docs`); el índice
+  es su espejo (`src/kb/docs.ts`, tabla `kb_indice`). `member/kb-respaldo/` es una COPIA
+  diaria que hace `respaldar-kb.yml`: el bot no la lee y el despliegue la ignora — no la
+  edites esperando cambiar al bot. Las pruebas de `test/babycaleb/` la leen.
+- `src/followup/run.ts` — el seguimiento a clientas que no contestan: 5 h, 3 días y 7 días,
+  de usted, lunes a viernes 8–18, y nunca a quien dijo que no le interesa (cron por hora).
 - `src/niches/` — el "niche pack" genérico (Starter). Personaliza tono/columnas del panel.
 - `puente-wa/` — el canal **WhatsApp por código QR**: un Worker aparte
   (`juancitoads-bot-wa`) con un contenedor que sostiene el WebSocket de Baileys.
@@ -97,10 +101,11 @@ Los iconos de `public/` se regeneran del logo del sitio con
 **Antes de escribir cualquier dato del negocio, lea `docs/FUENTES_DE_VERDAD.md`.** Es
 corto y es contrato. En resumen: el precio, la existencia y la cantidad por caja viven
 SOLO en `catalog_items` (D1) y el bot los ve solo con `catalogQuery`; las políticas, las
-tarifas de envío y las formas de pago viven SOLO en `member/kb/` y las ve con `searchKb`;
+tarifas de envío y las formas de pago viven SOLO en la base de conocimiento del panel
+(`/admin/kb`) y las ve con `searchKb`;
 el trato y los límites duros viven en `member/config.local.ts`.
 
-Nunca escriba un precio de producto en `member/kb/` ni en `member/config.local.ts`. Lo que
+Nunca escriba un precio de producto en la base de conocimiento ni en `member/config.local.ts`. Lo que
 va al `<business_context>` se inyecta entero en el prompt en cada turno, así que el modelo
 lo lee **antes** de decidir si consulta el catálogo: un precio ahí le gana a D1 en silencio.
 Hay tests en `test/babycaleb/` que fallan si esa regla se rompe. Y como los tests

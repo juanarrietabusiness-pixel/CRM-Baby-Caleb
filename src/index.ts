@@ -340,6 +340,20 @@ app.post("/kb/reindex", async (c) => {
   return c.json({ ok: true, indexed: r.indexed, purged: r.purged }, 200);
 });
 
+// La copia de la base de conocimiento para GitHub (.github/workflows/respaldar-kb.yml).
+// Solo LEE: el panel es la única fuente, y lo que se guarde en el repositorio no
+// vuelve nunca al bot. Mismo secreto que el reindex.
+app.get("/kb/export", async (c) => {
+  const provided = c.req.header("X-Reindex-Token") ?? "";
+  const expected = c.env.KB_REINDEX_TOKEN ?? "";
+  if (!expected || !tokensMatch(provided, expected)) {
+    return c.json({ ok: false, error: "unauthorized" }, 401);
+  }
+  const { KbDocsRepo } = await import("./kb/docs");
+  const docs = await new KbDocsRepo(new Db(c.env.DB)).list();
+  return c.json({ ok: true, docs: docs.map((d) => ({ id: d.id, title: d.title, content: d.content, updated_at: d.updated_at })) });
+});
+
 app.notFound((c) => c.text("not found", 404));
 
 export default {

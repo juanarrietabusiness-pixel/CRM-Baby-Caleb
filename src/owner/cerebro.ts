@@ -24,7 +24,16 @@ import { textoDePendientes } from "./pendientes";
 import { EXTENSIONES } from "./extensiones";
 import { comoMensajes, historial } from "./memoria";
 import { CHANNEL_LABELS } from "../channels/labels";
+import { KbDocsRepo, type KbDoc } from "../kb/docs";
 import type { Contexto, Respuesta } from "./tipos";
+
+const sinTildes = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+/** El documento por su título, sin importar tildes ni mayúsculas. */
+export function buscarDoc(docs: KbDoc[], titulo: string): KbDoc | null {
+  const t = sinTildes(titulo);
+  return docs.find((d) => sinTildes(d.title) === t) ?? docs.find((d) => sinTildes(d.title).includes(t)) ?? null;
+}
 
 /** Lo que llega del dueño: texto (o la transcripción de su nota de voz) y quizá una foto. */
 export interface Entrada {
@@ -64,7 +73,9 @@ function instrucciones(ctx: Contexto): string {
     "Un mensaje a una clienta NUNCA sale directo: usa proponerMensaje y el dueño lo confirma con un botón.",
     "Si una herramienta devuelve varias conversaciones posibles, pregunta cuál antes de actuar.",
     extra,
-    "Dónde vive cada dato (por si pregunta cómo cambiar algo): precios y stock en el Catálogo del panel; políticas, envíos y formas de pago en la base de conocimiento; el tono y las instrucciones del bot en Config. Tú no cambias precios ni políticas: dile dónde se hace.",
+    "Dónde vive cada dato: precios y stock en el Catálogo (el stock sí lo mueves tú, con propuestas); políticas, envíos, pagos y cómo contestar en la base de conocimiento del panel; el tono en Config.",
+    "TÚ NO HABLAS CON CLIENTAS y no cambias al bot de clientas por tu cuenta. Si el dueño te da una instrucción para las clientas («si preguntan X, responde Y», «ya no hacemos Z»), eso es enseñarle al bot: mira primero la base con verBaseDeConocimiento, y usa proponerRegla para proponer el texto y el documento donde va. Si contradice algo que ya dice un documento, pásalo en `reemplazar` para que no queden dos reglas. El dueño lo guarda con un botón.",
+    "NUNCA digas «entendido, respondo eso», «ya lo aprendí» ni nada parecido si no usaste proponerRegla: sin el botón no cambia nada y la clienta seguiría recibiendo la respuesta vieja. Los precios no se enseñan así: van en el Catálogo.",
     "Si piden algo que no puedes hacer, dilo y sugiere el comando: /ayuda los lista todos.",
   ]
     .filter(Boolean)
@@ -85,6 +96,47 @@ async function unaConversacion(ctx: Contexto, texto: string) {
 
 function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
   return {
+    verBaseDeConocimiento: tool({
+      description:
+        "Lo que el bot de clientas sabe: los documentos de la base de conocimiento del panel. Sin título, la lista; con título, el texto de ese documento.",
+      inputSchema: z.object({ titulo: z.string().default("") }),
+      execute: async ({ titulo }) => {
+        const docs = await new KbDocsRepo(new Db(ctx.env.DB)).list();
+        if (!titulo.trim()) return docs.map((d) => `· ${d.title}`).join("\n") || "La base está vacía.";
+        const d = buscarDoc(docs, titulo);
+        return d ? `${d.title}\n\n${d.content}` : `No hay un documento «${titulo}». Existen:\n${docs.map((x) => `· ${x.title}`).join("\n")}`;
+      },
+    }),
+    proponerRegla: tool({
+      description:
+        "Propone enseñarle algo al bot de clientas: agrega (o reemplaza) un texto en un documento de la base de conocimiento. El dueño lo guarda con un botón; hasta entonces no cambia nada.",
+      inputSchema: z.object({
+        documento: z.string().describe("Título del documento donde va (uno existente, o uno nuevo)"),
+        texto: z.string().min(1).max(3000).describe("La regla, de usted, como la debe seguir el bot"),
+        reemplazar: z.string().optional().describe("Texto exacto del documento que esta regla reemplaza, si contradice algo"),
+      }),
+      execute: async ({ documento, texto, reemplazar }) => {
+        const docs = await new KbDocsRepo(new Db(ctx.env.DB)).list();
+        const d = buscarDoc(docs, documento);
+        if (reemplazar && (!d || !d.content.includes(reemplazar))) {
+          return "Ese texto a reemplazar no está tal cual en el documento. Léelo con verBaseDeConocimiento y copia el pedazo exacto.";
+        }
+        const grupo = nuevoGrupo();
+        const titulo = d?.title ?? documento.trim();
+        salida.push({
+          texto:
+            `📚 ¿Le enseño esto al bot? Va en «${titulo}»${d ? "" : " (documento nuevo)"}:\n\n«${texto}»` +
+            (reemplazar ? `\n\nY quita esto, que lo contradice:\n«${reemplazar}»` : ""),
+          teclado: [
+            [
+              { texto: "✅ Guardar", data: await crearAccion(ctx.env, "regla", { docId: d?.id ?? null, titulo, texto, reemplazar: reemplazar ?? null, grupo }) },
+              { texto: "❌ No", data: await crearAccion(ctx.env, "descartar", { grupo }) },
+            ],
+          ],
+        });
+        return "Propuesta enviada con botones. Dile que se guarda al tocar ✅ — todavía no cambió nada.";
+      },
+    }),
     verClientesRecientes: tool({
       description:
         "Seguimiento: las conversaciones con actividad en las últimas N horas, con su canal, su estado (en pausa, ticket abierto) y lo último que dijo la clienta.",

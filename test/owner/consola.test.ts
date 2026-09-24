@@ -579,3 +579,44 @@ describe("la consola recuerda, oye y ve", () => {
     expect(foto).toBeLessThan(aviso);
   });
 });
+
+describe("enseñarle algo al bot desde Telegram (la captura del 23-sep)", () => {
+  const conIndice = () => {
+    env.KB = { upsert: vi.fn(async () => ({})), deleteByIds: vi.fn(async () => ({})) };
+    env.AI = { run: vi.fn(async (_m: string, i: any) => ({ data: (i.text as string[]).map(() => [0.1]) })) };
+  };
+
+  it("el asistente sabe que NO puede decir «entendido» sin guardar, y tiene con qué guardar", async () => {
+    await vincular();
+    llm.activo = true;
+    llm.respuesta = "Le propongo la regla.";
+    await atenderAlDueno(env, mensaje("si preguntan por una talla agotada ofrece apartarla con $5"), OK);
+    expect(llm.llamadas[0].system).toMatch(/NUNCA digas «entendido/);
+    expect(Object.keys(llm.llamadas[0].tools)).toEqual(expect.arrayContaining(["proponerRegla", "verBaseDeConocimiento"]));
+  });
+
+  it("✅ Guardar agrega la regla al documento del panel y la indexa en el acto", async () => {
+    await vincular();
+    conIndice();
+    await db.run("INSERT INTO kb_docs (id, title, content, updated_at) VALUES ('talla-agotada', 'Talla agotada', 'Texto viejo.', 1)");
+    const { crearAccion } = await import("../../src/owner/acciones");
+    const data = await crearAccion(env, "regla", { docId: "talla-agotada", titulo: "Talla agotada", texto: "Ofrezca apartarla con $5.", reemplazar: "Texto viejo.", grupo: "g1" });
+    await atenderAlDueno(env, boton(data), OK);
+    const doc = await db.first<{ content: string }>("SELECT content FROM kb_docs WHERE id = 'talla-agotada'");
+    expect(doc!.content).toBe("Ofrezca apartarla con $5.");
+    expect(env.KB.upsert).toHaveBeenCalled();
+    expect(enviados.find((e) => e.metodo === "editMessageText")?.cuerpo.text).toMatch(/Guardado en «Talla agotada»/);
+  });
+
+  it("un documento nuevo se crea sin pisar a otro", async () => {
+    await vincular();
+    conIndice();
+    await db.run("INSERT INTO kb_docs (id, title, content, updated_at) VALUES ('horarios', 'Otra cosa', 'no tocar', 1)");
+    const { crearAccion } = await import("../../src/owner/acciones");
+    await atenderAlDueno(env, boton(await crearAccion(env, "regla", { docId: null, titulo: "Horarios", texto: "Abrimos a las 8.", grupo: "g2" })), OK);
+    const docs = await db.all<{ id: string; content: string }>("SELECT id, content FROM kb_docs ORDER BY id");
+    expect(docs.find((d) => d.id === "horarios")!.content).toBe("no tocar");
+    expect(docs.some((d) => d.content === "Abrimos a las 8.")).toBe(true);
+  });
+});
+

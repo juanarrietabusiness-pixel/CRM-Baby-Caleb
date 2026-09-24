@@ -24,7 +24,7 @@ import {
 } from "./verdad-del-cliente";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const chunks = buildFixtures(resolve(ROOT, "member/kb"));
+const chunks = buildFixtures(resolve(ROOT, "member/kb-respaldo"));
 
 /**
  * Todo el texto que se va a indexar, junto y con el espacio normalizado.
@@ -199,7 +199,10 @@ describe("escalada a humano — los 18 disparadores del documento", () => {
   });
 
   it("cualquier archivo entrante escala, sin excepción", () => {
-    expect(KB).toMatch(/cualquier.*imagen, video, audio o documento, escale/is);
+    // Desde el 23-sep-2026 las notas de voz se transcriben y se contestan (decisión
+    // de la dueña); imágenes, videos y documentos siguen escalando siempre.
+    expect(KB).toMatch(/cualquier imagen, foto, video o documento, escale/is);
+    expect(KB).toMatch(/notas de voz.*transcritas/is);
     expect(KB).toMatch(/sin excepción/i);
   });
 
@@ -265,7 +268,7 @@ describe("el trato es de usted", () => {
   it("el eslogan es la única excepción, y está donde debe", () => {
     const conEslogan = chunks.filter((c) => c.content.includes(ESLOGAN));
     expect(conEslogan).toHaveLength(1);
-    expect(conEslogan[0].id).toMatch(/^05-el-negocio/);
+    expect(conEslogan[0].id).toMatch(/^sobre-baby-caleb/);
     // Y queda dicho que es una cita, para que el bot no lo tome de licencia.
     expect(conEslogan[0].content).toMatch(/es el eslogan y se\s+cita tal cual/);
   });

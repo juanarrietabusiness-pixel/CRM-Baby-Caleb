@@ -192,7 +192,7 @@ export async function renderCatalogo(
       <p class="text-dim text-[11px]" style="margin:0;max-width:640px">
         El costo y el margen <strong>solo los ve usted</strong>: el bot nunca los consulta.
         A la clienta tampoco le dice cuántas unidades quedan — con menos de ${STOCK_BAJO} dice
-        "quedan pocas", y en cero dice que está agotado y ofrece avisar cuando entre.
+        "quedan pocas", y en cero dice que está agotado y ofrece apartarlo con un abono de $5.
       </p>
     </div>`;
 

@@ -1,97 +1,160 @@
 /**
- * Follow-up bot — un solo mensaje breve de seguimiento, SOLO a quien lo amerita.
+ * Seguimiento a las clientas que dejaron de contestar — la regla de la dueña
+ * (23-sep-2026):
  *
- * Selección (determinista, conservadora):
- *  • Su último mensaje fue hace entre 3 h (darle aire) y 20 h (la ventana de
- *    24 h de Meta/WhatsApp se mide desde el último mensaje del CLIENTE — se
- *    envía con margen antes de que cierre).
- *  • La conversación terminó con respuesta del bot (si terminó con el cliente
- *    hablando, eso es un pendiente del agente, no un follow-up).
- *  • Y es un lead que VALE el toque: venta abierta detectada por el Analista
- *    (sale_opportunity) o 4+ mensajes del cliente (engagement alto).
- *  • Nunca a conversaciones pausadas (takeover del dueño), nunca por el canal
- *    instagram oficial (apagado), y UNA sola vez por conversación de por vida
- *    (followup_sends es el claim). Cap por corrida y cap diario.
+ *   1. A las 5 horas sin respuesta, su mensaje ("¿Desea algún pedido? Estoy
+ *      agendando los pedidos de mañana…").
+ *   2. Si sigue sin contestar, 3 días después.
+ *   3. Si sigue sin contestar, 7 días después. Y ahí se para.
  *
- * El mensaje lo redacta el modelo rápido en la voz del bot (breve, no pushy),
- * se persiste como mensaje del asistente (visible en la Bandeja) y sale por el
- * adapter del canal. Corre en el cron frecuente de scheduled().
+ * Siempre cordial y de usted, en horario (lunes a viernes, 8 a.m. a 6 p.m. de
+ * Panamá), y NUNCA a quien dijo que no le interesa: una sola vez que lo diga
+ * basta para no volver a escribirle.
+ *
+ * Antes era un solo mensaje de por vida, redactado por la IA (en tuteo
+ * mexicano, contra el trato de usted), que salía en el cron diario de las 10
+ * p.m. El documento "Seguimiento" del panel pedía las 5 horas, pero el bot solo
+ * lee la base de conocimiento cuando una clienta le escribe: nunca podía
+ * cumplirlo.
+ *
+ * Cada vez que la clienta contesta empieza un ciclo nuevo (el `ciclo` es la
+ * hora de su último mensaje). La tabla `seguimientos` es el claim: un paso de un
+ * ciclo sale una sola vez aunque dos corridas se crucen.
+ *
+ * La ventana de 24 h: WhatsApp oficial, Messenger e Instagram no dejan escribir
+ * primero pasadas 24 h del último mensaje de la clienta (hace falta una
+ * plantilla aprobada). En esos canales solo sale lo que cabe en la ventana; los
+ * de 3 y 7 días salen por WhatsApp por QR y Telegram.
  */
-import { generateText } from "ai";
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { MessagesRepo } from "../db/messages";
 import { ConversationsRepo } from "../db/conversations";
-import { resolveAgentConfig, loadLlmOverrides } from "../settings-loader";
-import { createModel } from "../llm/provider";
+import { resolveAgentConfig } from "../settings-loader";
 import { pickAdapter } from "../replies/sender";
 import type { ChannelId } from "../channels/shared";
 
-/** Ventana de elegibilidad medida desde el último mensaje del cliente. */
-export const MIN_IDLE_MS = 3 * 60 * 60 * 1000; // 3 h
-export const MAX_IDLE_MS = 20 * 60 * 60 * 1000; // 20 h (margen vs. las 24 h)
+const HORA = 60 * 60 * 1000;
+const DIA = 24 * HORA;
 
-export type FollowupReason = "hot" | "active";
+/** Cuánto se espera antes de cada paso, contado desde el mensaje anterior del negocio. */
+export const PASOS = [
+  { espera: 5 * HORA },
+  { espera: 3 * DIA },
+  { espera: 7 * DIA },
+] as const;
 
-export interface FollowupCandidate {
+/** Canales con la ventana de 24 h de Meta/WhatsApp. */
+const CON_VENTANA = new Set(["whatsapp", "messenger", "instagram", "twilio", "manychat"]);
+const VENTANA_MS = 23 * HORA; // margen antes de que cierre
+
+/** "Buen día" o "Buenas tardes", según la hora del negocio. */
+function saludo(hora: number): string {
+  return hora < 12 ? "Buen día" : "Buenas tardes";
+}
+
+/** Los tres mensajes. El primero es el de la dueña, tal cual (con el saludo de la hora). */
+export function textoDelPaso(paso: number, hora: number): string {
+  const s = saludo(hora);
+  if (paso === 0) {
+    return `${s}, espero se encuentre bien. ¿Desea algún pedido? Estoy agendando los pedidos de mañana. ¡Estamos a la orden por cualquier consulta! 🙌🏻🙋🏻‍♀️`;
+  }
+  if (paso === 1) {
+    return `${s}, espero que usted y su bebé se encuentren muy bien 😊 Le escribo por si todavía le interesa su pedido: con gusto le ayudo a elegir la talla o a coordinar el envío. ¡Quedo a la orden! 🙌🏻`;
+  }
+  return `${s}, espero que estén muy bien 👶🏻✨ Solo quería recordarle que seguimos a la orden por si necesita pañales, toallitas o su fular. Cuando guste, aquí estamos. ¡Que tenga un lindo día!`;
+}
+
+/**
+ * ¿La clienta dijo que no le interesa, que ya compró o que no le escriban? Una
+ * sola vez basta: no se le vuelve a escribir nunca. Conservador a propósito —
+ * un "no, gracias" también cuenta: mejor un seguimiento de menos que uno que
+ * moleste.
+ */
+export function noQuiereSeguimiento(texto: string): boolean {
+  const t = texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+  // Sin \b al final: "interesad" tiene que cubrir interesada e interesado.
+  return /\b(no (me )?interes|ya no (me )?interes|no estoy interesad|sin interes|no,? gracias|no me (escriba|escriban|contacte|contacten|moleste|molesten)|dej(e|en) de (escribir|mandar)|no (me )?(vuelva|vuelvan) a escribir|no quiero (nada|mas|recibir)|ya (lo )?compre|ya (lo )?consegui|ya no (lo |los |las )?necesito|no necesito nada|borr(e|en) mi numero)/.test(t);
+}
+
+/** Hora y día de la semana del negocio. */
+function relojDelNegocio(env: Env, now: number): { hora: number; diaSemana: number } {
+  const zona = env.BOT_TIMEZONE || "America/Panama";
+  const partes = new Intl.DateTimeFormat("en-US", { timeZone: zona, hour: "numeric", hourCycle: "h23", weekday: "short" })
+    .formatToParts(new Date(now));
+  const hora = Number(partes.find((p) => p.type === "hour")?.value ?? "12");
+  const dia = partes.find((p) => p.type === "weekday")?.value ?? "Mon";
+  return { hora, diaSemana: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(dia) };
+}
+
+/** Lunes a viernes, 8:00 a 17:59 del negocio. */
+export function enHorario(env: Env, now: number): boolean {
+  const { hora, diaSemana } = relojDelNegocio(env, now);
+  return diaSemana >= 1 && diaSemana <= 5 && hora >= 8 && hora < 18;
+}
+
+export interface Pendiente {
   id: string;
   channel: string;
   channel_user_id: string;
-  display_name: string | null;
-  reason: FollowupReason;
+  ciclo: number;
+  paso: number;
 }
 
-interface CandidateRow {
+interface Fila {
   id: string;
   channel: string;
   channel_user_id: string;
-  display_name: string | null;
-  sale_opportunity: number | null;
-  user_msgs: number;
+  metadata: string | null;
+  last_user_at: number | null;
+  last_bot_at: number | null;
 }
 
-/** Conversaciones que ameritan follow-up ahora mismo. */
-export async function pickFollowupCandidates(
-  env: Env,
-  now: number,
-  limit: number,
-): Promise<FollowupCandidate[]> {
+/** Las conversaciones a las que les toca un paso ahora mismo. */
+export async function pendientes(env: Env, now: number, limite: number): Promise<Pendiente[]> {
   const db = new Db(env.DB);
-  const rows = await db.all<CandidateRow>(
+  const filas = await db.all<Fila>(
     `SELECT * FROM (
-       SELECT c.id, c.channel, c.channel_user_id, c.display_name,
-         i.sale_opportunity,
+       SELECT c.id, c.channel, c.channel_user_id, c.metadata,
          (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS last_user_at,
-         (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS user_msgs,
-         (SELECT role FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_role
+         (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role IN ('assistant', 'owner')) AS last_bot_at
        FROM conversations c
-       LEFT JOIN conversation_insights i ON i.conversation_id = c.id
-       LEFT JOIN followup_sends f ON f.conversation_id = c.id
-       WHERE f.conversation_id IS NULL
-         AND c.channel != 'instagram'
-         AND (c.paused_until IS NULL OR c.paused_until < ?)
+       WHERE (c.paused_until IS NULL OR c.paused_until < ?)
+         AND c.open_ticket_id IS NULL
+         AND c.last_message_at >= ?
      )
-     WHERE last_user_at IS NOT NULL
-       AND last_user_at <= ? AND last_user_at >= ?
-       AND last_role = 'assistant'
-       AND (COALESCE(sale_opportunity, 0) = 1 OR user_msgs >= 4)
-     ORDER BY COALESCE(sale_opportunity, 0) DESC, user_msgs DESC
-     LIMIT ?`,
-    [now, now - MIN_IDLE_MS, now - MAX_IDLE_MS, limit],
+     WHERE last_user_at IS NOT NULL AND last_bot_at IS NOT NULL AND last_bot_at >= last_user_at
+     ORDER BY last_bot_at ASC
+     LIMIT 200`,
+    // Nada de lo que lleve más de 12 días quieto: el último paso sale a los 10.
+    [now, now - 12 * DIA],
   );
-  return rows.map((r) => ({
-    id: r.id,
-    channel: r.channel,
-    channel_user_id: r.channel_user_id,
-    display_name: r.display_name,
-    reason: (r.sale_opportunity ?? 0) === 1 ? "hot" : "active",
-  }));
-}
 
-const REASON_HINT: Record<FollowupReason, string> = {
-  hot: "El Analista detectó que quedó una venta o interés abierto sin cerrar.",
-  active: "Hizo varias preguntas (interés alto) y luego dejó de responder.",
-};
+  const salida: Pendiente[] = [];
+  for (const f of filas) {
+    if (salida.length >= limite) break;
+    try {
+      if (JSON.parse(f.metadata ?? "{}")?.sin_seguimiento) continue;
+    } catch {
+      /* metadata vieja o vacía: sigue */
+    }
+    const ciclo = f.last_user_at!;
+    const hechos = await db.all<{ paso: number; enviado_en: number }>(
+      "SELECT paso, enviado_en FROM seguimientos WHERE conversation_id = ? AND ciclo = ? ORDER BY paso",
+      [f.id, ciclo],
+    );
+    const paso = hechos.length;
+    if (paso >= PASOS.length) continue;
+    const desde = paso === 0 ? f.last_bot_at! : hechos[hechos.length - 1].enviado_en;
+    if (now - desde < PASOS[paso].espera) continue;
+    if (CON_VENTANA.has(f.channel) && now - ciclo > VENTANA_MS) continue;
+    salida.push({ id: f.id, channel: f.channel, channel_user_id: f.channel_user_id, ciclo, paso });
+  }
+  return salida;
+}
 
 export interface RunFollowupsResult {
   sent: number;
@@ -104,45 +167,44 @@ export async function runFollowups(
   opts: { now?: number; limit?: number; dailyCap?: number } = {},
 ): Promise<RunFollowupsResult> {
   const now = opts.now ?? Date.now();
-  const limit = opts.limit ?? 6;
-  const dailyCap = opts.dailyCap ?? 30;
-  const db = new Db(env.DB);
+  const limit = opts.limit ?? 10;
+  const dailyCap = opts.dailyCap ?? 60;
+  const nada = { sent: 0, skipped: 0, errors: 0 };
+  if (!enHorario(env, now)) return nada;
 
+  const db = new Db(env.DB);
   // Respeta la pausa global del bot (el dueño lo apagó a propósito).
   const cfg = await resolveAgentConfig(env, []);
-  if (cfg.botPaused) return { sent: 0, skipped: 0, errors: 0 };
+  if (cfg.botPaused) return nada;
 
-  // Cap diario global — el follow-up es un toque fino, no una campaña.
-  const sentToday =
-    (
-      await db.first<{ n: number }>(
-        "SELECT COUNT(*) as n FROM followup_sends WHERE sent_at > ?",
-        [now - 24 * 60 * 60 * 1000],
-      )
-    )?.n ?? 0;
-  if (sentToday >= dailyCap) return { sent: 0, skipped: 0, errors: 0 };
+  const hoy =
+    (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM seguimientos WHERE enviado_en > ?", [now - DIA]))?.n ?? 0;
+  if (hoy >= dailyCap) return nada;
 
-  const candidates = await pickFollowupCandidates(
-    env,
-    now,
-    Math.min(limit, dailyCap - sentToday),
-  );
-  if (candidates.length === 0) return { sent: 0, skipped: 0, errors: 0 };
-
+  const lista = await pendientes(env, now, Math.min(limit, dailyCap - hoy));
   const msgs = new MessagesRepo(db);
   const convs = new ConversationsRepo(db);
-  const { model, modelId } = createModel(env, "fast", await loadLlmOverrides(env));
-
+  const { hora } = relojDelNegocio(env, now);
   let sent = 0;
   let skipped = 0;
   let errors = 0;
 
-  for (const cand of candidates) {
-    // Claim ANTES de enviar: si otra corrida (o un tick concurrente) ya lo
-    // tomó, INSERT OR IGNORE no escribe y saltamos — imposible duplicar.
+  for (const p of lista) {
+    // ¿Dijo alguna vez que no le interesa? Se marca para siempre y no se escribe.
+    const suyos = await db.all<{ content: string }>(
+      "SELECT content FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 200",
+      [p.id],
+    );
+    if (suyos.some((m) => noQuiereSeguimiento(m.content))) {
+      await marcarSinSeguimiento(db, p.id);
+      skipped++;
+      continue;
+    }
+
+    // Claim antes de enviar: dos corridas cruzadas no mandan el mismo paso dos veces.
     const claim = await db.run(
-      "INSERT OR IGNORE INTO followup_sends (conversation_id, reason, sent_at) VALUES (?, ?, ?)",
-      [cand.id, cand.reason, now],
+      "INSERT OR IGNORE INTO seguimientos (conversation_id, ciclo, paso, enviado_en) VALUES (?, ?, ?, ?)",
+      [p.id, p.ciclo, p.paso, now],
     );
     if ((claim.meta.changes ?? 0) === 0) {
       skipped++;
@@ -150,49 +212,33 @@ export async function runFollowups(
     }
 
     try {
-      const history = await msgs.lastN(cand.id, 6);
-      const transcript = history
-        .map((m) => `${m.role === "user" ? "Cliente" : "Tú"}: ${m.content.slice(0, 300)}`)
-        .join("\n");
-
-      const result = await generateText({
-        model,
-        prompt: `Eres ${env.BOT_NAME}, respondiendo chats de ${env.BUSINESS_NAME} en primera persona: humano, breve, español mexicano casual, sin emojis, nunca pushy.
-
-Este cliente mostró interés y luego dejó de responder. ${REASON_HINT[cand.reason]}
-${cand.display_name ? `Se llama ${cand.display_name}.` : ""}
-
-Últimos mensajes:
-${transcript}
-
-Escribe UN solo mensaje de seguimiento MUY breve (máximo 2 líneas): retoma con naturalidad lo último que hablaron y pregúntale si necesita ayuda o le quedó alguna duda. NO repitas links que ya le mandaste salvo que sea natural. Responde SOLO con el mensaje, sin comillas ni explicación.`,
-      });
-
-      const text = result.text.trim();
-      if (!text) throw new Error("empty followup text");
-
-      await msgs.append(cand.id, "assistant", text, { modelUsed: modelId });
-      await convs.touchLastMessage(cand.id, now);
-
-      const adapter = pickAdapter(cand.channel as ChannelId);
-      await adapter.sendReply(
-        {
-          channel: cand.channel as ChannelId,
-          channelUserId: cand.channel_user_id,
-          chunks: [text],
-          interChunkDelayMs: 0,
-        },
+      const texto = textoDelPaso(p.paso, hora);
+      await msgs.append(p.id, "assistant", texto, { modelUsed: `seguimiento-${p.paso + 1}`, createdAt: now });
+      await convs.touchLastMessage(p.id, now);
+      await pickAdapter(p.channel as ChannelId).sendReply(
+        { channel: p.channel as ChannelId, channelUserId: p.channel_user_id, chunks: [texto], interChunkDelayMs: 0 },
         env,
       );
       sent++;
     } catch (e) {
-      // El claim se queda (no reintentamos a este cliente): mejor un follow-up
-      // perdido que un cliente recibiendo dos toques por errores transitorios.
+      // El claim se queda: mejor un seguimiento perdido que uno repetido.
       errors++;
-      console.error(`[followup] failed for ${cand.id}:`, e);
+      console.error(`[seguimiento] falló ${p.id} paso ${p.paso + 1}:`, e);
     }
   }
 
-  if (sent > 0) console.log(`[followup] sent=${sent} skipped=${skipped} errors=${errors}`);
+  if (sent > 0) console.log(`[seguimiento] enviados=${sent} saltados=${skipped} errores=${errors}`);
   return { sent, skipped, errors };
+}
+
+async function marcarSinSeguimiento(db: Db, convId: string): Promise<void> {
+  const fila = await db.first<{ metadata: string | null }>("SELECT metadata FROM conversations WHERE id = ?", [convId]);
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = JSON.parse(fila?.metadata ?? "{}") ?? {};
+  } catch {
+    meta = {};
+  }
+  meta.sin_seguimiento = true;
+  await db.run("UPDATE conversations SET metadata = ? WHERE id = ?", [JSON.stringify(meta), convId]);
 }

@@ -1,20 +1,22 @@
 /**
- * Dashboard-editable KB documents (D1 `kb_docs`) + their Vectorize lifecycle.
+ * La base de conocimiento: los documentos del panel (D1 `kb_docs`) y su vida en
+ * Vectorize.
  *
- * Two KB sources coexist:
- *  • Repo fixtures (scripts/kb-fixtures.json) — packaged with the template.
- *  • Dashboard docs (this module) — the owner writes them from /admin/kb.
+ * El panel es la ÚNICA fuente. Hasta el 23-sep-2026 había dos: estos
+ * documentos y los .md de member/kb/ que subía cada despliegue. Se buscaban a
+ * la vez, se contradecían (cambios de talla, retiro, recomendar talla) y el bot
+ * contestaba con la que encontrara primero. Ahora member/kb-respaldo/ es solo
+ * una COPIA del panel que guarda GitHub: no se indexa nunca (hay una prueba que
+ * lo vigila).
  *
- * Dashboard docs are indexed IMMEDIATELY on save: previous vectors for the doc
- * are deleted (blanket id range) and fresh chunks are embedded and upserted,
- * so searchKb picks the change up on the next customer message. The global
- * "reindex all" combines both sources.
+ * El índice es un ESPEJO del panel: `kb_indice` anota qué pedazos se subieron,
+ * y cada reindex borra los que ya no existen. Un reindex que solo suma deja lo
+ * viejo contestando para siempre.
  */
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { reindexKb, type KbChunk } from "./reindex";
 import { chunkContent, MAX_CHUNKS } from "./chunk";
-import kbFixtures from "../../scripts/kb-fixtures.json";
 import kbRetirados from "../../member/kb-retirados.json";
 
 export interface KbDoc {
@@ -31,7 +33,18 @@ export const MAX_DOC_CHARS = 24_000;
 // MISMO, y los .md de member/kb/ entren al índice igual que los del panel.
 export { chunkContent, MAX_CHUNKS } from "./chunk";
 
-export const FIXTURE_CHUNKS = kbFixtures as KbChunk[];
+/**
+ * Los .md que member/kb/ subía al índice antes del 23-sep-2026. Ya no se suben;
+ * sus pedazos se borran en cada reindex por si alguno quedó.
+ */
+export const REPO_KB_LEGADO = [
+  "01-tallas-y-productos",
+  "02-envios-y-delivery",
+  "03-pagos-y-abonos",
+  "04-uso-del-producto",
+  "05-el-negocio",
+  "06-cuando-escalar-a-humano",
+];
 
 export class KbDocsRepo {
   constructor(private readonly db: Db) {}
@@ -72,15 +85,27 @@ export function docChunks(doc: KbDoc): KbChunk[] {
   }));
 }
 
+async function anotarIndice(env: Env, docId: string, ids: string[]): Promise<void> {
+  const ahora = Date.now();
+  await env.DB.prepare("DELETE FROM kb_indice WHERE doc_id = ?").bind(docId).run();
+  if (ids.length === 0) return;
+  const stmt = env.DB.prepare("INSERT OR REPLACE INTO kb_indice (vector_id, doc_id, created_at) VALUES (?, ?, ?)");
+  await env.DB.batch(ids.map((id) => stmt.bind(id, docId, ahora)));
+}
+
 /** Re-embed one doc: blanket-delete its old vectors, then upsert fresh ones. */
 export async function indexDoc(env: Env, doc: KbDoc): Promise<{ indexed: number }> {
   await env.KB.deleteByIds(vectorIds(doc.id));
-  return reindexKb(env, docChunks(doc));
+  const chunks = docChunks(doc);
+  const r = await reindexKb(env, chunks);
+  await anotarIndice(env, doc.id, chunks.map((c) => c.id));
+  return r;
 }
 
 /** Remove a deleted doc's vectors from the index. */
 export async function removeDocVectors(env: Env, docId: string): Promise<void> {
   await env.KB.deleteByIds(vectorIds(docId));
+  await anotarIndice(env, docId, []);
 }
 
 /** All dashboard docs as chunks (for the global reindex). */
@@ -112,12 +137,34 @@ export async function purgeRetiredDocVectors(env: Env): Promise<{ purged: string
   return { purged: aPurgar };
 }
 
-/** Global reindex: repo fixtures + every dashboard doc, minus the retired ones. */
+/**
+ * Reindex general: el índice queda IGUAL al panel. Sube cada documento y borra
+ * todo lo que no salga de él: documentos borrados, pedazos que sobraron al
+ * acortar uno, los .md viejos del repositorio y los retirados a mano.
+ */
 export async function reindexAll(env: Env): Promise<{ indexed: number; purged: string[] }> {
-  // Purgar ANTES de indexar: si un retirado reapareciera en kb_docs, la purga
-  // lo respeta y el indexado de abajo lo vuelve a escribir igual.
-  const { purged } = await purgeRetiredDocVectors(env);
-  const chunks = [...FIXTURE_CHUNKS, ...(await dashboardChunks(env))];
+  const docs = await new KbDocsRepo(new Db(env.DB)).list();
+  const chunks = docs.flatMap(docChunks);
+  const vivos = new Set(chunks.map((c) => c.id));
   const { indexed } = await reindexKb(env, chunks);
+
+  const antes = (
+    await env.DB.prepare("SELECT vector_id FROM kb_indice").all<{ vector_id: string }>()
+  ).results?.map((r) => r.vector_id) ?? [];
+  const docIds = new Set(docs.map((d) => d.id));
+  const legado = [
+    ...REPO_KB_LEGADO.flatMap((b) => Array.from({ length: MAX_CHUNKS }, (_, i) => `${b}#${i}`)),
+    ...RETIRED_DOC_IDS.filter((id) => !docIds.has(id)).flatMap(vectorIds),
+    // Pedazos de un documento vivo que ya no existen (se acortó).
+    ...docs.flatMap((d) => vectorIds(d.id)),
+  ];
+  const sobran = [...new Set([...antes, ...legado])].filter((id) => !vivos.has(id));
+  for (let i = 0; i < sobran.length; i += 500) await env.KB.deleteByIds(sobran.slice(i, i + 500));
+
+  await env.DB.prepare("DELETE FROM kb_indice").run();
+  for (const d of docs) await anotarIndice(env, d.id, docChunks(d).map((c) => c.id));
+
+  // Lo que salió del índice y no era un simple sobrante de un documento vivo.
+  const purged = [...new Set(antes.filter((id) => !vivos.has(id)))];
   return { indexed, purged };
 }
