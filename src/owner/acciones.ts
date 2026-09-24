@@ -82,6 +82,7 @@ export async function purgarAcciones(env: Env, antesDe: number): Promise<void> {
   const db = new Db(env.DB);
   await db.run("DELETE FROM owner_actions WHERE created_at < ?", [antesDe]);
   await db.run("DELETE FROM owner_notices WHERE created_at < ?", [antesDe]);
+  await db.run("DELETE FROM owner_fotos WHERE enviada_en < ?", [antesDe]);
 }
 
 // ── Avisos (el "Responder" de Telegram) ────────────────────────────────────

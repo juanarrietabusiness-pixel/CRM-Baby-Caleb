@@ -338,3 +338,13 @@ CREATE TABLE IF NOT EXISTS seguimientos (
   PRIMARY KEY (conversation_id, ciclo, paso)
 );
 CREATE INDEX IF NOT EXISTS idx_seguimientos_fecha ON seguimientos(enviado_en);
+
+-- Las fotos de la clienta que ya le llegaron a la dueña por Telegram. Con esto
+-- cada aviso sobre una conversación lleva la última foto de la clienta, sin
+-- repetir la misma en el aviso siguiente (src/owner/avisos.ts).
+CREATE TABLE IF NOT EXISTS owner_fotos (
+  conversation_id TEXT NOT NULL,
+  url             TEXT NOT NULL,
+  enviada_en      INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, url)
+);

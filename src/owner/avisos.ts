@@ -91,12 +91,22 @@ async function armarYEnviar(env: Env, aviso: Aviso): Promise<boolean> {
     teclado.push([{ texto: "💬 Abrir en el panel", url }]);
   }
 
-  if (aviso.foto) {
+  // La foto: la que trae el aviso, o si no, la última que mandó el cliente en
+  // esta conversación y que la dueña todavía no vio aquí. Antes solo llegaba
+  // con `escalar_media` encendido (Baby Caleb); en los demás, el aviso de
+  // "quiere una persona" o de un comprobante llegaba sin la imagen, y había
+  // que abrir el panel para verla.
+  const foto =
+    aviso.foto ?? (convId && aviso.conBotones !== false ? await ultimaFotoDelCliente(env, convId) : null);
+  if (foto && !(await fotoYaMandada(env, convId, foto))) {
     try {
-      const media = await bytesDeMedia(env, aviso.foto);
+      const media = await bytesDeMedia(env, foto);
       const fotoId = media ? await enviarFoto(env, chatId, media.bytes, media.mime, "📎 Lo que mandó la clienta") : null;
       // "Responder" sobre la foto también le llega a la clienta.
-      if (fotoId !== null) await anotarAviso(env, chatId, fotoId, convId, aviso.ticketId ?? null);
+      if (fotoId !== null) {
+        await anotarAviso(env, chatId, fotoId, convId, aviso.ticketId ?? null);
+        await anotarFotoMandada(env, convId, foto);
+      }
     } catch (e) {
       console.error("[avisarAlDueno] no se pudo mandar la foto:", e);
     }
@@ -106,4 +116,39 @@ async function armarYEnviar(env: Env, aviso: Aviso): Promise<boolean> {
   if (messageId === null) return false;
   await anotarAviso(env, chatId, messageId, convId, aviso.ticketId ?? null);
   return true;
+}
+
+/** Cuánto hacia atrás se busca la foto de la clienta: lo de hoy, no lo de la semana pasada. */
+const VENTANA_DE_FOTO_MS = 24 * 60 * 60 * 1000;
+
+/** La última imagen que mandó el cliente en esta conversación, si es reciente. */
+export async function ultimaFotoDelCliente(env: Env, conversationId: string): Promise<string | null> {
+  const fila = await env.DB.prepare(
+    `SELECT content FROM messages
+      WHERE conversation_id = ? AND role = 'user' AND content LIKE '%[IMAGE_URL: %' AND created_at > ?
+      ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(conversationId, Date.now() - VENTANA_DE_FOTO_MS)
+    .first<{ content: string }>();
+  return fila?.content.match(/\[IMAGE_URL: (.+?)\]/)?.[1] ?? null;
+}
+
+/**
+ * La misma foto no le llega dos veces: un comprobante que ya se mandó con el
+ * aviso de "archivo recibido" no se repite en el de "quiere una persona".
+ * Se recuerda por conversación y por URL (tabla owner_fotos).
+ */
+async function fotoYaMandada(env: Env, conversationId: string | null, url: string): Promise<boolean> {
+  if (!conversationId) return false;
+  const fila = await env.DB.prepare("SELECT 1 AS si FROM owner_fotos WHERE conversation_id = ? AND url = ?")
+    .bind(conversationId, url)
+    .first<{ si: number }>();
+  return !!fila;
+}
+
+async function anotarFotoMandada(env: Env, conversationId: string | null, url: string): Promise<void> {
+  if (!conversationId) return;
+  await env.DB.prepare("INSERT OR IGNORE INTO owner_fotos (conversation_id, url, enviada_en) VALUES (?, ?, ?)")
+    .bind(conversationId, url, Date.now())
+    .run();
 }

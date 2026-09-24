@@ -8,7 +8,7 @@ import { MessagesRepo } from "./db/messages";
 import { isPro } from "./config";
 import { resolveAgentConfig } from "./settings-loader";
 import { buildTools } from "./tools";
-import { buildMultimodalUserMessage } from "./media/vision";
+import { imagenParaElModelo, mensajeConImagen, NOTA_IMAGEN_ILEGIBLE } from "./media/vision";
 import { chunkReply } from "./replies/chunker";
 import { pickAdapter } from "./replies/sender";
 import { selectModel } from "./upgrade/modelSelector";
@@ -228,7 +228,15 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       const conv = await convs.getById(convId);
       if (conv?.paused_until && conv.paused_until > Date.now() && viaDeAtencion(conv.metadata) === "telegram") {
         const { avisarAlDueno } = await import("./owner/avisos");
-        await avisarAlDueno(this.env, { titulo: "💬 Le escribió", cuerpo: texto, conversationId: convId, conBotones: "devolver" });
+        // Con la foto, si mandó una: la dueña atiende desde Telegram y un
+        // "(la clienta mandó una imagen)" sin la imagen no le sirve de nada.
+        await avisarAlDueno(this.env, {
+          titulo: "💬 Le escribió",
+          cuerpo: texto,
+          conversationId: convId,
+          conBotones: "devolver",
+          foto: payload.imageUrl ?? null,
+        });
       }
     } catch (e) {
       console.warn("[SupportAgent] no se pudo reenviar a Telegram:", e);
@@ -328,11 +336,17 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     const lastUserMsg = history[history.length - 1];
     let mediaEscalada = false;
     let fotoEscalada: string | undefined;
+    // La imagen va en BYTES, leída por el CRM (ver imagenParaElModelo). Si no
+    // se pudo abrir, el modelo lo sabe y atiende a la clienta igual.
+    let textoSinImagen: string | null = null;
     if (lastUserMsg) {
       const imgMatch = lastUserMsg.content.match(/\[IMAGE_URL: (.+?)\]/);
       const cleanText = lastUserMsg.content.replace(/\n?\[IMAGE_URL: .+?\]/, "").trim();
       if (imgMatch && isPro(this.env) && !cfg.escalarMedia) {
-        aiMessages.push(buildMultimodalUserMessage(cleanText, imgMatch[1]));
+        textoSinImagen = `${cleanText || "(sin texto)"}\n\n${NOTA_IMAGEN_ILEGIBLE}`;
+        const img = await imagenParaElModelo(this.env, imgMatch[1]);
+        aiMessages.push(img ? mensajeConImagen(cleanText, img) : { role: "user", content: textoSinImagen });
+        if (!img) textoSinImagen = null; // ya va sin imagen: no hay a qué caer
       } else if (imgMatch && cfg.escalarMedia) {
         mediaEscalada = true;
         fotoEscalada = imgMatch[1];
@@ -530,8 +544,21 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         }
       }
 
+      // Con una imagen de por medio, un último intento SIN ella: que el
+      // proveedor no pueda procesar la foto no es razón para dejar al cliente
+      // con "algo falló". Se le atiende diciéndole que no se abrió.
+      if (!ok && textoSinImagen) {
+        aiMessages[aiMessages.length - 1] = { role: "user", content: textoSinImagen };
+        try {
+          await attempt(model);
+          ok = true;
+        } catch (e4: any) {
+          console.error("[SupportAgent.processBuffer] sin la imagen también falló:", e4);
+        }
+      }
+
       if (!ok) {
-        assistantText = "Algo falló de mi lado, intenta de nuevo en un momento.";
+        assistantText = "Algo falló de mi lado. Por favor, intente de nuevo en un momento.";
       }
     }
 

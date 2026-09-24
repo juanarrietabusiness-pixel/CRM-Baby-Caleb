@@ -245,18 +245,42 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     return streamTextMock.mock.calls[0][0].messages;
   }
 
-  it("pro tier: builds a multimodal message from the [IMAGE_URL] marker", async () => {
-    const messages = await runAlarm({
-      tier: "pro",
-      lastContent: "describe esto\n[IMAGE_URL: https://example.com/pic.png]",
-    });
+  it("pro tier: builds a multimodal message from the [IMAGE_URL] marker, con la imagen en BYTES", async () => {
+    // El CRM descarga la imagen y se la pasa al modelo ya leída: antes iba el
+    // enlace, y si el proveedor no podía bajarlo el cliente recibía "algo falló".
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const antes = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(png, { headers: { "content-type": "application/octet-stream" } })) as any;
+    let messages: any[];
+    try {
+      messages = await runAlarm({
+        tier: "pro",
+        lastContent: "describe esto\n[IMAGE_URL: https://example.com/pic.png]",
+      });
+    } finally {
+      globalThis.fetch = antes;
+    }
 
     const last = messages[messages.length - 1];
     expect(Array.isArray(last.content)).toBe(true);
-    expect(last.content).toEqual([
-      { type: "image", image: new URL("https://example.com/pic.png") },
-      { type: "text", text: "describe esto" },
-    ]);
+    expect(last.content[0].type).toBe("image");
+    expect(Array.from(last.content[0].image as Uint8Array)).toEqual(Array.from(png));
+    expect(last.content[0].mediaType).toBe("image/png");
+    expect(last.content[1]).toEqual({ type: "text", text: "describe esto" });
+  });
+
+  it("pro tier: si la imagen no se puede abrir, el modelo recibe la nota y atiende igual", async () => {
+    const antes = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("nope", { status: 404 })) as any;
+    let messages: any[];
+    try {
+      messages = await runAlarm({ tier: "pro", lastContent: "mire\n[IMAGE_URL: https://example.com/pic.png]" });
+    } finally {
+      globalThis.fetch = antes;
+    }
+    const last = messages[messages.length - 1];
+    expect(typeof last.content).toBe("string");
+    expect(last.content).toMatch(/no se pudo abrir/);
   });
 
   it("free tier: leaves the last message as plain text (no multimodal build)", async () => {
