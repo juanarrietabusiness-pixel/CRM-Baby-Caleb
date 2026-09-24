@@ -168,3 +168,22 @@ describe("garantías", () => {
     expect(ultimo).toEqual({ role: "assistant", model_used: "seguimiento-1" });
   });
 });
+
+// Pausar o devolver al bot reescribía `metadata` entera y se llevaba la marca
+// de la clienta que pidió no recibir más mensajes: el seguimiento volvía a
+// escribirle. (Se cazó al portar el seguimiento a B&S, 24-sep-2026.)
+describe("la marca de 'no me escriban' sobrevive a una pausa", () => {
+  it("pausar y devolver al bot no la borran", async () => {
+    const { pausarPorHumano, devolverAlBot } = await import("../../src/takeover");
+    const id = await conversacion("nn", MARTES_10AM - 6 * HORA, MARTES_10AM - 5 * HORA, { texto: "no me escriban más" });
+    await runFollowups(env, { now: MARTES_10AM });
+    await pausarPorHumano(env, id, "panel");
+    await devolverAlBot(env, id, { quien: "panel" });
+    const meta = JSON.parse(
+      (await db.first<{ metadata: string }>("SELECT metadata FROM conversations WHERE id = ?", [id]))!.metadata,
+    );
+    expect(meta.sin_seguimiento).toBe(true);
+    expect(meta.atiende).toBeUndefined();
+  });
+});
+

@@ -60,13 +60,33 @@ export async function pausarPorHumano(env: Env, conversationId: string, via?: Vi
   const hasta = Date.now() + (await takeoverMs(env));
   const db = new Db(env.DB);
   await new ConversationsRepo(db).setPausedUntil(conversationId, hasta);
-  if (via) {
-    await db.run("UPDATE conversations SET metadata = ? WHERE id = ?", [
-      JSON.stringify({ atiende: via, desde: Date.now() }),
-      conversationId,
-    ]);
-  }
+  if (via) await cambiarMetadata(db, conversationId, { atiende: via, desde: Date.now() });
   return hasta;
+}
+
+/**
+ * Cambia llaves de `conversations.metadata` sin pisar las demás. Ahí vive
+ * también `sin_seguimiento` (el cliente pidió que no le escribieran): antes la
+ * pausa y la devolución reescribían el JSON entero y se lo llevaban por delante.
+ * `undefined` borra la llave.
+ */
+async function cambiarMetadata(db: Db, conversationId: string, cambios: Record<string, unknown>): Promise<void> {
+  const fila = await db.first<{ metadata: string | null }>("SELECT metadata FROM conversations WHERE id = ?", [
+    conversationId,
+  ]);
+  let meta: Record<string, unknown> = {};
+  try {
+    const v = JSON.parse(fila?.metadata ?? "{}");
+    if (v && typeof v === "object") meta = v;
+  } catch {
+    /* metadata vieja o rota: se empieza de cero */
+  }
+  for (const [k, v] of Object.entries(cambios)) {
+    if (v === undefined) delete meta[k];
+    else meta[k] = v;
+  }
+  const texto = Object.keys(meta).length ? JSON.stringify(meta) : null;
+  await db.run("UPDATE conversations SET metadata = ? WHERE id = ?", [texto, conversationId]);
 }
 
 /** Por dónde atiende la persona esta conversación, si lo sabemos. */
@@ -105,7 +125,9 @@ export async function devolverAlBot(
       WHERE conversation_id = ? AND status != 'resolved'`,
     [Date.now(), `devuelto al bot (${opts.quien})`, conversationId],
   );
-  await db.run("UPDATE conversations SET open_ticket_id = NULL, metadata = NULL WHERE id = ?", [conversationId]);
+  await db.run("UPDATE conversations SET open_ticket_id = NULL WHERE id = ?", [conversationId]);
+  // Ya no la atiende nadie; lo demás (p. ej. `sin_seguimiento`) se queda.
+  await cambiarMetadata(db, conversationId, { atiende: undefined, desde: undefined });
   return { ticketsCerrados: r.meta?.changes ?? 0 };
 }
 
