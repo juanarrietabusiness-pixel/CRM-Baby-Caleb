@@ -643,3 +643,42 @@ describe("enseñarle algo al bot desde Telegram (la captura del 23-sep)", () => 
   });
 });
 
+
+// 24-sep-2026 (PanaClaw): "respóndele a Brian de 62272025" encontró por el
+// número una conversación VIEJA de Brian por el WhatsApp oficial; el mensaje
+// "salió" por ahí (fuera de la ventana de 24 h, nadie lo recibió) en vez de por
+// el WhatsApp QR del aviso que el dueño estaba mirando. Y el asistente dijo
+// después "✅ Mensaje enviado" sin haber enviado nada.
+describe("a quién le escribe la consola", () => {
+  it("prefiere la conversación del aviso reciente sobre otra del mismo cliente por otro canal", async () => {
+    await vincular();
+    const repo = new ConversationsRepo(db);
+    const viejaOficial = await repo.getOrCreate("whatsapp", "50762272025", "Bukoflow");
+    const delAviso = await repo.getOrCreate("whatsapp-qr", "59034493255880@lid", "Bukoflow");
+    const { anotarAviso } = await import("../../src/owner/acciones");
+    await anotarAviso(env, String(DUENO), 321, delAviso.id, null);
+    const { unaConversacion } = await import("../../src/owner/cerebro");
+    const r = await unaConversacion({ env, chatId: String(DUENO), actor: "t" } as any, "62272025");
+    expect((r as any).conv?.id).toBe(delAviso.id);
+    expect((r as any).conv?.id).not.toBe(viejaOficial.id);
+  });
+
+  it("no finge un envío por el WhatsApp oficial pasadas 24 h: lo dice", async () => {
+    const repo = new ConversationsRepo(db);
+    const conv = await repo.getOrCreate("whatsapp", "50760000000", "Viejo");
+    await db.run("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('v1', ?, 'user', 'hola', ?)", [
+      conv.id,
+      Date.now() - 3 * 24 * 3_600_000,
+    ]);
+    const { responderACliente } = await import("../../src/owner/acciones");
+    const r = await responderACliente(env, conv.id, "hola");
+    expect(r.ok).toBe(false);
+    expect((r as any).error).toMatch(/24 h/);
+  });
+
+  it("el asistente tiene prohibido dar por hecho un envío que no hizo", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/owner/cerebro.ts", "utf8");
+    expect(src).toMatch(/NUNCA digas que un mensaje se envió/);
+  });
+});
