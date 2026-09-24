@@ -147,6 +147,31 @@ export function nombreDe(c: Pick<Conversation, "display_name" | "channel_user_id
  * las conversaciones recientes: es para encontrar a "la clienta de hoy", no
  * para buscar en el archivo del año.
  */
+/** Canales con la ventana de 24 h de Meta: pasado ese plazo no se escribe primero. */
+const CON_VENTANA_24H = new Set(["whatsapp", "messenger", "instagram", "manychat"]);
+const VENTANA_24H_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Las conversaciones de los avisos que se le mandaron al dueño en las últimas
+ * horas, la más reciente primero. Es el "de quién estamos hablando": si el
+ * dueño dice "respóndele a Brian" justo después del aviso de Brian, es ESA
+ * conversación — no otra de Brian por otro canal.
+ */
+export async function conversacionesDeAvisosRecientes(
+  env: Env,
+  chatId: string | number,
+  horas = 6,
+): Promise<Conversation[]> {
+  const filas = await new Db(env.DB).all<Conversation & { ultimo_aviso: number }>(
+    `SELECT c.*, MAX(n.created_at) AS ultimo_aviso FROM owner_notices n
+       JOIN conversations c ON c.id = n.conversation_id
+      WHERE n.tg_chat_id = ? AND n.created_at > ?
+      GROUP BY c.id ORDER BY ultimo_aviso DESC LIMIT 5`,
+    [String(chatId), Date.now() - horas * 3_600_000],
+  );
+  return filas;
+}
+
 export async function buscarConversaciones(env: Env, texto: string, limite = 5): Promise<Conversation[]> {
   const q = texto.trim().replace(/^#/, "").toLowerCase();
   if (!q) return [];
@@ -179,6 +204,24 @@ export async function responderACliente(
   const convs = new ConversationsRepo(db);
   const conv = await convs.getById(conversationId);
   if (!conv) return { ok: false, error: "No encontré esa conversación (¿la borraron del panel?)." };
+  // Los canales oficiales de Meta no dejan escribir primero pasadas 24 h del
+  // último mensaje del cliente: el envío "sale" y nadie lo recibe. El 24-sep-2026
+  // la consola dijo "✅ Enviado" a un WhatsApp oficial viejo y al cliente no le
+  // llegó nada. Mejor decirlo que fingirlo.
+  if (CON_VENTANA_24H.has(conv.channel)) {
+    const ultimo = await db.first<{ t: number | null }>(
+      "SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'",
+      [conversationId],
+    );
+    if (!ultimo?.t || Date.now() - ultimo.t > VENTANA_24H_MS) {
+      return {
+        ok: false,
+        error:
+          `Por ${channelLabel(conv.channel)} no se le puede escribir primero: pasaron más de 24 h desde su último mensaje. ` +
+          "Si tiene otra conversación más reciente (p. ej. por WhatsApp QR), escríbale por esa.",
+      };
+    }
+  }
   try {
     await pickAdapter(conv.channel as ChannelId).sendReply(
       { channel: conv.channel as ChannelId, channelUserId: conv.channel_user_id, chunks: [texto], interChunkDelayMs: 0 },
