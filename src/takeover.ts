@@ -19,6 +19,8 @@ import { Db } from "./db/client";
 import { ConversationsRepo } from "./db/conversations";
 import { MessagesRepo } from "./db/messages";
 import { SettingsRepo, SETTING_KEYS } from "./db/settings";
+// El bot solo atiende chats uno a uno: ni grupos, ni estados, ni canales.
+import { esChatDeUnaPersona } from "./channels/whatsappQr";
 
 /** Lo de siempre: una hora. Es lo que hacía el panel antes de ser configurable. */
 export const TAKEOVER_DEFAULT_MIN = 60;
@@ -58,13 +60,33 @@ export async function pausarPorHumano(env: Env, conversationId: string, via?: Vi
   const hasta = Date.now() + (await takeoverMs(env));
   const db = new Db(env.DB);
   await new ConversationsRepo(db).setPausedUntil(conversationId, hasta);
-  if (via) {
-    await db.run("UPDATE conversations SET metadata = ? WHERE id = ?", [
-      JSON.stringify({ atiende: via, desde: Date.now() }),
-      conversationId,
-    ]);
-  }
+  if (via) await cambiarMetadata(db, conversationId, { atiende: via, desde: Date.now() });
   return hasta;
+}
+
+/**
+ * Cambia llaves de `conversations.metadata` sin pisar las demás. Ahí vive
+ * también `sin_seguimiento` (el cliente pidió que no le escribieran): antes la
+ * pausa y la devolución reescribían el JSON entero y se lo llevaban por delante.
+ * `undefined` borra la llave.
+ */
+async function cambiarMetadata(db: Db, conversationId: string, cambios: Record<string, unknown>): Promise<void> {
+  const fila = await db.first<{ metadata: string | null }>("SELECT metadata FROM conversations WHERE id = ?", [
+    conversationId,
+  ]);
+  let meta: Record<string, unknown> = {};
+  try {
+    const v = JSON.parse(fila?.metadata ?? "{}");
+    if (v && typeof v === "object") meta = v;
+  } catch {
+    /* metadata vieja o rota: se empieza de cero */
+  }
+  for (const [k, v] of Object.entries(cambios)) {
+    if (v === undefined) delete meta[k];
+    else meta[k] = v;
+  }
+  const texto = Object.keys(meta).length ? JSON.stringify(meta) : null;
+  await db.run("UPDATE conversations SET metadata = ? WHERE id = ?", [texto, conversationId]);
 }
 
 /** Por dónde atiende la persona esta conversación, si lo sabemos. */
@@ -103,7 +125,9 @@ export async function devolverAlBot(
       WHERE conversation_id = ? AND status != 'resolved'`,
     [Date.now(), `devuelto al bot (${opts.quien})`, conversationId],
   );
-  await db.run("UPDATE conversations SET open_ticket_id = NULL, metadata = NULL WHERE id = ?", [conversationId]);
+  await db.run("UPDATE conversations SET open_ticket_id = NULL WHERE id = ?", [conversationId]);
+  // Ya no la atiende nadie; lo demás (p. ej. `sin_seguimiento`) se queda.
+  await cambiarMetadata(db, conversationId, { atiende: undefined, desde: undefined });
   return { ticketsCerrados: r.meta?.changes ?? 0 };
 }
 
@@ -121,16 +145,6 @@ export interface RespuestaDelTelefono {
 export type ResultadoDelTelefono =
   | { accion: "pausada"; conversationId: string; hasta: number }
   | { accion: "ignorada"; motivo: string };
-
-/** El bot solo atiende chats uno a uno: ni grupos, ni estados, ni canales. */
-function jidAtendible(jid: string): boolean {
-  return (
-    !!jid &&
-    !jid.endsWith("@g.us") &&
-    !jid.endsWith("@broadcast") &&
-    !jid.endsWith("@newsletter")
-  );
-}
 
 /**
  * Cuánto se mira hacia atrás para reconocer un eco del propio bot. El eco
@@ -173,7 +187,7 @@ export async function registrarRespuestaDelTelefono(
   env: Env,
   r: RespuestaDelTelefono,
 ): Promise<ResultadoDelTelefono> {
-  const jids = [...new Set(r.jids.map((j) => (j ?? "").trim()).filter(jidAtendible))];
+  const jids = [...new Set(r.jids.map((j) => (j ?? "").trim()).filter(esChatDeUnaPersona))];
   if (jids.length === 0) return { accion: "ignorada", motivo: "no es un chat uno a uno" };
 
   const db = new Db(env.DB);

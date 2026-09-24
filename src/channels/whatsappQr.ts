@@ -57,11 +57,42 @@ export function esJidDeGrupo(jid: string): boolean {
   return jid.endsWith("@g.us");
 }
 
+/**
+ * ¿El chat es una persona escribiéndole al negocio, uno a uno?
+ *
+ * Los ESTADOS que publican los contactos le llegan a Baileys como mensajes del
+ * chat `status@broadcast`. Hasta el 24-sep-2026 el bot los tomaba por una
+ * clienta mandando una foto y "contestaba": la conversación se veía en el
+ * panel y no existía en el teléfono. Fuera también grupos, canales y bots de
+ * Meta. El contenedor ya los filtra (`propios.mjs`, la misma regla); esto es la
+ * segunda puerta, para un contenedor viejo que todavía no tenga el arreglo.
+ */
+export function esChatDeUnaPersona(jid: string | null | undefined): boolean {
+  const j = (jid ?? "").trim();
+  return (
+    !!j &&
+    !j.endsWith("@broadcast") &&
+    !j.endsWith("@g.us") &&
+    !j.endsWith("@newsletter") &&
+    !j.endsWith("@bot")
+  );
+}
+
 export const whatsappQrAdapter: ChannelAdapter = {
   async parseIncoming(request: Request, env: Env): Promise<IncomingMessage> {
     const cuerpo = (await request.json()) as EntranteDelPuente;
     const jid = cuerpo.de ?? "";
     if (!jid) throw new Error("El puente mandó un mensaje sin remitente.");
+    // Un estado, un grupo o un canal: ni se guarda su foto. La ruta lo ignora.
+    if (!esChatDeUnaPersona(jid)) {
+      return {
+        channel: "whatsapp-qr",
+        channelUserId: jid,
+        isOwnerMessage: false,
+        receivedAt: cuerpo.recibidoEn ?? Date.now(),
+        rawPayload: cuerpo,
+      };
+    }
 
     let audioUrl: string | undefined;
     let imageUrl: string | undefined;
@@ -96,6 +127,11 @@ export const whatsappQrAdapter: ChannelAdapter = {
   },
 
   async sendReply(reply: OutgoingReply, env: Env): Promise<void> {
+    // Mandarle texto a `status@broadcast` es PUBLICAR un estado con el número
+    // del negocio. Una conversación fantasma de antes del arreglo no debe poder.
+    if (!esChatDeUnaPersona(reply.channelUserId)) {
+      throw new Error(`whatsapp-qr: ${reply.channelUserId} no es el chat de una persona; no se envía.`);
+    }
     const token = env.WA_TOKEN;
     if (!token) throw new Error("Falta WA_TOKEN");
     if (!env.PUENTE_WA && !env.WA_PUENTE_URL) {

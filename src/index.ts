@@ -8,7 +8,7 @@ import { manychatAdapter } from "./channels/manychat";
 import { twilioAdapter } from "./channels/twilio";
 import { parseMetaEvents, verifyMetaSignature } from "./channels/meta";
 import { parseWhatsAppEvents, serveWhatsAppMedia } from "./channels/whatsapp";
-import { whatsappQrAdapter, parseRespuestaPropia } from "./channels/whatsappQr";
+import { whatsappQrAdapter, parseRespuestaPropia, esChatDeUnaPersona } from "./channels/whatsappQr";
 import { registrarRespuestaDelTelefono } from "./takeover";
 import { adminApp } from "./admin/routes";
 import { purgeOldMessages } from "./crons/purgeOldMessages";
@@ -127,6 +127,10 @@ app.post("/webhooks/whatsapp-qr", async (c) => {
     // en silencio es peor que un error visible.
     return c.text("no se pudo leer el mensaje", 400);
   }
+
+  // Estados de los contactos, grupos y canales: no son alguien escribiéndole al
+  // negocio. Antes el bot "contestaba" estados y dejaba conversaciones fantasma.
+  if (!esChatDeUnaPersona(msg.channelUserId)) return c.json({ ok: true, ignorado: "no es el chat de una persona" });
 
   // Reacciones, ediciones, borrados y demás mensajes de protocolo: nada que
   // contestar. Antes llegaban al agente como un mensaje vacío.

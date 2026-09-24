@@ -281,6 +281,39 @@ de voz** sí se transcriben y se contestan.
 
 ---
 
+## 24-sep-2026 · El bot contestaba los ESTADOS: conversaciones fantasma
+
+**Síntoma.** En el panel aparecía una conversación en la que "el cliente"
+mandaba una foto y el bot le contestaba. En el teléfono esa conversación no
+existía. Pasaba aquí, en PanaClaw y en B&S (los tres llevan el mismo contenedor).
+
+**Causa.** Cuando un contacto publica una foto en su **estado**, a Baileys le
+llega como un mensaje del chat `status@broadcast` (quien lo publicó va en
+`key.participant`). El contenedor reenviaba al CRM todo lo que no fuera
+propio, sin mirar de qué chat venía. El CRM lo tomó por una clienta, el bot
+lo "contestó"… a `status@broadcast`. Mandarle texto a ese chat no le llega a
+nadie en un chat: es **publicar un estado** con el número del negocio. Todos
+los estados de todos los contactos caían, además, en la MISMA conversación.
+
+**Arreglo** (tres puertas, la misma regla: `esChatDeUnaPersona`):
+- El contenedor (`propios.mjs`) no reenvía estados, difusiones (`@broadcast`),
+  grupos (`@g.us`), canales (`@newsletter`) ni bots de Meta (`@bot`). Los
+  cuenta en `ignoradosNoSonChat` (se ve en el estado del puente).
+- El contenedor se niega a ENVIAR a esos chats (`/enviar` → 400).
+- El CRM los ignora en `/webhooks/whatsapp-qr` antes de despertar al agente
+  (ni guarda la foto), y `sendReply` se niega a mandarles nada: una
+  conversación fantasma que ya exista en la base no puede volver a escribir.
+
+Es una lista de lo que NO es, a propósito: WhatsApp estrena formatos de chat
+de persona (`@lid`, `@hosted`) más seguido que de otra cosa, y un formato
+nuevo de persona no debe perder mensajes. Una clienta que RESPONDE a un estado
+del negocio sí llega: eso viene de su chat, no de `status@broadcast`.
+
+**Limpieza:** la conversación fantasma que ya exista (su "cliente" es
+`status@broadcast`) se borra desde el panel, en Conversaciones.
+
+---
+
 ## Cómo se consiguen los logs sin abrir una terminal
 
 El dueño de este bot no usa la terminal, y el fallo de arriba era invisible
