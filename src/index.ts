@@ -336,7 +336,15 @@ app.post("/kb/reindex", async (c) => {
   if (!expected || !tokensMatch(provided, expected)) {
     return c.json({ ok: false, error: "unauthorized" }, 401);
   }
-  const r = await reindexAll(c.env);
+  let r;
+  try {
+    r = await reindexAll(c.env);
+  } catch (e) {
+    // El motivo va en la respuesta: el despliegue lo imprime, y sin él un 500
+    // no dice nada.
+    console.error("[kb/reindex] falló:", e);
+    return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
+  }
   // `espejo`: lo contesta la versión que borra lo que ya no está en el panel.
   // El despliegue lo espera — justo después de publicar, un reindex todavía
   // puede caerle al Worker anterior (pasó el 24-sep).
