@@ -337,7 +337,10 @@ app.post("/kb/reindex", async (c) => {
     return c.json({ ok: false, error: "unauthorized" }, 401);
   }
   const r = await reindexAll(c.env);
-  return c.json({ ok: true, indexed: r.indexed, purged: r.purged }, 200);
+  // `espejo`: lo contesta la versión que borra lo que ya no está en el panel.
+  // El despliegue lo espera — justo después de publicar, un reindex todavía
+  // puede caerle al Worker anterior (pasó el 24-sep).
+  return c.json({ ok: true, espejo: true, indexed: r.indexed, purged: r.purged }, 200);
 });
 
 // La copia de la base de conocimiento para GitHub (.github/workflows/respaldar-kb.yml).

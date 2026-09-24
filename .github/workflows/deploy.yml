@@ -202,12 +202,21 @@ jobs:
           echo "Reindexando en $URL/kb/reindex"
           # --fail-with-body: sin esto curl devuelve 0 ante un 401 y el deploy
           # pasaría en verde con el índice sin tocar.
-          RESP="$(curl -sS --fail-with-body --retry 3 --retry-delay 5 --max-time 120 \
-                    -X POST "$URL/kb/reindex" -H "X-Reindex-Token: $KB_REINDEX_TOKEN")"
-          echo "$RESP"
+          # Justo después de publicar, el reindex todavía puede caerle a la
+          # versión anterior del Worker (pasó el 24-sep: el índice quedó con lo
+          # viejo). La versión que deja el índice como espejo del panel contesta
+          # "espejo":true; hasta verla, se reintenta.
+          for intento in 1 2 3 4 5 6; do
+            RESP="$(curl -sS --fail-with-body --retry 3 --retry-delay 5 --max-time 120 \
+                      -X POST "$URL/kb/reindex" -H "X-Reindex-Token: $KB_REINDEX_TOKEN")"
+            echo "$RESP"
+            case "$RESP" in *'"espejo":true'*) break ;; esac
+            echo "Todavía contesta la versión anterior; reintento en 15 s ($intento/6)."
+            sleep 15
+          done
           case "$RESP" in
-            *'"ok":true'*) echo "Base de conocimiento actualizada." ;;
-            *) echo "::error::El reindexado no confirmó ok:true."; exit 1 ;;
+            *'"espejo":true'*) echo "Base de conocimiento actualizada." ;;
+            *) echo "::error::El reindexado no confirmó que corrió la versión nueva (espejo:true)."; exit 1 ;;
           esac
 
   # ── 3 · Auditar la verdad contra la base EN VIVO ──────────────────────────
