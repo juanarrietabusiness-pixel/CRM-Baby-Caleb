@@ -159,7 +159,9 @@ export async function reindexAll(env: Env): Promise<{ indexed: number; purged: s
     ...docs.flatMap((d) => vectorIds(d.id)),
   ];
   const sobran = [...new Set([...antes, ...legado])].filter((id) => !vivos.has(id));
-  for (let i = 0; i < sobran.length; i += 500) await env.KB.deleteByIds(sobran.slice(i, i + 500));
+  // En lotes chicos: Vectorize rechaza un deleteByIds grande (el 24-sep, con
+  // ~480 ids de una vez, el reindex del despliegue devolvió 500).
+  for (let i = 0; i < sobran.length; i += 50) await env.KB.deleteByIds(sobran.slice(i, i + 50));
 
   await env.DB.prepare("DELETE FROM kb_indice").run();
   for (const d of docs) await anotarIndice(env, d.id, docChunks(d).map((c) => c.id));
