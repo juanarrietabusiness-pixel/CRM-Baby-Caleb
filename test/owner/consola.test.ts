@@ -19,7 +19,13 @@ vi.mock("agents", () => ({ Agent: class {} }));
 
 // El modelo del asistente del dueño, cuando una prueba lo necesita: anota lo
 // que recibió y contesta lo que se le diga. Apagado, es el de verdad.
-const llm = vi.hoisted(() => ({ activo: false, respuesta: "", llamadas: [] as any[] }));
+const llm = vi.hoisted(() => ({
+  activo: false,
+  respuesta: "",
+  llamadas: [] as any[],
+  /** Si está, hace de modelo: puede llamar herramientas y devuelve el texto. */
+  pensar: null as null | ((args: any) => Promise<string>),
+}));
 vi.mock("ai", async (original) => {
   const real: any = await original();
   return {
@@ -27,7 +33,7 @@ vi.mock("ai", async (original) => {
     generateText: async (args: any) => {
       if (!llm.activo) return real.generateText(args);
       llm.llamadas.push(args);
-      return { text: llm.respuesta };
+      return { text: llm.pensar ? await llm.pensar(args) : llm.respuesta };
     },
   };
 });
@@ -134,6 +140,7 @@ afterEach(() => {
   llm.activo = false;
   llm.respuesta = "";
   llm.llamadas = [];
+  llm.pensar = null;
 });
 
 async function vincular() {
@@ -531,7 +538,7 @@ describe("la consola recuerda, oye y ve", () => {
     const m = await memoria();
     expect(m[0]).toBe("dueno: /venta NAT-M 2");
     expect(m[1]).toMatch(/^consola: [\s\S]*NAT-M/);
-    expect(m.at(-1)).toMatch(/^consola: \[botón\]/);
+    expect(m.at(-1)).toMatch(/^consola: \[hecho\]/);
   });
 
   it("/nuevo borra la memoria", async () => {
@@ -680,5 +687,158 @@ describe("a quién le escribe la consola", () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("src/owner/cerebro.ts", "utf8");
     expect(src).toMatch(/NUNCA digas que un mensaje se envió/);
+  });
+});
+
+// 24-sep-2026, la segunda vez (PanaClaw, 00:30 UTC): el dueño pidió por nota de
+// voz responderle a Brian; el asistente preguntó "¿quieres que le mande…?", el
+// dueño dijo "Exacto" y el asistente escribió él mismo «[botón] ✅ Enviado a
+// Bukoflow · WhatsApp. ¿Lo confirmas?». Al "Si" siguiente: "✅ Mensaje enviado a
+// Brian · WhatsApp." En owner_actions no había NINGUNA propuesta: nunca se
+// llamó a proponerMensaje y nada salió.
+describe("un mensaje a un cliente sale de verdad, o se dice que no salió", () => {
+  async function brian() {
+    const conv = await new ConversationsRepo(db).getOrCreate("whatsapp-qr", "59034493255880@lid", "Bukoflow");
+    await new MessagesRepo(db).append(conv.id, "user", "Nuevo pago");
+    return conv;
+  }
+  /** El modelo propone el mensaje, como debe. */
+  const propone = (conversacion: string, texto: string) => async (args: any) => {
+    await args.tools.proponerMensaje.execute({ conversacion, texto }, {});
+    return "";
+  };
+
+  it("el asistente que finge un envío se corrige una vez, y si insiste, se le dice al dueño que NO salió", async () => {
+    await vincular();
+    await brian();
+    llm.activo = true;
+    llm.respuesta = "Listo, te llegó en WhatsApp con botón de confirmar.\n\n[botón] ✅ Enviado a Bukoflow · WhatsApp.\n\n¿Lo confirmas?";
+    await atenderAlDueno(env, mensaje("Exacto"), OK);
+    llm.respuesta = "✅ Mensaje enviado a Brian · WhatsApp.";
+    await atenderAlDueno(env, mensaje("Si"), OK);
+
+    expect(alPuente).toEqual([]);
+    // Cada turno: la respuesta falsa y una vuelta de corrección.
+    expect(llm.llamadas).toHaveLength(4);
+    expect(llm.llamadas[1].system).toMatch(/CORRECCIÓN/);
+    for (const t of textos()) {
+      expect(t).not.toMatch(/Enviado a|Mensaje enviado|\[botón\]/);
+      expect(t).toMatch(/no le he enviado nada/);
+    }
+  });
+
+  it("la propuesta + «sí» escrito: sale por el WhatsApp QR, queda anotado y el bot se calla una hora", async () => {
+    await vincular();
+    const conv = await brian();
+    llm.activo = true;
+    llm.pensar = propone("Bukoflow", "Nos llegó su pago; ya procedemos a confirmar su orden.");
+    await atenderAlDueno(env, mensaje("respóndele que nos llegó el pago"), OK);
+    expect(textos().at(-1)).toMatch(/¿Le mando esto a Bukoflow · WhatsApp \(QR\)\?[\s\S]*contésteme «sí»/);
+    expect(alPuente).toEqual([]);
+
+    await atenderAlDueno(env, mensaje("Sí"), OK);
+    expect(llm.llamadas).toHaveLength(1); // el «sí» no pasó por la IA
+    expect(alPuente).toEqual([
+      expect.objectContaining({ para: "59034493255880@lid", chunks: ["Nos llegó su pago; ya procedemos a confirmar su orden."] }),
+    ]);
+    expect(textos().at(-1)).toMatch(/✅ Enviado a Bukoflow · WhatsApp \(QR\)/);
+    expect(await new ConversationsRepo(db).isPaused(conv.id)).toBe(true);
+    const memoria = await db.all<{ contenido: string }>("SELECT contenido FROM owner_chat ORDER BY id DESC LIMIT 1");
+    expect(memoria[0].contenido).toMatch(/^\[hecho\] ✅ Enviado/);
+
+    // El botón de esa propuesta ya no hace nada: no sale dos veces.
+    await atenderAlDueno(env, boton(datoDe("Enviar")), OK);
+    expect(alPuente).toHaveLength(1);
+  });
+
+  it("«sí, mándalo» por nota de voz también confirma", async () => {
+    await vincular();
+    await brian();
+    llm.activo = true;
+    llm.pensar = propone("Bukoflow", "Recibimos su pago.");
+    await atenderAlDueno(env, mensaje("dile que recibimos el pago"), OK);
+    env.AI = { run: vi.fn(async () => ({ text: "Sí, mándalo." })) };
+    const voz = mensaje("", { voice: { file_id: "v9", duration: 2 } });
+    delete (voz.message as any).text;
+    await atenderAlDueno(env, voz, OK);
+    expect(alPuente).toHaveLength(1);
+    expect(llm.llamadas).toHaveLength(1);
+  });
+
+  it("«no» descarta la propuesta y no sale nada", async () => {
+    await vincular();
+    await brian();
+    llm.activo = true;
+    llm.pensar = propone("Bukoflow", "Recibimos su pago.");
+    await atenderAlDueno(env, mensaje("dile que recibimos el pago"), OK);
+    await atenderAlDueno(env, mensaje("no, cancela"), OK);
+    expect(alPuente).toEqual([]);
+    expect(textos().at(-1)).toMatch(/no se envió nada/);
+    const fila = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM owner_actions WHERE status = 'pendiente'");
+    expect(fila?.n).toBe(0);
+  });
+
+  it("un «sí» a otra pregunta no manda la propuesta de antes", async () => {
+    await vincular();
+    await brian();
+    llm.activo = true;
+    llm.pensar = propone("Bukoflow", "Recibimos su pago.");
+    await atenderAlDueno(env, mensaje("dile que recibimos el pago"), OK);
+    llm.pensar = null;
+    llm.respuesta = "Tienes 1 ticket abierto. ¿Te muestro el detalle?";
+    await atenderAlDueno(env, mensaje("¿qué tengo pendiente?"), OK);
+    llm.respuesta = "Es el de Brian: mandó un comprobante.";
+    await atenderAlDueno(env, mensaje("sí"), OK);
+    expect(alPuente).toEqual([]);
+    expect(llm.llamadas).toHaveLength(3);
+  });
+
+  it("a varios: deja fuera a quien dijo que no, a los grupos y a quien ya no se le puede escribir; no calla al bot", async () => {
+    await vincular();
+    const repo = new ConversationsRepo(db);
+    const msgs = new MessagesRepo(db);
+    const ana = await repo.getOrCreate("whatsapp-qr", "1@lid", "Ana María");
+    const leo = await repo.getOrCreate("telegram", "55", "Leo");
+    const no = await repo.getOrCreate("whatsapp-qr", "2@lid", "Nora");
+    const grupo = await repo.getOrCreate("whatsapp-qr", "120363@g.us", "Grupo");
+    const vieja = await repo.getOrCreate("whatsapp", "50760000001", "Vieja");
+    for (const c of [ana, leo, no, grupo]) await msgs.append(c.id, "user", "hola");
+    await msgs.append(no.id, "user", "no me interesa, gracias");
+    await db.run("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('v9', ?, 'user', 'hola', ?)", [
+      vieja.id,
+      Date.now() - 3 * 24 * 3_600_000,
+    ]);
+    const { refCorta } = await import("../../src/owner/acciones");
+    llm.activo = true;
+    llm.pensar = async (args) => {
+      const r = await args.tools.proponerMensajeAVarios.execute(
+        { conversaciones: [ana, leo, no, grupo, vieja].map((c) => `#${refCorta(c.id)}`), texto: "Hola {nombre}, ¿pudo revisar la propuesta?" },
+        {},
+      );
+      return `Te dejé la propuesta. ${r}`;
+    };
+    await atenderAlDueno(env, mensaje("escríbeles a los que escribieron hoy"), OK);
+    const propuesta = textos().at(-1)!;
+    expect(propuesta).toMatch(/¿Le mando esto a 2 clientes\?/);
+    expect(propuesta).toMatch(/No van: .*Nora.*no le interesa.*Grupo.*persona.*Vieja.*24 h/s);
+
+    await atenderAlDueno(env, boton(datoDe("Enviar a 2")), OK);
+    expect(alPuente).toEqual([expect.objectContaining({ para: "1@lid", chunks: ["Hola Ana, ¿pudo revisar la propuesta?"] })]);
+    expect(enviados.some((e) => e.metodo === "sendMessage" && e.cuerpo.chat_id === "55" && e.cuerpo.text === "Hola Leo, ¿pudo revisar la propuesta?")).toBe(true);
+    expect(await repo.isPaused(ana.id)).toBe(false);
+    expect(enviados.filter((e) => e.metodo === "editMessageText").at(-1)?.cuerpo.text).toMatch(/Enviado a 2/);
+  });
+});
+
+describe("confirmacion", () => {
+  it("entiende el sí y el no cortos, y deja lo demás a la IA", async () => {
+    const { confirmacion } = await import("../../src/owner/acciones");
+    for (const t of ["Si", "sí", "Sí, mándalo.", "dale", "Exacto", "envíalo", "ok envíalo", "confirmo", "de una", "👍 sí"]) {
+      expect(confirmacion(t), t).toBe(true);
+    }
+    for (const t of ["no", "No, cancela", "mejor no", "no lo mandes"]) expect(confirmacion(t), t).toBe(false);
+    for (const t of ["sí, pero cámbiale el saludo", "¿qué tengo pendiente?", "si el cliente pagó avísame", ""]) {
+      expect(confirmacion(t), t).toBeNull();
+    }
   });
 });

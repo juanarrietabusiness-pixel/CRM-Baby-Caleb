@@ -19,7 +19,16 @@ import { MessagesRepo } from "../db/messages";
 import { createModel } from "../llm/provider";
 import { loadLlmOverrides } from "../settings-loader";
 import { devolverAlBot, pausarPorHumano } from "../takeover";
-import { buscarConversaciones, crearAccion, nombreDe, nuevoGrupo, refCorta, conversacionesDeAvisosRecientes } from "./acciones";
+import {
+  buscarConversaciones,
+  conversacionesDeAvisosRecientes,
+  crearAccion,
+  motivoParaNoEscribir,
+  nombreDe,
+  nuevoGrupo,
+  personalizar,
+  refCorta,
+} from "./acciones";
 import { textoDePendientes } from "./pendientes";
 import { EXTENSIONES } from "./extensiones";
 import { comoMensajes, historial } from "./memoria";
@@ -70,10 +79,13 @@ function instrucciones(ctx: Contexto): string {
     "Usa las herramientas para mirar datos reales antes de contestar; nunca inventes pedidos, clientas ni cifras.",
     "Las conversaciones se nombran por el nombre de la clienta o por su referencia corta (#k3f9a).",
     "Puedes devolver una conversación al bot o pausarla directamente: es reversible.",
-    "Un mensaje a una clienta NUNCA sale directo: usa proponerMensaje y el dueño lo confirma con un botón.",
+    "Tú NO puedes mandarle nada a un cliente. Lo único que puedes es PROPONER: proponerMensaje (a uno) o proponerMensajeAVarios (a varios). La propuesta le llega al dueño con el botón ✅ Enviar; el mensaje sale cuando lo toca o contesta «sí» (eso lo hace el sistema, no tú).",
+    "Si el dueño pide que se le diga algo a un cliente («respóndale», «dígale que…», «avísele»), llama proponerMensaje DE UNA con el texto redactado: no preguntes antes «¿quiere que se lo mande?» — la propuesta con su botón ya es esa pregunta. Redacta el mensaje para el cliente, de usted y en el tono del negocio.",
+    "Si pide escribirle a un grupo («a los que escribieron hoy», «a los de ayer», «a los interesados de la semana»), primero míralos con verClientesRecientes o verInteresados y luego usa proponerMensajeAVarios con sus referencias (#…). Puedes poner {nombre} en el texto y se cambia por el nombre de cada uno. La herramienta deja fuera sola a quien dijo que no le interesa y a quien ya no se le puede escribir: dile al dueño a quiénes dejó fuera.",
     "Si una herramienta devuelve varias conversaciones posibles, pregunta cuál antes de actuar.",
-    "Si habla de un cliente justo después de un aviso («respóndele», «dile», «a él»), es el cliente de ESE aviso: la herramienta ya prefiere la conversación del aviso reciente. Antes de proponer, di por qué canal va (WhatsApp QR, WhatsApp oficial, Telegram…).",
-    "NUNCA digas que un mensaje se envió, que una conversación se devolvió o se pausó, si no lo hizo una herramienta en ESTE turno o si no aparece en el historial una línea «[botón] …» que lo confirme. Los botones los toca el dueño: «[botón] ✅ Enviado …» significa que YA salió; una propuesta sin esa línea significa que todavía no. Si no estás seguro, dilo.",
+    "Si habla de un cliente justo después de un aviso («respóndale», «dígale», «a él»), es el cliente de ESE aviso: la herramienta ya prefiere la conversación del aviso reciente. El canal lo dice la propuesta: no lo adivines ni lo escribas tú.",
+    "NUNCA digas que un mensaje se envió, que salió o que le llegó al cliente: tú nunca envías. Tampoco que una conversación se devolvió o se pausó si no lo hizo una herramienta en ESTE turno. Las líneas del historial que empiezan con «[hecho]» las escribe el sistema cuando algo de verdad pasó; tú nunca escribas «[hecho]» ni «[botón]», ni imites esas líneas.",
+    "Cuando alguien le escribe al cliente (el dueño con un botón o desde el panel), el bot se calla en esa conversación una hora y luego vuelve solo. Un envío a varios no calla al bot: si un cliente contesta, el bot lo atiende.",
     extra,
     "Dónde vive cada dato: precios y stock en el Catálogo (el stock sí lo mueves tú, con propuestas); políticas, envíos, pagos y cómo contestar en la base de conocimiento del panel; el tono en Config.",
     "TÚ NO HABLAS CON CLIENTAS y no cambias al bot de clientas por tu cuenta. Si el dueño te da una instrucción para las clientas («si preguntan X, responde Y», «ya no hacemos Z»), eso es enseñarle al bot: mira primero la base con verBaseDeConocimiento, y usa proponerRegla para proponer el texto y el documento donde va. Si contradice algo que ya dice un documento, pásalo en `reemplazar` para que no queden dos reglas. El dueño lo guarda con un botón.",
@@ -106,6 +118,9 @@ export async function unaConversacion(ctx: Contexto, texto: string) {
       ". ¿Cuál?",
   };
 }
+
+/** Cómo se escribe la propuesta: el «sí» también vale, así no hay que buscar el botón. */
+const COMO_CONFIRMAR = "Toque ✅ Enviar o contésteme «sí» (nota de voz también vale).";
 
 function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
   return {
@@ -152,23 +167,30 @@ function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
     }),
     verClientesRecientes: tool({
       description:
-        "Seguimiento: las conversaciones con actividad en las últimas N horas, con su canal, su estado (en pausa, ticket abierto) y lo último que dijo la clienta.",
-      inputSchema: z.object({ horas: z.number().int().min(1).max(24 * 14).default(24) }),
-      execute: async ({ horas }) => {
+        "Seguimiento: las conversaciones con actividad entre hace `horas` y hace `hastaHoras` (0 = ahora), con su referencia (#…), su canal, su estado (en pausa, ticket abierto, no quiere que le escriban) y lo último que dijo el cliente. «Hoy» = desde la medianoche del negocio; «ayer» = horas hasta 48 y hastaHoras hasta la medianoche de hoy.",
+      inputSchema: z.object({
+        horas: z.number().int().min(1).max(24 * 14).default(24),
+        hastaHoras: z.number().int().min(0).max(24 * 14).default(0),
+      }),
+      execute: async ({ horas, hastaHoras }) => {
         const r = await ctx.env.DB.prepare(
           `SELECT c.*, (SELECT content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user'
                           ORDER BY m.created_at DESC LIMIT 1) AS ultimo
-             FROM conversations c WHERE c.last_message_at >= ? ORDER BY c.last_message_at DESC LIMIT 25`,
+             FROM conversations c WHERE c.last_message_at >= ? AND c.last_message_at <= ?
+            ORDER BY c.last_message_at DESC LIMIT 40`,
         )
-          .bind(Date.now() - horas * 3_600_000)
+          .bind(Date.now() - horas * 3_600_000, Date.now() - hastaHoras * 3_600_000)
           .all<Record<string, any>>();
         const filas = r.results ?? [];
-        if (!filas.length) return `Nadie escribió en las últimas ${horas} h.`;
+        if (!filas.length) return `Nadie escribió en ese rango (${horas} h hasta ${hastaHoras} h atrás).`;
+        const motivos = new Map<string, string | null>();
+        for (const c of filas) motivos.set(c.id, await motivoParaNoEscribir(ctx.env, c as any).catch(() => null));
         return filas
           .map((c) => {
             const estado = [
               c.paused_until && c.paused_until > Date.now() ? "la atiende una persona" : "",
               c.open_ticket_id ? "ticket abierto" : "",
+              motivos.get(c.id) ? `no se le escribe: ${motivos.get(c.id)}` : "",
             ].filter(Boolean);
             const ultimo = String(c.ultimo ?? "").replace(/\s+/g, " ").slice(0, 140);
             return `${nombreDe(c as any)} · #${refCorta(c.id)} · ${CHANNEL_LABELS[c.channel] ?? c.channel}${estado.length ? ` · ${estado.join(", ")}` : ""}${ultimo ? `\n  «${ultimo}»` : ""}`;
@@ -245,9 +267,11 @@ function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
         const r = await unaConversacion(ctx, conversacion);
         if (!r.conv) return r.error;
         const grupo = nuevoGrupo();
+        // Sin conversationId a propósito: esta propuesta no es un aviso. Si el
+        // dueño le contesta «sí» con "Responder", es la confirmación, no un
+        // texto para el cliente.
         salida.push({
-          texto: `✉️ ¿Le mando esto a ${nombreDe(r.conv)}?\n\n«${texto}»`,
-          conversationId: r.conv.id,
+          texto: `✉️ ¿Le mando esto a ${nombreDe(r.conv)}?\n\n«${texto}»\n\n${COMO_CONFIRMAR}`,
           teclado: [
             [
               { texto: "✅ Enviar", data: await crearAccion(ctx.env, "enviar", { conversationId: r.conv.id, texto, grupo }) },
@@ -255,10 +279,102 @@ function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
             ],
           ],
         });
-        return "Propuesta enviada con botones.";
+        return `Propuesta lista para ${nombreDe(r.conv)}: le llegó al dueño con el botón. Todavía NO se envió nada.`;
+      },
+    }),
+    proponerMensajeAVarios: tool({
+      description:
+        "Propone UN mensaje para varios clientes (referencias #… de verClientesRecientes o verInteresados). {nombre} se cambia por el nombre de cada uno. Deja fuera sola a quien no se le debe o no se le puede escribir. El dueño lo confirma con un botón.",
+      inputSchema: z.object({
+        conversaciones: z.array(z.string()).min(1).max(25),
+        texto: z.string().min(1).max(1000),
+      }),
+      execute: async ({ conversaciones, texto }) => {
+        const destinos: { conversationId: string; texto: string }[] = [];
+        const nombres: string[] = [];
+        const fuera: string[] = [];
+        const vistos = new Set<string>();
+        for (const ref of conversaciones) {
+          const [conv, ...otras] = await buscarConversaciones(ctx.env, ref, 2);
+          if (!conv || otras.length) {
+            fuera.push(`${ref} (${conv ? "hay varias con ese nombre: usa la #referencia" : "no la encontré"})`);
+            continue;
+          }
+          if (vistos.has(conv.id)) continue;
+          vistos.add(conv.id);
+          const motivo = await motivoParaNoEscribir(ctx.env, conv);
+          if (motivo) {
+            fuera.push(`${nombreDe(conv)} (${motivo})`);
+            continue;
+          }
+          destinos.push({ conversationId: conv.id, texto: personalizar(texto, conv) });
+          nombres.push(nombreDe(conv));
+        }
+        if (!destinos.length) return `No queda nadie a quien escribirle. Fuera: ${fuera.join("; ") || "—"}.`;
+        const grupo = nuevoGrupo();
+        salida.push({
+          texto:
+            `✉️ ¿Le mando esto a ${destinos.length === 1 ? "1 cliente" : `${destinos.length} clientes`}?\n\n«${texto}»\n\n` +
+            nombres.map((n) => `• ${n}`).join("\n") +
+            (fuera.length ? `\n\nNo van: ${fuera.join("; ")}.` : "") +
+            `\n\n${COMO_CONFIRMAR}`,
+          teclado: [
+            [
+              { texto: `✅ Enviar a ${destinos.length}`, data: await crearAccion(ctx.env, "enviarVarios", { destinos, grupo }) },
+              { texto: "❌ No", data: await crearAccion(ctx.env, "descartar", { grupo }) },
+            ],
+          ],
+        });
+        return `Propuesta lista para ${destinos.length}${fuera.length ? `; fuera: ${fuera.join("; ")}` : ""}. Todavía NO se envió nada.`;
       },
     }),
   };
+}
+
+/** Lo que el asistente puede decir que PASÓ solo si una herramienta lo hizo en el turno. */
+const DICE_QUE_ENVIO =
+  /(✅[^\n]{0,20}enviad|\bmensaje (enviado|entregado|sali[oó])|\benviad[oa]s? (a|al|para) (?!ti\b)|\b(qued[oó]|fue|est[aá]|ya) enviad|\b(le|lo|la|se lo|se la) (mand[eé]|envi[eé])\b|\bya (le )?(sali[oó]|lleg[oó])\b|\bte lleg[oó] en whatsapp)/i;
+const DICE_QUE_DEVOLVIO = /\b(devolv[ií]|ya (est[aá]|qued[oó]) devuelt[ao])\b/i;
+const DICE_QUE_PAUSO = /\b(paus[eé]|(lo|la) dej[eé] en pausa)\b/i;
+const LINEA_DEL_SISTEMA = /^\s*\[(hecho|bot[oó]n)[^\]]*\].*$/gim;
+
+/**
+ * La respuesta del asistente, sin lo que dice que pasó y no pasó.
+ *
+ * El 24-sep-2026, dos veces: el dueño pidió responderle a un cliente, el
+ * asistente contestó "✅ Mensaje enviado a Brian" y no había salido nada —ni
+ * siquiera se había llamado a proponerMensaje—. Imitaba las líneas «[botón] ✅
+ * Enviado …» que la memoria guarda cuando el dueño toca un botón. Un «no te
+ * inventes envíos» en el prompt no bastó: esto lo revisa en el código.
+ *
+ * Devuelve null si el texto afirma algo que no hizo ninguna herramienta.
+ */
+export function sinAccionesFingidas(texto: string, hechas: Set<string>): string | null {
+  const limpio = texto.replace(LINEA_DEL_SISTEMA, "").replace(/\n{3,}/g, "\n\n").trim();
+  // Enviar, el asistente no envía NUNCA: cualquier "enviado" es falso.
+  if (DICE_QUE_ENVIO.test(limpio)) return null;
+  if (DICE_QUE_DEVOLVIO.test(limpio) && !hechas.has("devolverAlBot")) return null;
+  if (DICE_QUE_PAUSO.test(limpio) && !hechas.has("pausarConversacion")) return null;
+  return limpio;
+}
+
+/** Envuelve las herramientas para saber cuáles corrieron de verdad en el turno. */
+function conRegistro(tools: Record<string, any>, hechas: Set<string>): Record<string, any> {
+  const salida: Record<string, any> = {};
+  for (const [nombre, t] of Object.entries(tools)) {
+    salida[nombre] =
+      typeof t?.execute === "function"
+        ? {
+            ...t,
+            execute: async (...args: unknown[]) => {
+              const r = await t.execute(...args);
+              hechas.add(nombre);
+              return r;
+            },
+          }
+        : t;
+  }
+  return salida;
 }
 
 /**
@@ -268,8 +384,10 @@ function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
 export async function entenderAlDueno(ctx: Contexto, entrada: Entrada | string): Promise<Respuesta[]> {
   const e: Entrada = typeof entrada === "string" ? { texto: entrada } : entrada;
   const salida: Respuesta[] = [];
-  const tools: Record<string, any> = { ...herramientasBase(ctx, salida) };
-  for (const x of EXTENSIONES) Object.assign(tools, x.herramientas?.(ctx, salida) ?? {});
+  const hechas = new Set<string>();
+  const todas: Record<string, any> = { ...herramientasBase(ctx, salida) };
+  for (const x of EXTENSIONES) Object.assign(todas, x.herramientas?.(ctx, salida) ?? {});
+  const tools = conRegistro(todas, hechas);
 
   // Lo anterior, sin el mensaje de ahora (la consola lo anota antes de llamar aquí).
   const antes = await historial(ctx.env, ctx.chatId);
@@ -301,14 +419,28 @@ export async function entenderAlDueno(ctx: Contexto, entrada: Entrada | string):
     // El modelo bueno, no el barato: el dueño escribe poco y cada mensaje suyo
     // mueve inventario o dinero. Con voz y memoria, entender bien importa más.
     const { model } = createModel(ctx.env, "smart", await loadLlmOverrides(ctx.env));
-    const r = await generateText({
-      model,
-      system: instrucciones(ctx),
-      messages,
-      tools,
-      stopWhen: ({ steps }) => steps.length >= 8,
-    });
-    const respuesta = r.text.trim();
+    const pensar = (system: string) =>
+      generateText({ model, system, messages, tools, stopWhen: ({ steps }) => steps.length >= 8 });
+    let r = await pensar(instrucciones(ctx));
+    let respuesta = sinAccionesFingidas(r.text.trim(), hechas);
+    const propuso = () => salida.some((x) => x.teclado);
+    if (respuesta === null && !propuso()) {
+      // Dijo que hizo algo que no hizo. Una vuelta más, con el error señalado:
+      // casi siempre es que quería mandar un mensaje y no llamó a la herramienta.
+      console.error("[consola] el asistente afirmó una acción que no hizo — se le corrige:", r.text.slice(0, 200));
+      r = await pensar(
+        instrucciones(ctx) +
+          "\n\nCORRECCIÓN: en tu respuesta anterior dijiste que algo se envió o se hizo, y ninguna herramienta lo hizo. " +
+          "Si el dueño quiere que se le diga algo a un cliente, llama AHORA a proponerMensaje (o proponerMensajeAVarios). " +
+          "Si falta saber a quién, pregúntalo. No digas que algo se envió.",
+      );
+      respuesta = sinAccionesFingidas(r.text.trim(), hechas);
+    }
+    if (respuesta === null) {
+      respuesta = propuso()
+        ? "Le dejé la propuesta abajo. Todavía no salió nada: toque ✅ Enviar o contésteme «sí»."
+        : "⚠️ Ojo: no le he enviado nada a nadie. Dígame a quién y qué le digo, y se lo dejo listo con el botón ✅ Enviar.";
+    }
     return [...(respuesta ? [{ texto: respuesta }] : salida.length ? [] : [{ texto: "Listo." }]), ...salida];
   } catch (err) {
     console.error("[consola] el asistente del dueño falló:", err);

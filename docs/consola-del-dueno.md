@@ -108,6 +108,25 @@ Lo que sale hacia afuera (un mensaje a una clienta) o mueve el inventario,
 **siempre** se lo propone con botones: no pasa nada sin su toque. Los comandos
 siguen igual.
 
+
+### Pedirle que le escriba a un cliente (o a varios)
+
+- *"Respóndale a Brian que nos llegó su pago"* → le llega **✉️ ¿Le mando esto a
+  … ?** con el texto y el botón **✅ Enviar**. Toca el botón **o contesta «sí»**
+  (escrito o en nota de voz). «No» lo descarta. Hasta entonces **no ha salido
+  nada**, y el asistente no puede decir lo contrario: si lo intenta, la consola
+  lo corrige y le avisa "no le he enviado nada".
+- *"Escríbales a los que escribieron hoy"* → le propone **un solo mensaje para
+  todos**, con la lista y un botón **✅ Enviar a N**. `{nombre}` se cambia por el
+  nombre de cada uno. Deja fuera sola, y le dice a quién: a quien dijo que no le
+  interesa, a los grupos y a quien por WhatsApp oficial ya pasó las 24 h.
+- Un mensaje a **uno** calla al bot en esa conversación una hora. Uno a
+  **varios**, no: si alguno contesta, el bot lo atiende.
+
+(24-sep-2026, en PanaClaw: el asistente dijo "✅ Mensaje enviado" dos veces sin
+haber enviado nada. Por eso el «sí» ya no pasa por la IA y lo que la IA contesta
+se revisa antes de salir.)
+
 ## 4. El inventario, con cuidado
 
 - Una venta sale de la bodega que tenga stock suficiente (la de más stock), o
