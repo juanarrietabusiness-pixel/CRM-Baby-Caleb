@@ -80,10 +80,10 @@ a una persona. Nunca ofrezca un descuento usted.
 
 ## Pañales Nateen
 
-Premium, extremadamente suaves, hipoalergénicos, absorbentes y ecológicos. Sin
-látex, sin cloro y sin lociones perfumadas. Formulados para pieles sensibles.
-Biodegradables, a base de microfibras de bambú: se descomponen en un 80% en 3 a
-6 años (un pañal convencional tarda más de 300).
+Le comento, los pañales Nateen son una marca Belga 🙌🏻 
+
+Son pañales premium, extremadamente suaves, hipoalergénicos, absorbentes y ecológicos (creados a base de micro fibras de bambú). 
+Además, son anti-irritaciones e hipoalergénicos porque no contienen látex, clorinas, ni lociones perfumadas. Los pañales Nateen están formulados para pieles sensibles, con una suavidad y transpirabilidad premium para ayudar a mantener al bebé cómodo. Todos nuestros pañales son ecológicos y biodegradables y se descomponen en un 80% en 3 a 6 años en comparación con los pañales convencionales que tardan más de 300 años.
 
 ## Toallitas húmedas Dany Baby
 
