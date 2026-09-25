@@ -23,9 +23,20 @@ import {
   ponerModoCliente,
   protegerConsola,
 } from "./dueno";
-import { anotarAviso, buscarConversaciones, conversacionDelAviso, nombreDe, refCorta, responderACliente, tomarAccion } from "./acciones";
+import {
+  anotarAviso,
+  buscarConversaciones,
+  confirmacion,
+  conversacionDelAviso,
+  descartarPropuesta,
+  nombreDe,
+  propuestaPendiente,
+  refCorta,
+  responderACliente,
+  tomarAccion,
+} from "./acciones";
 import { contestarBoton, editar, enviar, escribiendo } from "./telegram";
-import { anotar, olvidar } from "./memoria";
+import { anotar, historial, olvidar } from "./memoria";
 import { entenderAlDueno, type Entrada } from "./cerebro";
 import { pendientes } from "./pendientes";
 import { EXTENSIONES } from "./extensiones";
@@ -148,7 +159,7 @@ const COMANDOS: Record<string, (ctx: Contexto, args: string) => Promise<Respuest
 // ── Lo que hace cada botón ─────────────────────────────────────────────────
 
 /** Botones que responden sobre su propio mensaje (quitan sus botones). */
-const EDITAN_SU_MENSAJE = new Set(["venta", "devolucion", "descartar", "enviar", "deshacer", "regla"]);
+const EDITAN_SU_MENSAJE = new Set(["venta", "devolucion", "descartar", "enviar", "enviarVarios", "deshacer", "regla"]);
 
 const ACCIONES: Record<string, (ctx: Contexto, p: Record<string, unknown>) => Promise<Respuesta>> = {
   devolver: async (ctx, p) => {
@@ -161,7 +172,25 @@ const ACCIONES: Record<string, (ctx: Contexto, p: Record<string, unknown>) => Pr
   },
   enviar: async (ctx, p) => {
     const r = await responderACliente(ctx.env, String(p.conversationId), String(p.texto));
-    return r.ok ? { texto: `✅ Enviado a ${r.nombre}.` } : { texto: `❌ ${r.error}` };
+    return r.ok
+      ? { texto: `✅ Enviado a ${r.nombre}. El bot se calla ahí una hora y luego vuelve solo.` }
+      : { texto: `❌ No se envió: ${r.error}` };
+  },
+  enviarVarios: async (ctx, p) => {
+    const destinos = Array.isArray(p.destinos) ? (p.destinos as { conversationId: string; texto: string }[]) : [];
+    const bien: string[] = [];
+    const mal: string[] = [];
+    for (const d of destinos) {
+      const r = await responderACliente(ctx.env, String(d.conversationId), String(d.texto), { pausar: false });
+      if (r.ok) bien.push(r.nombre);
+      else mal.push(r.error);
+    }
+    return {
+      texto:
+        (bien.length ? `✅ Enviado a ${bien.length}: ${bien.join(", ")}.` : "❌ No salió ninguno.") +
+        (mal.length ? `\n❌ Sin enviar (${mal.length}): ${mal.join(" · ")}` : "") +
+        (bien.length ? "\nSi contestan, el bot los atiende." : ""),
+    };
   },
   descartar: async () => ({ texto: "❌ Descartado." }),
   // Enseñarle algo al bot de clientas: el texto va a la base de conocimiento del
@@ -284,7 +313,9 @@ export async function atenderAlDueno(
     if (EDITAN_SU_MENSAJE.has(accion.kind) && cb.message) {
       // Lo que hizo el botón también es parte de la conversación: "¿y lo de
       // recién?" tiene que saber que la venta se registró.
-      await anotar(env, chatId, "consola", `[botón] ${r.texto}`);
+      // "[hecho]" lo escribe solo el sistema: el asistente sabe que eso pasó
+      // de verdad, y si lo imita, sinAccionesFingidas se lo quita.
+      await anotar(env, chatId, "consola", `[hecho] ${r.texto}`);
       await editar(env, chatId, cb.message.message_id, `${cb.message.text ?? ""}\n\n${r.texto}`, r.teclado);
       if (r.conversationId) await anotarAviso(env, chatId, cb.message.message_id, r.conversationId);
     } else {
@@ -376,8 +407,39 @@ export async function atenderAlDueno(
     }
   }
 
-  // ── Un comando ── (escrito; una nota de voz nunca es un comando)
+  // ── «Sí» / «No» a la propuesta de envío que está esperando ──
+  // No pasa por la IA: el 24-sep-2026 un «Sí» escrito terminó en "✅ Mensaje
+  // enviado" sin que saliera nada. Aquí el «sí» aprieta el botón de verdad.
   const cmd = entrada.porVoz ? null : partirComando(texto);
+  const decision = cmd || entrada.imagen ? null : confirmacion(entrada.texto);
+  if (decision !== null) {
+    // Solo si lo último que le dijo la consola ES la propuesta: un «sí» a otra
+    // pregunta ("¿te muestro los pendientes?") no puede mandar un mensaje.
+    const propuesta = (await ultimoDeLaConsolaEsPropuesta(env, chatId)) ? await propuestaPendiente(env) : null;
+    if (propuesta) {
+      if (!decision) {
+        await descartarPropuesta(env, propuesta.id);
+        await anotar(env, chatId, "consola", "[hecho] ❌ Propuesta descartada. No se envió nada.");
+        await enviar(env, chatId, "❌ Listo, no se envió nada.");
+        return true;
+      }
+      const accion = await tomarAccion(env, propuesta.id);
+      const hacer = accion ? accionDe(accion.kind) : null;
+      let r: Respuesta;
+      try {
+        r = accion && hacer ? await hacer(ctx, accion.payload) : { texto: "Esa propuesta ya se envió o se descartó." };
+      } catch (e) {
+        console.error("[consola] el envío confirmado con palabras falló:", e);
+        r = { texto: "❌ Algo falló al enviarlo. Revise el panel antes de reintentar." };
+      }
+      for (const x of eco) await enviar(env, chatId, x.texto);
+      await anotar(env, chatId, "consola", `[hecho] ${r.texto}`);
+      await enviar(env, chatId, r.texto, r.teclado);
+      return true;
+    }
+  }
+
+  // ── Un comando ── (escrito; una nota de voz nunca es un comando)
   if (cmd) {
     const [nombre, args] = cmd;
     const f = COMANDOS[nombre] ?? EXTENSIONES.find((e) => e.comandos[nombre])?.comandos[nombre];
@@ -393,6 +455,15 @@ export async function atenderAlDueno(
   // ── Con sus palabras (escritas, dichas o en una foto) ──
   await mandar(ctx, [...eco, ...(await entenderAlDueno(ctx, entrada))]);
   return true;
+}
+
+/** Así empieza toda propuesta de envío (proponerMensaje y proponerMensajeAVarios). */
+export const INICIO_DE_PROPUESTA = "✉️ ¿Le mando esto a ";
+
+async function ultimoDeLaConsolaEsPropuesta(env: Env, chatId: string): Promise<boolean> {
+  const h = await historial(env, chatId);
+  const ultimo = [...h].reverse().find((m) => m.rol === "consola" && !m.contenido.startsWith("🎤 «"));
+  return !!ultimo?.contenido.startsWith(INICIO_DE_PROPUESTA);
 }
 
 /** Cuánto puede durar una nota de voz del dueño. Whisper cobra por minuto. */

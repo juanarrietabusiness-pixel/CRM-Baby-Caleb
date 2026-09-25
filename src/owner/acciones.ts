@@ -199,6 +199,7 @@ export async function responderACliente(
   env: Env,
   conversationId: string,
   texto: string,
+  opts: { pausar?: boolean } = {},
 ): Promise<{ ok: true; nombre: string } | { ok: false; error: string }> {
   const db = new Db(env.DB);
   const convs = new ConversationsRepo(db);
@@ -232,6 +233,124 @@ export async function responderACliente(
   }
   await new MessagesRepo(db).append(conversationId, "owner", texto);
   await convs.touchLastMessage(conversationId);
-  await pausarPorHumano(env, conversationId, "telegram");
+  // Una persona contestó: el bot se calla ahí el plazo de Config (1 h por
+  // defecto) y vuelve solo. Un envío a varios NO pausa: el dueño no va a
+  // atender veinte respuestas a la vez, y quien conteste merece que el bot le
+  // responda.
+  if (opts.pausar !== false) await pausarPorHumano(env, conversationId, "telegram");
   return { ok: true, nombre: nombreDe(conv) };
+}
+
+// ── El «sí» dicho con palabras ─────────────────────────────────────────────
+
+/** Cuánto vale una propuesta de envío para confirmarla con un «sí». */
+export const VIGENCIA_PROPUESTA_MS = 30 * 60_000;
+
+/** Los botones que mandan algo hacia un cliente. */
+export const ACCIONES_DE_ENVIO = ["enviar", "enviarVarios"] as const;
+
+/**
+ * La propuesta de envío más reciente que sigue esperando el botón. Es lo que
+ * confirma un «sí», «dale» o «mándalo» escrito o dicho en una nota de voz.
+ *
+ * El 24-sep-2026 el dueño contestó «Sí» por escrito a una propuesta y el
+ * asistente —que no toca botones— dijo "✅ Mensaje enviado" sin que saliera
+ * nada. El «sí» ya no pasa por el modelo: se aprieta el botón de verdad.
+ */
+export async function propuestaPendiente(env: Env, ahora = Date.now()): Promise<{ id: string; kind: string } | null> {
+  return new Db(env.DB).first<{ id: string; kind: string }>(
+    `SELECT id, kind FROM owner_actions
+      WHERE status = 'pendiente' AND kind IN (${ACCIONES_DE_ENVIO.map(() => "?").join(", ")}) AND created_at > ?
+      ORDER BY created_at DESC LIMIT 1`,
+    [...ACCIONES_DE_ENVIO, ahora - VIGENCIA_PROPUESTA_MS],
+  );
+}
+
+/** El «No» hermano de una propuesta (mismo grupo). */
+export async function descartarPropuesta(env: Env, id: string): Promise<boolean> {
+  const db = new Db(env.DB);
+  const fila = await db.first<{ payload: string }>("SELECT payload FROM owner_actions WHERE id = ? AND status = 'pendiente'", [id]);
+  if (!fila) return false;
+  let grupo: unknown;
+  try {
+    grupo = JSON.parse(fila.payload)?.grupo;
+  } catch {
+    /* sin grupo */
+  }
+  await db.run("UPDATE owner_actions SET status = 'descartada', decided_at = ? WHERE id = ? AND status = 'pendiente'", [Date.now(), id]);
+  if (typeof grupo === "string") {
+    await db.run(
+      "UPDATE owner_actions SET status = 'descartada', decided_at = ? WHERE status = 'pendiente' AND json_extract(payload, '$.grupo') = ?",
+      [Date.now(), grupo],
+    );
+  }
+  return true;
+}
+
+function sinTildes(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+/**
+ * ¿El dueño está confirmando (true), cancelando (false) o diciendo otra cosa
+ * (null)? Solo mensajes cortos: «sí, pero cámbiale el saludo» es otra cosa, y
+ * esa la entiende el asistente.
+ */
+export function confirmacion(texto: string): boolean | null {
+  const t = sinTildes(texto)
+    .replace(/[¡!¿?.,;:…"'«»()👍✅❌🙏]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t || t.split(" ").length > 6) return null;
+  const si =
+    /^(si|sip|sii+|dale|ok|okay|okey|vale|listo|claro|exacto|correcto|confirmo|confirmado|de una|hazlo|va|perfecto)( (si|dale|claro|por favor|porfa|hazlo|envialo|mandalo|enviale|mandale|envia|manda|confirmo|adelante|ya))*$/;
+  const envia = /^(si |dale |ok |ya )?(envialo|mandalo|enviale|mandale|envia(lo)? ya|manda(lo)? ya|envia|manda|enviar|mandar|adelante)( (ya|por favor|porfa|asi|tal cual))*$/;
+  const no = /^(no|nop|nel|cancela|cancelalo|cancelar|no lo mandes|no lo envies|no envies|no mandes|mejor no|descarta|descartalo|olvidalo)( (gracias|por favor|porfa|todavia|aun|mejor|cancela|cancelalo|no|lo|mandes|envies|descartalo))*$/;
+  if (si.test(t) || envia.test(t)) return true;
+  if (no.test(t)) return false;
+  return null;
+}
+
+// ── A quién sí se le puede escribir ────────────────────────────────────────
+
+/** ¿Dijo el cliente que no le interesa o que no le escriban? (de Baby Caleb) */
+export function noQuiereQueLeEscriban(texto: string): boolean {
+  const t = sinTildes(texto);
+  return /\b(no (me )?interes|ya no (me )?interes|no estoy interesad|sin interes|no,? gracias|no me (escriba|escriban|escribas|contacte|contacten|contactes|moleste|molesten|molestes)|dej(e|en|a) de (escribir|mandar)|no (me )?(vuelva|vuelvan|vuelvas) a escribir|no quiero (nada|mas|recibir)|ya (lo )?compre|ya (lo )?consegui|ya no (lo |los |las )?necesito|no necesito nada|borr(e|en|a) mi numero)/.test(t);
+}
+
+/**
+ * Por qué NO escribirle a esta conversación desde un envío a varios, o null si
+ * se puede. A uno solo el dueño le escribe aunque haya dicho que no (lo decidió
+ * él, mirando); a un grupo, no: ahí nadie mira caso por caso.
+ */
+export async function motivoParaNoEscribir(env: Env, conv: Conversation, ahora = Date.now()): Promise<string | null> {
+  const db = new Db(env.DB);
+  if (conv.channel === "whatsapp-qr" && /@(broadcast|g\.us|newsletter)$/.test(conv.channel_user_id)) return "no es el chat de una persona";
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = JSON.parse(conv.metadata ?? "{}") ?? {};
+  } catch {
+    /* metadata vieja */
+  }
+  if (meta.sin_seguimiento) return "dijo que no le interesa";
+  const suyos = await db.all<{ content: string; created_at: number }>(
+    "SELECT content, created_at FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 200",
+    [conv.id],
+  );
+  if (suyos.some((m) => noQuiereQueLeEscriban(m.content))) return "dijo que no le interesa";
+  if (CON_VENTANA_24H.has(conv.channel) && (!suyos[0] || ahora - suyos[0].created_at > VENTANA_24H_MS)) {
+    return `por ${channelLabel(conv.channel)} pasaron más de 24 h`;
+  }
+  return null;
+}
+
+/** «Hola {nombre}» → «Hola Brian». Sin nombre de persona, el saludo queda limpio. */
+export function personalizar(texto: string, conv: Pick<Conversation, "display_name">): string {
+  const nombre = (conv.display_name ?? "").trim().split(/\s+/)[0] ?? "";
+  const pareceNombre = /^[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,20}$/.test(nombre);
+  return texto
+    .replace(/\s*\{nombre\}/g, pareceNombre ? ` ${nombre}` : "")
+    .replace(/^[\s,]+/, "")
+    .replace(/\s+([,.!?])/g, "$1");
 }
