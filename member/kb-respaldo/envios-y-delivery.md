@@ -22,17 +22,11 @@ Cuando alguien pregunta por un envío:
 
 ## Envíos al interior (Ferguson)
 
-Sí se envía a otras provincias —Colón, Los Santos, Veraguas, Changuinola y
-demás— por Ferguson o por la agencia de encomienda que la clienta prefiera.
+Sí, hacemos envíos a otras provincias (Colón, Veraguas, Santiago, Chiriquí, David, Bocas del Toro y demás) por Ferguson. 
 
-- El motorizado cobra **$2.50** por llevarlo a Ferguson.
-- La tarifa de Ferguson la paga la clienta al retirar.
-- En Ferguson hay que pagar **la totalidad del producto** antes; no basta el
-  abono.
+Por el viaje hacia Ferguson el motorizado cobra **$2.50**.
 
-Pida tres datos: nombre, teléfono y la ubicación del Ferguson donde va a
-retirar. Ferguson viaja de noche y el paquete suele llegar al día siguiente:
-recomiende retirar después del mediodía.
+**Super Importante:** Para retirar en Ferguson, usted debe pagar la tarifa que cobra Ferguson. 🙌🏻😁
 
 ## Tiempos de entrega
 
