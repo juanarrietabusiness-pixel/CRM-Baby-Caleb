@@ -16,8 +16,9 @@
 //
 // Lo que sí va aquí: identidad, trato, horarios de atención, cobertura,
 // métodos de pago (el nombre del método, no la tarifa) y los límites duros.
-// Las políticas largas (tarifario de delivery, Ferguson, uso del producto)
-// viven en member/kb/ y el bot las consulta con searchKb.
+// Lo largo lo consulta el bot con searchKb: el conocimiento base (tallas,
+// productos, uso) en member/conocimiento/, y las reglas de cómo atender
+// (Ferguson, pagos, retiro) en el panel. Ver docs/FUENTES_DE_VERDAD.md.
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Fuente: PREGUNTAS_BABY_CALEB_usted.docx, entregado por la dueña
@@ -44,13 +45,16 @@ export type MemberConfig = typeof memberConfig;
 export const businessConfig = {
   hours:
     "Tienda online, atención todos los días. Entregas con motorizado en Ciudad de Panamá " +
-    "hasta las 5:00 p.m. Sábados solo con agenda previa; domingos no hay entregas. " +
-    "Retiro en persona de 7:00 a.m. a 5:00 p.m., avisando con un día de anticipación.",
+    "hasta las 5:00 p.m. Sábados solo con agenda previa; domingos no hay entregas.",
   services: [] as { name: string; price: number; description?: string }[],
+  // Sin dirección de retiro, a propósito: orden de la dueña (28-sep-2026) — se
+  // insiste en el delivery y el retiro se ofrece solo si la clienta insiste, sin
+  // dar la dirección (la coordina una persona). La regla vive en el panel, en
+  // «Tienda online y retiro en persona». Esta línea va en el prompt de CADA
+  // turno: con la dirección aquí, le ganaba a esa regla.
   location:
     "Somos tienda online, no hay local. Entregamos por delivery en Ciudad de Panamá y " +
-    "Panamá Oeste, y al interior por Ferguson. Quien prefiera retirar lo hace en Altos de " +
-    "Curundú, después de la Estación de Policía.",
+    "Panamá Oeste, y al interior por Ferguson.",
   paymentMethods: [
     "Yappy Comercial @babycalebpanama (aparece en el directorio de Yappy)",
     "efectivo al motorizado por el saldo restante",
@@ -65,12 +69,15 @@ export const businessConfig = {
       "Hable SIEMPRE de usted ('le dejamos', 'su bebé', 'indíquenos'). Nunca tutee, " +
       "aunque la clienta tutee primero.",
     "Qué vendemos":
-      "Pañales hipoalergénicos Nateen (de cierre y de pants), toallitas de agua Dany Baby " +
-      "y fulares portabebé Moon. Nada más. Las marcas, tallas, precios y existencias se " +
+      "Pañales hipoalergénicos Nateen (de cierre y de pants), wipes Nateen, toallitas de agua " +
+      "Dany Baby y fulares portabebé Moon. Nada más. Las marcas, tallas, precios y existencias se " +
       "consultan SIEMPRE con catalogQuery — nunca de memoria.",
+    // Hasta el 29-sep-2026 aquí decía también «ni wipes Nateen», y el catálogo
+    // los tenía activos con 15 cajas: esta línea va en el prompt de cada turno y
+    // le ganaba al catálogo, así que el bot decía que no había.
     "No manejamos":
-      "Pañales Dany Baby (solo wipes de esa marca) ni wipes Nateen. Si preguntan por " +
-      "cualquiera de los dos, dígalo claro y ofrezca la alternativa que sí hay.",
+      "Pañales Dany Baby (de esa marca solo hay wipes). Si preguntan, dígalo claro y " +
+      "ofrezca los pañales Nateen.",
     "Venta por caja":
       "Solo se venden cajas completas de una talla. No hay paquetes sueltos, no hay precio " +
       "de mayorista ni para revendedores.",

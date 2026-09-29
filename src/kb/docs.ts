@@ -1,22 +1,34 @@
 /**
- * La base de conocimiento: los documentos del panel (D1 `kb_docs`) y su vida en
- * Vectorize.
+ * La base de conocimiento y su vida en Vectorize. Dos dueños, sin temas en común
+ * (29-sep-2026):
  *
- * El panel es la ÚNICA fuente. Hasta el 23-sep-2026 había dos: estos
- * documentos y los .md de member/kb/ que subía cada despliegue. Se buscaban a
- * la vez, se contradecían (cambios de talla, retiro, recomendar talla) y el bot
- * contestaba con la que encontrara primero. Ahora member/kb-respaldo/ es solo
- * una COPIA del panel que guarda GitHub: no se indexa nunca (hay una prueba que
- * lo vigila).
+ *   · CONOCIMIENTO BASE de la empresa —tallas, productos, quiénes somos, uso del
+ *     producto— en GitHub: member/conocimiento/*.md, que viaja en el bundle
+ *     (./conocimiento.generado.ts) y sube al índice en cada despliegue. Lo
+ *     actualiza la agencia. El panel y la consola de Telegram no lo pueden
+ *     pisar: un documento del panel con el id o el título de uno de GitHub se
+ *     rechaza al guardar y no se indexa.
+ *   · COMPORTAMIENTO —cuándo escalar, pagos, envíos, retiro, cambios, agotados—
+ *     en el panel (D1 `kb_docs`), que la dueña cambia desde /admin/kb o desde
+ *     Telegram. El seguimiento a clientas NO vive aquí: son ajustes
+ *     (src/followup/ajustes.ts), porque el proceso que lo manda no lee esta base.
  *
- * El índice es un ESPEJO del panel: `kb_indice` anota qué pedazos se subieron,
+ * Hasta el 23-sep-2026 los dos lados podían tener el MISMO tema (member/kb/ y
+ * el panel), se contradecían y el bot contestaba con el que encontrara primero.
+ * Eso no vuelve: cada tema tiene un solo lado. member/kb-respaldo/ sigue siendo
+ * una COPIA diaria del panel que no se indexa nunca (hay una prueba que lo
+ * vigila).
+ *
+ * El índice es un ESPEJO de los dos: `kb_indice` anota qué pedazos se subieron,
  * y cada reindex borra los que ya no existen. Un reindex que solo suma deja lo
  * viejo contestando para siempre.
  */
 import type { Env } from "../env";
 import { Db } from "../db/client";
+import { SettingsRepo } from "../db/settings";
 import { reindexKb, type KbChunk } from "./reindex";
 import { chunkContent, MAX_CHUNKS } from "./chunk";
+import { CONOCIMIENTO_BASE } from "./conocimiento.generado";
 import kbRetirados from "../../member/kb-retirados.json";
 
 export interface KbDoc {
@@ -73,6 +85,71 @@ export class KbDocsRepo {
 
 function vectorIds(docId: string): string[] {
   return Array.from({ length: MAX_CHUNKS }, (_, i) => `dash:${docId}#${i}`);
+}
+
+// ── El conocimiento base (GitHub) ──────────────────────────────────────────
+
+/** Los documentos de member/conocimiento/, tal como viajan en el bundle. */
+export const DOCS_DE_GITHUB: KbDoc[] = CONOCIMIENTO_BASE.map((d) => ({ ...d, updated_at: 0 }));
+
+const plano = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+
+/**
+ * El documento de GitHub con ese id o ese título, o null. Un documento del
+ * panel no puede llevar ninguno de los dos: sería el mismo tema con dos dueños.
+ */
+export function docDeGithub(idOTitulo: string): KbDoc | null {
+  const t = plano(idOTitulo);
+  return DOCS_DE_GITHUB.find((d) => d.id === idOTitulo.trim() || plano(d.title) === t) ?? null;
+}
+
+/** Chunks de un documento de GitHub: `git:<id>#<n>`, para no chocar con los del panel. */
+export function gitChunks(doc: KbDoc): KbChunk[] {
+  return chunkContent(doc.content).map((content, i) => ({
+    id: `git:${doc.id}#${i}`,
+    title: doc.title,
+    content,
+    source: "github",
+  }));
+}
+
+function gitVectorIds(docId: string): string[] {
+  return Array.from({ length: MAX_CHUNKS }, (_, i) => `git:${docId}#${i}`);
+}
+
+/**
+ * Lo que la reorganización del 29-sep-2026 saca del panel, una sola vez:
+ *   · los documentos que pasaron a GitHub (mismo id o mismo título), para que
+ *     el tema no quede con dos dueños;
+ *   · «Seguimiento de clientas»: el seguimiento es un ajuste (/seguimiento en
+ *     Telegram), no un texto. Ese documento decía «no le escribas a nadie» y el
+ *     proceso que manda los seguimientos nunca lo leyó.
+ * Queda anotado en `settings` para no repetirse: si la dueña crea después un
+ * documento con esos nombres, lo rechaza el panel, no una migración.
+ */
+export const MIGRACION_KB = "2026-09-29";
+const PANEL_RETIRADOS_EN_LA_MIGRACION = ["seguimiento-de-clientas"];
+
+export async function migrarConocimiento(env: Env): Promise<string[]> {
+  const db = new Db(env.DB);
+  const settings = new SettingsRepo(db);
+  if ((await settings.get("kb_migracion")) === MIGRACION_KB) return [];
+  const repo = new KbDocsRepo(db);
+  const borrados: string[] = [];
+  for (const d of await repo.list()) {
+    if (docDeGithub(d.id) || docDeGithub(d.title) || PANEL_RETIRADOS_EN_LA_MIGRACION.includes(d.id)) {
+      await repo.delete(d.id);
+      borrados.push(d.id);
+    }
+  }
+  await settings.set("kb_migracion", MIGRACION_KB);
+  if (borrados.length) console.log(`[kb] migración ${MIGRACION_KB}: fuera del panel ${borrados.join(", ")}`);
+  return borrados;
 }
 
 /** Chunks for one dashboard doc, title-prefixed so matches carry context. */
@@ -138,13 +215,18 @@ export async function purgeRetiredDocVectors(env: Env): Promise<{ purged: string
 }
 
 /**
- * Reindex general: el índice queda IGUAL al panel. Sube cada documento y borra
- * todo lo que no salga de él: documentos borrados, pedazos que sobraron al
- * acortar uno, los .md viejos del repositorio y los retirados a mano.
+ * Reindex general: el índice queda IGUAL a GitHub + el panel. Sube cada
+ * documento y borra todo lo que no salga de ellos: documentos borrados,
+ * pedazos que sobraron al acortar uno, los .md viejos del repositorio y los
+ * retirados a mano. Lo corre cada despliegue: así llega lo que se mergeó en
+ * member/conocimiento/.
  */
 export async function reindexAll(env: Env): Promise<{ indexed: number; purged: string[] }> {
-  const docs = await new KbDocsRepo(new Db(env.DB)).list();
-  const chunks = docs.flatMap(docChunks);
+  const migrados = await migrarConocimiento(env);
+  // Un documento del panel con el id o el título de uno de GitHub no se indexa:
+  // el tema ya tiene dueño.
+  const docs = (await new KbDocsRepo(new Db(env.DB)).list()).filter((d) => !docDeGithub(d.id) && !docDeGithub(d.title));
+  const chunks = [...DOCS_DE_GITHUB.flatMap(gitChunks), ...docs.flatMap(docChunks)];
   const vivos = new Set(chunks.map((c) => c.id));
   const { indexed } = await reindexKb(env, chunks);
 
@@ -155,8 +237,10 @@ export async function reindexAll(env: Env): Promise<{ indexed: number; purged: s
   const legado = [
     ...REPO_KB_LEGADO.flatMap((b) => Array.from({ length: MAX_CHUNKS }, (_, i) => `${b}#${i}`)),
     ...RETIRED_DOC_IDS.filter((id) => !docIds.has(id)).flatMap(vectorIds),
+    ...migrados.flatMap(vectorIds),
     // Pedazos de un documento vivo que ya no existen (se acortó).
     ...docs.flatMap((d) => vectorIds(d.id)),
+    ...DOCS_DE_GITHUB.flatMap((d) => gitVectorIds(d.id)),
   ];
   const sobran = [...new Set([...antes, ...legado])].filter((id) => !vivos.has(id));
   // En lotes chicos: Vectorize rechaza un deleteByIds grande (el 24-sep, con
@@ -164,6 +248,7 @@ export async function reindexAll(env: Env): Promise<{ indexed: number; purged: s
   for (let i = 0; i < sobran.length; i += 50) await env.KB.deleteByIds(sobran.slice(i, i + 50));
 
   await env.DB.prepare("DELETE FROM kb_indice").run();
+  for (const d of DOCS_DE_GITHUB) await anotarIndice(env, `git:${d.id}`, gitChunks(d).map((c) => c.id));
   for (const d of docs) await anotarIndice(env, d.id, docChunks(d).map((c) => c.id));
 
   // Lo que salió del índice y no era un simple sobrante de un documento vivo.

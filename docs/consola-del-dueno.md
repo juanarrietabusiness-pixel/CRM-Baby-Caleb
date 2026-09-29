@@ -82,6 +82,9 @@ en esa conversación mientras usted la atiende.
 | `/devolucion NAT-L 1` | Pregunta si el producto **vuelve al inventario** — puede llegar abierto. |
 | `/ajuste NAT-M +3` · `-1` · `=10` | Corrige el stock. |
 | `/movimientos [código]` | Lo último que se movió en el inventario. |
+| `/seguimiento` | A quién le escribe el bot cuando dejan de contestar, cuándo, y qué pasa con quien ya compró. `/seguimiento apagar` · `prender`. |
+| `/compro #ref` | Esa clienta ya compró: no le llega seguimiento comercial hasta el de recompra (a los 15 días). No toca el stock. Trae **↩️ No compró**. |
+| `/nocompro #ref` | Quita esa marca. |
 | `/cliente` | Probar el bot como si fuera una clienta. `/dueno` para volver. |
 | `/nuevo` | Que el asistente olvide lo que venían hablando y empiece de cero. |
 | `/miid` | Su chat id (el número del secret `OWNER_TELEGRAM_CHAT_ID` en Cloudflare). |
@@ -108,6 +111,39 @@ Lo que sale hacia afuera (un mensaje a una clienta) o mueve el inventario,
 **siempre** se lo propone con botones: no pasa nada sin su toque. Los comandos
 siguen igual.
 
+
+### El seguimiento a clientas (desde el 29-sep-2026)
+
+El bot le escribe solo a quien **preguntó por un producto, un precio, una talla
+o un envío** y dejó de contestar: a las 5 horas, a los 3 días y a los 7 días.
+Nunca a quien dijo que no le interesa, ni si **usted** fue la última en
+escribir en esa conversación (usted decide), ni en una conversación en pausa o
+con ticket abierto.
+
+**Quien ya compró no recibe seguimiento comercial.** Descansa 15 días; ese día
+le llega el mensaje de recompra y, si no contesta, los recordatorios. Cuenta
+como compra cualquiera de estas: el botón **✅ Compró** del aviso (o `/compro`),
+una venta registrada (`/venta` o **🛒 Registrar venta**), un comprobante o pago
+que el bot pasó a una persona, o que ella escriba «ya compré» / «ya pagué».
+
+Todo eso se cambia **desde aquí, con sus palabras**: *"que el de recompra salga
+a los 20 días"*, *"cambie el primer mensaje por…"*, *"no escriba los viernes"*,
+*"apague el seguimiento"*. Le llega **🔁 ¿Cambio así el seguimiento?** con
+**✅ Guardar**: hasta que lo toca, no cambia nada.
+
+Esto **no** va en la base de conocimiento. El 28-sep usted pidió «ya no le des
+más seguimiento a nadie», la consola lo guardó como documento y contestó «el bot
+lo usa desde ya»; pero el proceso que manda los seguimientos nunca lee esa base,
+y siguió escribiendo. Ahora la orden va a donde se decide.
+
+### Lo que la consola NO cambia: el conocimiento base
+
+Las tallas, los productos, quiénes somos y el uso del producto viven en GitHub y
+los actualiza la agencia (así no quedan dos versiones). Si le pide cambiar algo
+de eso, la consola se lo dice y le deja el texto listo para reenviarlo. Lo que
+sí cambia desde aquí: cómo se atiende (pagos, envíos, retiro, cambios, agotados,
+cuándo pasar a una persona) y el seguimiento. Los precios y el stock, en el
+catálogo, como siempre.
 
 ### Pedirle que le escriba a un cliente (o a varios)
 

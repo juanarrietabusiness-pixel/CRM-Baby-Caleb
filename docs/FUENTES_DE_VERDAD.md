@@ -22,7 +22,8 @@ Cada turno, el bot arma su cabeza con esto, en este orden:
 | 3 | Lecciones aprendidas | D1 · `settings.learned_lessons` | el flywheel, solo |
 | 3b | Instrucciones adicionales | D1 · `settings.custom_instructions` | el panel, pestaña Config — se **suman**, no reemplazan |
 | 4 | Catálogo | D1 · tabla `catalog_items` | el panel, pestaña Catálogo |
-| 5 | Base de conocimiento | Vectorize, espejo de D1 · `kb_docs` | **solo** el panel, pestaña KB (o el botón ✅ de la consola de Telegram) |
+| 5 | Base de conocimiento | Vectorize, espejo de dos dueños sin temas en común | **conocimiento base** (tallas, productos, quiénes somos, uso): GitHub, `member/conocimiento/` · **comportamiento** (pagos, envíos, retiro, cambios, agotados, cuándo escalar): el panel, pestaña KB, o el botón ✅ de la consola de Telegram |
+| — | Seguimiento a clientas | D1 · `settings.seguimiento_*` + tabla `compras` | la dueña por Telegram (`/seguimiento`, `/compro`, o con sus palabras). **No** es una capa del prompt: lo lee el cron de `src/followup/run.ts` |
 
 Las capas 1 a 3 van **enteras dentro del system prompt, en cada turno**. Las
 capas 4 y 5 solo llegan al modelo si él decide llamar una tool.
@@ -60,10 +61,13 @@ vez de *"prompt automático"*.
 | Cuántos pañales trae la caja | el **nombre** del producto en `catalog_items` | `catalogQuery` | KB |
 | Si hay o no hay | `catalog_items` | `catalogQuery` (etiqueta, no número) | ningún lado |
 | Costo interno | `catalog_items.cost_price` | **nunca** — no sale de la base | ningún lado |
-| Rangos de peso por talla | panel · KB «Tallas y productos» | `searchKb` | catálogo |
+| Rangos de peso por talla | GitHub · `member/conocimiento/tallas-y-productos.md` | `searchKb` | catálogo, panel |
 | Tarifas de delivery por zona | tool `cotizarEnvio` (reglas en KB «Envíos y delivery») | `cotizarEnvio` | catálogo |
 | Formas de pago, abono mínimo | panel · KB «Pagos, abonos y facturación» | `searchKb` | catálogo |
-| Uso del producto, cambios, retiro, agotados | panel · KB (un documento por tema) | `searchKb` | — |
+| Qué es cada producto, quiénes somos, uso del producto | GitHub · `member/conocimiento/` | `searchKb` | panel |
+| Cambios, retiro, agotados, pagos, envíos | panel · KB (un documento por tema) | `searchKb` | GitHub |
+| A quién se le hace seguimiento, cuándo, y qué pasa con quien compró | D1 · `settings.seguimiento_*` (Telegram: `/seguimiento`) | nadie: lo lee el cron | KB, contexto, prompt |
+| Quién ya compró | D1 · `compras` + ventas de `stock_movements` + tickets de pago | el cron del seguimiento | — |
 | Cuándo escalar | panel · KB «Cuándo pasar la conversación a una persona» + prompt | `searchKb` / `handoffHuman` | — |
 | Trato (usted), qué no se maneja | `member/config.local.ts` | va en el prompt | catálogo |
 
@@ -119,20 +123,46 @@ pestaña **KB**: se edita el documento del tema y se guarda. Se indexa al
 instante; no hace falta desplegar nada. Desde Telegram también: la consola le
 propone el texto y el documento, y usted lo guarda con ✅.
 
-**El panel es la única fuente** desde el 23-sep-2026. Antes había dos —los
-documentos del panel y los `.md` de `member/kb/` que subía cada despliegue—, el
-bot buscaba en los dos a la vez y se contradecían (cambios de talla, retiro,
-recomendar talla). Ahora:
+**Una talla, la descripción de un producto, un dato de la empresa** →
+`member/conocimiento/` en GitHub (la agencia): se edita el `.md`, se corre
+`pnpm conocimiento` y se mergea. Llega al bot con el despliegue.
 
-- **El índice es un espejo del panel.** Cada reindex (el del despliegue o el
+**El seguimiento** (a quién, cuándo, qué dice, qué pasa tras una compra) → la
+consola de Telegram: `/seguimiento`, o pidiéndolo con sus palabras (propuesta
+con ✅). **Quién compró** → el botón ✅ Compró del aviso o `/compro #ref`.
+
+**Dos dueños, sin temas en común** (29-sep-2026). Entre el 23 y el 29-sep el
+panel fue la única fuente; antes, el panel y los `.md` de `member/kb/` tenían
+los MISMOS temas, el bot buscaba en los dos y se contradecían (cambios de
+talla, retiro, recomendar talla). Ahora cada tema tiene un solo lado:
+
+- **Conocimiento base de la empresa → GitHub**, `member/conocimiento/*.md`:
+  tallas y productos, sobre Baby Caleb, uso del producto. Lo actualiza la
+  agencia con un PR; cada despliegue lo sube al índice. Tras editar un `.md`,
+  `pnpm conocimiento` regenera `src/kb/conocimiento.generado.ts` (una prueba
+  falla si se olvida). El panel lo muestra de solo lectura, rechaza un documento
+  con su mismo título, y la consola de Telegram le deja a la dueña el texto
+  para reenviárselo a la agencia en vez de guardarlo.
+- **Comportamiento → el panel** (o Telegram): pagos, envíos, retiro, cambios,
+  agotados, cuándo pasar a una persona. La dueña los cambia sin desplegar.
+- **Seguimiento → ajustes**, no documentos. El cron que lo manda no lee la base
+  de conocimiento: el 28-sep la dueña pidió por Telegram «ya no le des
+  seguimiento a nadie», quedó guardado como documento y el cron siguió
+  escribiendo (40 mensajes). Ver `docs/AUDITORIA_CONOCIMIENTO.md`.
+
+Además:
+
+- **El índice es un espejo de los dos.** Cada reindex (el del despliegue o el
   botón del panel) sube lo que hay y **borra lo que ya no está**. La tabla
   `kb_indice` anota qué se subió; sin ella un reindex solo podía sumar.
-- **GitHub guarda una copia, en una sola dirección.** `respaldar-kb.yml` baja
-  cada noche los documentos del panel a `member/kb-respaldo/`. Es historial: el
-  bot no la lee, el despliegue la ignora y una prueba falla si alguien la
-  conecta al índice. **Editar esa carpeta no cambia nada en el bot.**
-- Las pruebas de `test/babycaleb/` leen esa copia: si un cambio en el panel
-  contradice el documento de la dueña, la próxima corrida lo marca.
+- **GitHub guarda una copia del panel, en una sola dirección.**
+  `respaldar-kb.yml` baja cada noche los documentos del panel a
+  `member/kb-respaldo/`. Es historial: el bot no la lee, el despliegue la ignora
+  y una prueba falla si alguien la conecta al índice. **Editar esa carpeta no
+  cambia nada en el bot.** (No confundir con `member/conocimiento/`, que sí.)
+- Las pruebas de `test/babycaleb/` leen las dos carpetas: si un cambio en el
+  panel o en GitHub contradice el documento de la dueña, la próxima corrida lo
+  marca.
 
 **El catálogo desde cero** → `src/db/seed-catalog.sql`, aplicado con wrangler. Ojo: **borra el stock
 cargado**. Para corregir precios en una base que ya está en producción sin

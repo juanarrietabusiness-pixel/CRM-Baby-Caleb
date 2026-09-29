@@ -842,3 +842,100 @@ describe("confirmacion", () => {
     }
   });
 });
+
+// ── El seguimiento se maneja desde aquí (29-sep-2026) ───────────────────────
+// La dueña pidió por Telegram «ya no le des seguimiento a nadie», la consola lo
+// guardó en la base de conocimiento y contestó «el bot lo usa desde ya». El
+// proceso que manda los seguimientos nunca lee esa base: siguió escribiendo.
+describe("seguimiento a clientas desde Telegram", () => {
+  beforeEach(vincular);
+
+  it("/seguimiento dice cómo está, y apagar/prender cambia el interruptor que lee el cron", async () => {
+    await atenderAlDueno(env, mensaje("/seguimiento"), OK);
+    expect(textos().at(-1)).toMatch(/ENCENDIDO[\s\S]*solo a las interesadas[\s\S]*15 días/);
+    await atenderAlDueno(env, mensaje("/seguimiento apagar"), OK);
+    expect(textos().at(-1)).toMatch(/APAGADO/);
+    expect(await new SettingsRepo(db).get("seguimiento_activo")).toBe("0");
+    await atenderAlDueno(env, mensaje("/seguimiento prender"), OK);
+    expect(await new SettingsRepo(db).get("seguimiento_activo")).toBe("1");
+  });
+
+  it("/compro marca la compra (sin tocar el stock) y el botón la deshace", async () => {
+    const conv = await new ConversationsRepo(db).getOrCreate("whatsapp-qr", "111@lid", "Ana");
+    await atenderAlDueno(env, mensaje("/compro Ana"), OK);
+    expect(textos().at(-1)).toMatch(/Ana[^:]*: anotado que ya compró[\s\S]*recompra/);
+    const compra = await db.first<{ origen: string; actor: string }>("SELECT origen, actor FROM compras WHERE conversation_id = ?", [conv.id]);
+    expect(compra).toEqual({ origen: "duena", actor: `telegram:${DUENO}` });
+    expect(await stockDe("NAT-M")).toBe(5);
+
+    await atenderAlDueno(env, boton(datoDe("No compró")), OK);
+    expect(await db.first("SELECT 1 FROM compras WHERE conversation_id = ?", [conv.id])).toBeNull();
+  });
+
+  it("el aviso trae «✅ Compró», y tocarlo la marca", async () => {
+    const conv = await new ConversationsRepo(db).getOrCreate("whatsapp-qr", "222@lid", "Bea");
+    await avisarAlDueno(env, { titulo: "🚨 Ticket · pago", cuerpo: "Mandó comprobante", conversationId: conv.id });
+    await atenderAlDueno(env, boton(datoDe("Compró")), OK);
+    expect(await db.first<{ origen: string }>("SELECT origen FROM compras WHERE conversation_id = ?", [conv.id])).toEqual({ origen: "duena" });
+  });
+
+  it("con sus palabras: el cambio llega como propuesta y se guarda solo con ✅", async () => {
+    llm.activo = true;
+    llm.pensar = async (args: any) => {
+      await args.tools.proponerAjusteSeguimiento.execute({ postcompraDias: 20, texto1: "{saludo}, ¿le agendo su caja?" }, {});
+      return "Le dejé la propuesta.";
+    };
+    await atenderAlDueno(env, mensaje("que el de recompra salga a los 20 días"), OK);
+    expect(llm.llamadas[0].system).toMatch(/SEGUIMIENTO A CLIENTAS/);
+    expect(textos().join("\n")).toMatch(/¿Cambio así el seguimiento\?[\s\S]*a los 20 días/);
+    expect(await new SettingsRepo(db).get("seguimiento_postcompra_dias")).toBeNull();
+
+    await atenderAlDueno(env, boton(datoDe("Guardar")), OK);
+    expect(await new SettingsRepo(db).get("seguimiento_postcompra_dias")).toBe("20");
+    expect(await new SettingsRepo(db).get("seguimiento_texto_1")).toBe("{saludo}, ¿le agendo su caja?");
+  });
+
+  it("el seguimiento no se «enseña» en la base de conocimiento", async () => {
+    llm.activo = true;
+    let respuesta = "";
+    llm.pensar = async (args: any) => {
+      respuesta = await args.tools.proponerRegla.execute({ documento: "Seguimiento de clientas", texto: "No le escribas a nadie." }, {});
+      return "Listo.";
+    };
+    await atenderAlDueno(env, mensaje("ya no le des seguimiento a nadie"), OK);
+    expect(respuesta).toMatch(/proponerAjusteSeguimiento/);
+    expect(ultimoTeclado().some((b) => b.text.includes("Guardar"))).toBe(false);
+  });
+});
+
+describe("el conocimiento base (GitHub) no se cambia desde Telegram", () => {
+  beforeEach(vincular);
+
+  it("proponerRegla sobre «Tallas y productos» no guarda: deja el texto para la agencia", async () => {
+    llm.activo = true;
+    llm.pensar = async (args: any) => {
+      await args.tools.proponerRegla.execute({ documento: "Tallas y productos", texto: "La M es de 9 a 20 lbs." }, {});
+      return "Listo.";
+    };
+    await atenderAlDueno(env, mensaje("la talla M ahora es de 9 a 20 libras"), OK);
+    expect(textos().join("\n")).toMatch(/conocimiento base[\s\S]*agencia[\s\S]*La M es de 9 a 20 lbs/);
+    expect(ultimoTeclado().some((b) => b.text.includes("Guardar"))).toBe(false);
+  });
+
+  it("verBaseDeConocimiento muestra los dos lados, y de quién es cada uno", async () => {
+    llm.activo = true;
+    let lista = "";
+    llm.pensar = async (args: any) => {
+      lista = await args.tools.verBaseDeConocimiento.execute({ titulo: "" }, {});
+      return "Aquí está.";
+    };
+    await atenderAlDueno(env, mensaje("¿qué sabe el bot?"), OK);
+    expect(lista).toMatch(/Del panel[\s\S]*Conocimiento base, de GitHub[\s\S]*Tallas y productos/);
+  });
+
+  it("el botón de una regla vieja no puede crear un documento con el nombre de uno de GitHub", async () => {
+    const { crearAccion } = await import("../../src/owner/acciones");
+    await atenderAlDueno(env, boton(await crearAccion(env, "regla", { docId: null, titulo: "Tallas y productos", texto: "x", grupo: "g9" })), OK);
+    expect(await db.first("SELECT 1 FROM kb_docs")).toBeNull();
+  });
+});

@@ -147,3 +147,93 @@ prohibido decir "entendido" sin guardarlas. Ver `docs/FUENTES_DE_VERDAD.md`.
 
 **Pendiente de la dueña:** DANY-AW1200 está inactivo con 5 cajas en Ciudad de
 Panamá — se dejó como está.
+
+---
+
+## Tercera auditoría (29-sep-2026): el seguimiento y los dos dueños
+
+> Pregunta de la agencia: *el CRM le da seguimiento incluso a clientas que ya
+> compraron. Hay una regla general de "dar seguimiento" que choca con lo que le
+> dije al bot por Telegram. Auditar GitHub, Cloudflare, el conocimiento
+> indexado y Telegram, y dejar una sola lógica: GitHub = conocimiento base de
+> la empresa; panel/Telegram = comportamiento del agente.*
+
+Datos de la D1 de producción por el MCP de Cloudflare (solo lectura, salvo lo
+que dice §5).
+
+### 1. Dónde estaba definida cada regla de seguimiento
+
+| Fuente | Qué decía | ¿La lee quien manda los seguimientos? |
+|---|---|---|
+| `src/followup/run.ts` (GitHub → cron cada hora) | 5 h, 3 días y 7 días a **cualquiera** que deje de contestar. Solo se salvaba quien escribiera «no me interesa» o «ya compré». | **Es** quien los manda |
+| KB del panel «Seguimiento de clientas» — 25-sep | «a quien preguntó por RN y no contestó, ofrézcale los fulares» | No |
+| … — 28-sep 15:48, por Telegram | «NO hagas seguimiento a clientas que ya compraron» | No |
+| … — 28-sep 16:07, por Telegram | «NO hagas seguimiento a **ningún** cliente a menos que el dueño lo indique» | No |
+| La consola de Telegram | Contestó «✅ El bot de clientas lo usa desde ya» | — |
+
+**El hueco:** el cron no lee la base de conocimiento, y el bot de clientas —que
+sí la lee— no puede escribir primero. Las tres órdenes quedaron guardadas donde
+no llegaban. Después de la del 28-sep 16:07 salieron **40 seguimientos** (el
+último, 29-sep 12:01).
+
+**Por qué les llegaba a quienes ya compraron:** el sistema no sabía quién
+compró. De 280 conversaciones, 4 tenían una venta registrada con conversación,
+3 un ticket de pago y 1 un lead. Las ventas se cierran a mano por WhatsApp. Y el
+cron contaba el mensaje de la dueña como «el negocio contestó»: 5 horas después
+de que ella escribía «Recibido, sale hoy», salía «¿Desea algún pedido?». Casos
+reales: «Envío pagos», «Por Ferguson está bien», un comprobante ya resuelto
+(que recibió tres).
+
+### 2. La regla nueva, y dónde vive
+
+Decidida por la agencia el 29-sep (reemplaza la orden del 28-sep, que era
+para frenar lo que estaba pasando):
+
+- **Solo interesadas**: el bot consultó el catálogo, cotizó un envío o la
+  anotó como interesada. Un «hola» o un «igualmente gracias» no cuentan.
+- **Si la última en escribir fue la dueña, el bot no hace seguimiento.**
+- **Quien compró**: 15 días sin nada comercial; ese día, el de recompra; si no
+  contesta, los recordatorios de siempre (3 y 7 días).
+- **Cuenta como compra** (la más reciente manda): botón ✅ Compró o `/compro`;
+  venta registrada; ticket de pago; o que ella escriba «ya compré»/«ya pagué».
+  «Ya compré» dejó de ser un «no me escriban»; «ya compré en otro lado», no.
+- Tiempos, días, horario, textos y el interruptor son **ajustes** que la dueña
+  cambia por Telegram (`src/followup/ajustes.ts`). No van en la base de
+  conocimiento: el documento «Seguimiento de clientas» se retira en el
+  despliegue.
+
+### 3. Los dos dueños del conocimiento
+
+| Tema | Antes | Ahora |
+|---|---|---|
+| Tallas y productos, Sobre Baby Caleb, Uso del producto | panel | **GitHub** · `member/conocimiento/` (lo cambia la agencia) |
+| Pagos, Envíos, Retiro, Cambios, Agotados, Cuándo escalar | panel | panel (decisión de la agencia: los mixtos, enteros al panel) |
+| Seguimiento | panel (inerte) | ajustes (`/seguimiento`) |
+| Precios y stock | catálogo (D1) | catálogo (D1), sin cambios |
+
+El despliegue sube los de GitHub al índice y saca del panel los que tenían el
+mismo tema (una sola vez, anotado en `settings.kb_migracion`). El panel y la
+consola no pueden crear otro con ese título.
+
+### 4. Otras contradicciones que aparecieron
+
+| # | Hallazgo | Arreglo |
+|---|---|---|
+| 1 | **Wipes Nateen**: activos en el catálogo (caja de 960, $45, 15 cajas), pero el contexto del prompt decía «no manejamos wipes Nateen» — y el contexto le gana al catálogo. | Sí se venden (decisión de la agencia). Fuera del «no manejamos»; la KB y la verdad de las pruebas lo dicen. |
+| 2 | **Retiro**: el contexto (en el prompt de cada turno) daba «Altos de Curundú, 7 a 5». La orden de la dueña (28-sep) es no mencionar dirección y ofrecer retiro solo si insiste. | Gana la orden de la dueña: la dirección sale del contexto. |
+| 3 | **4 pruebas en rojo** en `main` por lo mismo (retiro y el texto de Ferguson que la dueña reescribió): el próximo despliegue habría fallado. | La verdad de las pruebas se actualiza con esas órdenes. |
+| 4 | **Pants**: la KB decía XL «más de 33 lbs» y XXL «más de 55 lbs»; el catálogo y los datos nuevos, XL 26–37.5 lbs y XXL +33 lbs. | Rangos nuevos en `member/conocimiento/`. |
+| 5 | Caja Dany Baby de 1,200: inactiva con 5 en bodega; el combo de 2 cajas ya no aplica. | Borrada del catálogo (autorizado). |
+| 6 | Pants sin costo cargado. | Costos $36 / $38 / $38 en D1 (autorizado). |
+| 7 | La web (babycaleb.netlify.app) y su propio asistente tenían otra lista: RN a $45, prematuro $17, wipes Nateen $25, combo Dany $35, wipes adulto $15. | Actualizados en `abrinay1997-stack/Baby-caleb`. |
+| 8 | Las difusiones por Telegram dejaban fuera a quien dijo «ya compré» como si no le interesara. | Misma regla que el seguimiento: una compradora sí puede recibir una difusión. |
+
+### 5. Lo que se cambió en la base (29-sep-2026, con autorización)
+
+- `catalog_items`: `cost_price` de NAT-P-L = 3600, NAT-P-XL = 3800, NAT-P-XXL = 3800.
+- `catalog_items`: borradas las 3 filas de DANY-AW1200 (inactivas).
+
+Lo demás llega con el despliegue: el esquema crea `compras`, el reindex sube el
+conocimiento de GitHub y retira del panel los documentos que pasaron a GitHub y
+el de «Seguimiento de clientas». El seguimiento nuevo empieza a correr en la
+siguiente hora; no hay nada que activar.

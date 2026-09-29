@@ -159,7 +159,17 @@ const COMANDOS: Record<string, (ctx: Contexto, args: string) => Promise<Respuest
 // ── Lo que hace cada botón ─────────────────────────────────────────────────
 
 /** Botones que responden sobre su propio mensaje (quitan sus botones). */
-const EDITAN_SU_MENSAJE = new Set(["venta", "devolucion", "descartar", "enviar", "enviarVarios", "deshacer", "regla"]);
+const EDITAN_SU_MENSAJE = new Set([
+  "venta",
+  "devolucion",
+  "descartar",
+  "enviar",
+  "enviarVarios",
+  "deshacer",
+  "regla",
+  "ajusteSeguimiento",
+  "descompro",
+]);
 
 const ACCIONES: Record<string, (ctx: Contexto, p: Record<string, unknown>) => Promise<Respuesta>> = {
   devolver: async (ctx, p) => {
@@ -196,7 +206,11 @@ const ACCIONES: Record<string, (ctx: Contexto, p: Record<string, unknown>) => Pr
   // Enseñarle algo al bot de clientas: el texto va a la base de conocimiento del
   // panel (la única fuente) y se indexa en el acto.
   regla: async (ctx, p) => {
-    const { KbDocsRepo, indexDoc } = await import("../kb/docs");
+    const { KbDocsRepo, indexDoc, docDeGithub } = await import("../kb/docs");
+    // El conocimiento base vive en GitHub: un documento del panel con su nombre
+    // sería el mismo tema con dos dueños (y el índice no lo subiría).
+    const deGithub = docDeGithub(String(p.titulo ?? ""));
+    if (deGithub) return { texto: `❌ No se guardó: «${deGithub.title}» es conocimiento base y lo actualiza la agencia en GitHub.` };
     const repo = new KbDocsRepo(new Db(ctx.env.DB));
     const texto = String(p.texto).trim();
     const existente = p.docId ? await repo.getById(String(p.docId)) : null;

@@ -83,7 +83,16 @@ describe("el contexto sí trae lo que no está en ninguna otra parte", () => {
 
   it("qué no se maneja, para que el bot no lo ofrezca", () => {
     expect(contexto).toMatch(/pañales dany baby/i);
-    expect(contexto).toMatch(/wipes nateen/i);
+  });
+
+  it("no niega lo que el catálogo sí vende (29-sep-2026: wipes Nateen)", () => {
+    // El contexto va en el prompt de cada turno y le gana al catálogo.
+    expect(contexto).toMatch(/Qué vendemos[^\n]*wipes Nateen/i);
+    expect(contexto).not.toMatch(/No manejamos[^\n]*wipes nateen/i);
+  });
+
+  it("no da la dirección de retiro: la dueña pidió no mencionarla (28-sep-2026)", () => {
+    expect(contexto).not.toMatch(/Curundú/i);
   });
 
   it("que las imágenes y comprobantes los revisa una persona, siempre", () => {

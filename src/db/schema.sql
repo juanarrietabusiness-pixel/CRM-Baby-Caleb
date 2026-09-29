@@ -339,6 +339,23 @@ CREATE TABLE IF NOT EXISTS seguimientos (
 );
 CREATE INDEX IF NOT EXISTS idx_seguimientos_fecha ON seguimientos(enviado_en);
 
+-- Las compras que el seguimiento tiene que respetar (src/followup/compras.ts):
+-- quien compró no recibe seguimiento comercial hasta el de recompra. Aquí van
+-- las que marca la dueña (botón «✅ Compró» o /compro) y las que la clienta
+-- dice por escrito («ya compré», «ya pagué»). Las ventas de stock_movements y
+-- los tickets de pago también cuentan, pero se leen de sus propias tablas.
+-- `origen`: duena (la marcó ella) o dijo (lo escribió la clienta).
+CREATE TABLE IF NOT EXISTS compras (
+  id              TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  comprado_en     INTEGER NOT NULL,
+  origen          TEXT NOT NULL,
+  nota            TEXT,
+  actor           TEXT,
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_compras_conv ON compras(conversation_id, comprado_en);
+
 -- Las fotos de la clienta que ya le llegaron a la dueña por Telegram. Con esto
 -- cada aviso sobre una conversación lleva la última foto de la clienta, sin
 -- repetir la misma en el aviso siguiente (src/owner/avisos.ts).

@@ -25,7 +25,9 @@ import { GUION } from "./guion-del-documento";
 import { PRODUCTOS } from "./verdad-del-cliente";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const KB_DIR = resolve(ROOT, "member/kb-respaldo");
+// Lo que el bot puede encontrar con searchKb: el conocimiento base (GitHub) y
+// la copia del panel (comportamiento). Sin temas en común desde el 29-sep-2026.
+const KB_DIRS = [resolve(ROOT, "member/conocimiento"), resolve(ROOT, "member/kb-respaldo")];
 
 /**
  * Todo el texto indexable, con el espacio normalizado: el ancho de columna del
@@ -33,10 +35,12 @@ const KB_DIR = resolve(ROOT, "member/kb-respaldo");
  * línea. Las comparaciones van sin distinguir mayúsculas por la misma razón —
  * "No se venden paquetes sueltos" al empezar una frase es el mismo hecho.
  */
-const KB = readdirSync(KB_DIR)
-  .filter((f) => f.endsWith(".md"))
-  .sort()
-  .map((f) => readFileSync(resolve(KB_DIR, f), "utf8"))
+const KB = KB_DIRS.flatMap((dir) =>
+  readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .sort()
+    .map((f) => readFileSync(resolve(dir, f), "utf8")),
+)
   .join("\n\n")
   .replace(/\s+/g, " ");
 

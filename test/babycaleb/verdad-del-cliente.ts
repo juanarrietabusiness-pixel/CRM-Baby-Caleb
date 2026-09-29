@@ -14,6 +14,15 @@
  * Para actualizarlo: cuando la dueña mande un documento nuevo, se corrige aquí
  * PRIMERO, se ve qué tests se ponen rojos, y esos son exactamente los sitios
  * del repo que hay que tocar.
+ *
+ * Actualizaciones posteriores al documento, con quién las decidió:
+ *   · 25 y 28-sep-2026, la dueña por Telegram: el retiro solo si la clienta
+ *     insiste y sin dar la dirección (ya no «Altos de Curundú, 7 a 5»); el
+ *     texto de Ferguson.
+ *   · 29-sep-2026, la agencia con los precios de la dueña: costos de los pants,
+ *     la caja de 1,200 wipes Dany Baby sale del catálogo (se vende por caja de
+ *     600), los wipes Nateen SÍ se venden (caja de 960) y los rangos de peso de
+ *     los pants.
  */
 
 /** Precio de venta en CENTAVOS, como se guarda en D1. $50.00 → 5000. */
@@ -22,38 +31,44 @@ export interface ProductoVerdad {
   /** Fragmentos que TIENEN que aparecer en el nombre del producto. */
   nombreContiene: string[];
   precioCents: number;
+  /** Costo interno en centavos. Nunca sale hacia el bot; sirve para el margen del panel. */
+  costoCents: number;
   /** Unidades por caja, tal como las dice el documento. */
   porCaja?: number;
 }
 
 export const PRODUCTOS: ProductoVerdad[] = [
   // Pañales Nateen de cierre — "Caja 160 pañales — $50", etc.
-  { code: "NAT-RN", nombreContiene: ["RN", "cierre", "160"], precioCents: 5000, porCaja: 160 },
-  { code: "NAT-S", nombreContiene: ["S", "cierre", "160"], precioCents: 5000, porCaja: 160 },
-  { code: "NAT-M", nombreContiene: ["M", "cierre", "144"], precioCents: 5000, porCaja: 144 },
-  { code: "NAT-L", nombreContiene: ["L", "cierre", "128"], precioCents: 4500, porCaja: 128 },
-  { code: "NAT-XL", nombreContiene: ["XL", "cierre", "112"], precioCents: 4500, porCaja: 112 },
-  { code: "NAT-XXL", nombreContiene: ["XXL", "cierre", "112"], precioCents: 4500, porCaja: 112 },
+  { code: "NAT-RN", nombreContiene: ["RN", "cierre", "160"], precioCents: 5000, costoCents: 2800, porCaja: 160 },
+  { code: "NAT-S", nombreContiene: ["S", "cierre", "160"], precioCents: 5000, costoCents: 3200, porCaja: 160 },
+  { code: "NAT-M", nombreContiene: ["M", "cierre", "144"], precioCents: 5000, costoCents: 3200, porCaja: 144 },
+  { code: "NAT-L", nombreContiene: ["L", "cierre", "128"], precioCents: 4500, costoCents: 3000, porCaja: 128 },
+  { code: "NAT-XL", nombreContiene: ["XL", "cierre", "112"], precioCents: 4500, costoCents: 2800, porCaja: 112 },
+  { code: "NAT-XXL", nombreContiene: ["XXL", "cierre", "112"], precioCents: 4500, costoCents: 2920, porCaja: 112 },
 
-  // Pants (pull-ups) — solo L, XL y XXL. "Caja 160 pañales — $55".
-  { code: "NAT-P-L", nombreContiene: ["L", "pants", "160"], precioCents: 5500, porCaja: 160 },
-  { code: "NAT-P-XL", nombreContiene: ["XL", "pants", "160"], precioCents: 5500, porCaja: 160 },
-  { code: "NAT-P-XXL", nombreContiene: ["XXL", "pants", "160"], precioCents: 5500, porCaja: 160 },
+  // Pants (pull-ups) — solo L, XL y XXL. "Caja 160 pañales — $55". Costos: 29-sep-2026.
+  { code: "NAT-P-L", nombreContiene: ["L", "pants", "160"], precioCents: 5500, costoCents: 3600, porCaja: 160 },
+  { code: "NAT-P-XL", nombreContiene: ["XL", "pants", "160"], precioCents: 5500, costoCents: 3800, porCaja: 160 },
+  { code: "NAT-P-XXL", nombreContiene: ["XXL", "pants", "160"], precioCents: 5500, costoCents: 3800, porCaja: 160 },
 
-  // Water wipes Dany Baby — "1,200 wipes por $40" y "600 wipes por $25".
-  { code: "DANY-AW1200", nombreContiene: ["Dany Baby", "1,200"], precioCents: 4000, porCaja: 1200 },
-  { code: "DANY-AW600", nombreContiene: ["Dany Baby", "600"], precioCents: 2500, porCaja: 600 },
+  // Water wipes Dany Baby — caja de 600 (12 paquetes de 50) a $25. Ya no hay
+  // combo de 2 cajas (29-sep-2026).
+  { code: "DANY-AW600", nombreContiene: ["Dany Baby", "600"], precioCents: 2500, costoCents: 1400, porCaja: 600 },
 
-  // Fular prearmado Moon — "Valor $46".
-  { code: "MOON-FUL", nombreContiene: ["Moon", "unitalla"], precioCents: 4600 },
+  // Wipes Nateen — caja de 960 (12 paquetes de 80) a $45 (29-sep-2026).
+  { code: "WIPESNAT", nombreContiene: ["Nateen", "960"], precioCents: 4500, costoCents: 2160, porCaja: 960 },
+
+  // Fular prearmado Moon — "Valor $46". Costo: 29-sep-2026.
+  { code: "MOON-FUL", nombreContiene: ["Moon", "unitalla"], precioCents: 4600, costoCents: 3220 },
 ];
 
 /**
- * Productos que el documento saca de circulación. El bot no los puede nombrar.
- * "Por el momento únicamente nos mantendremos con las toallitas húmedas de Dany
- * Baby" · "Por el momento solo le podemos ofrecer los pañales Nateen".
+ * Códigos que salieron del catálogo. El bot no los puede nombrar.
+ *   · NAT-WIP: el código viejo de los wipes Nateen; hoy se venden como WIPESNAT.
+ *   · DANY-AW1200: el combo de 1,200 wipes Dany Baby (29-sep-2026: se vende por
+ *     caja de 600).
  */
-export const DESCATALOGADOS = ["NAT-WIP"];
+export const DESCATALOGADOS = ["NAT-WIP", "DANY-AW1200"];
 
 /** Rangos de peso por talla, en libras y kilos, como los dice el documento. */
 export const TALLAS: Array<{ talla: string; lbs: string; kg: string }> = [
@@ -63,6 +78,13 @@ export const TALLAS: Array<{ talla: string; lbs: string; kg: string }> = [
   { talla: "L", lbs: "15–39 lbs", kg: "7–18 kg" },
   { talla: "XL", lbs: "26–55 lbs", kg: "12–25 kg" },
   { talla: "XXL", lbs: "55 lbs", kg: "25 kg" },
+];
+
+/** Rangos de peso de los pants (29-sep-2026). Solo hay L, XL y XXL. */
+export const TALLAS_PANTS: Array<{ talla: string; lbs: string; kg: string }> = [
+  { talla: "L", lbs: "19–31 lbs", kg: "9–14 kg" },
+  { talla: "XL", lbs: "26–37.5 lbs", kg: "12–17 kg" },
+  { talla: "XXL", lbs: "más de 33 lbs", kg: "más de 15 kg" },
 ];
 
 /**
@@ -93,8 +115,6 @@ export const OPERACION = {
   cargoFerguson: "$2.50",
   corteEnvioMismoDia: "1:00 p.m.",
   ultimaEntrega: "5:00 p.m.",
-  retiro: "Altos de Curundú",
-  retiroHorario: ["7:00 a.m.", "5:00 p.m."],
   absorcion: "12 horas",
   panalesPorDiaRecienNacido: "8 a 12",
   duracionCaja: "20 a 25 días",

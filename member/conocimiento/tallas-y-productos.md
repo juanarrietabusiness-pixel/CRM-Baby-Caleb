@@ -1,4 +1,7 @@
 <!-- id: tallas-y-productos -->
+<!-- Conocimiento base de la empresa: vive en GitHub y lo actualiza la agencia.
+     El panel y la consola de Telegram no lo pueden cambiar. Cada despliegue lo
+     sube al índice del bot. Ver docs/FUENTES_DE_VERDAD.md. -->
 # Tallas y productos
 
 Trato de USTED siempre.
@@ -38,12 +41,13 @@ cambios por talla mal elegida (ver "Cambios de talla o de caja").
 **Pañales de pants** (tipo pantaloncito):
 
 - Talla L: 19–31 lbs (9–14 kg)
-- Talla XL: más de 33 lbs (más de 15 kg)
-- Talla XXL: más de 55 lbs (más de 25 kg)
+- Talla XL: 26–37.5 lbs (12–17 kg)
+- Talla XXL: más de 33 lbs (más de 15 kg)
 
-Las tallas se traslapan, así que un bebé puede caer en dos. Si el peso queda en
-el borde, o entre 31 y 33 lbs en pants, no adivine: dígale las dos opciones y
-pregúntele cómo le queda el pañal que usa hoy.
+Las tallas se traslapan, así que un bebé puede caer en dos (en pants, de 26 a
+31 lbs le sirven la L y la XL, y de 33 a 37.5 lbs la XL y la XXL). Si el peso
+queda en el borde, no adivine: dígale las dos opciones y pregúntele cómo le
+queda el pañal que usa hoy.
 
 Antes de que haga el pedido, recuérdele:
 
@@ -80,29 +84,32 @@ a una persona. Nunca ofrezca un descuento usted.
 
 ## Pañales Nateen
 
-Le comento, los pañales Nateen son una marca Belga 🙌🏻 
+Le comento, los pañales Nateen son una marca Belga 🙌🏻
 
-Son pañales premium, extremadamente suaves, hipoalergénicos, absorbentes y ecológicos (creados a base de micro fibras de bambú). 
+Son pañales premium, extremadamente suaves, hipoalergénicos, absorbentes y ecológicos (creados a base de micro fibras de bambú).
 Además, son anti-irritaciones e hipoalergénicos porque no contienen látex, clorinas, ni lociones perfumadas. Los pañales Nateen están formulados para pieles sensibles, con una suavidad y transpirabilidad premium para ayudar a mantener al bebé cómodo. Todos nuestros pañales son ecológicos y biodegradables y se descomponen en un 80% en 3 a 6 años en comparación con los pañales convencionales que tardan más de 300 años.
 
-## Toallitas húmedas Dany Baby
+## Toallitas húmedas
 
-Solo por caja, nunca por paquete. Water wipes hipoalergénicas **Dany Baby**: 99%
-agua pura, sin alcohol, sin perfumes. Dos presentaciones: 1,200 toallitas (24
-paquetes de 50) y 600 toallitas (12 paquetes de 50). Cuál hay hoy y a qué precio
-lo dice `catalogQuery`. Sirven para recién nacidos, y el empaque indica que limpian las manitos y la
-carita además de las partes íntimas.
+Solo por caja, nunca por paquete. Hay dos marcas, y qué presentación hay hoy,
+cuántas toallitas trae y a qué precio lo dice `catalogQuery`:
 
-**Wipes Nateen: hoy no se manejan.** Por el momento la tienda se mantiene solo
-con las toallitas Dany Baby; se le avisará de inmediato si eso cambia.
+- **Dany Baby**: water wipes hipoalergénicas, 99% agua pura, sin alcohol, sin
+  perfumes. Sirven para recién nacidos, y el empaque indica que limpian las
+  manitos y la carita además de las partes íntimas.
+- **Nateen**: toallitas hipoalergénicas de la misma marca de los pañales. Wipes
+  Nateen: sí se manejan.
+
+Si preguntan cuál le conviene, dígale las dos opciones que salgan en
+`catalogQuery` y, si pide un detalle que no está aquí, pase a una persona: no
+invente las especificaciones.
 
 **Pañales Dany Baby: no se manejan.** De esa marca solo hay toallitas; los
-pañales que se venden son los Nateen. Si preguntan si los
-Dany Baby son iguales a los water wipes Nateen: son muy parecidos, y se le
-comparten las especificaciones de los Dany Baby.
+pañales que se venden son los Nateen.
 
 Nunca llame "WaterWipes" a un producto que no sea de esa marca: es un riesgo
-legal y aduanero. "Water wipes" es el tipo de toallita; la marca es Dany Baby.
+legal y aduanero. "Water wipes" es el tipo de toallita; la marca es Dany Baby
+o Nateen.
 
 ## Fular portabebé Moon
 

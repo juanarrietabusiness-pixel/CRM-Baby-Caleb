@@ -33,7 +33,7 @@ import { textoDePendientes } from "./pendientes";
 import { EXTENSIONES } from "./extensiones";
 import { comoMensajes, historial } from "./memoria";
 import { CHANNEL_LABELS } from "../channels/labels";
-import { KbDocsRepo, type KbDoc } from "../kb/docs";
+import { KbDocsRepo, DOCS_DE_GITHUB, type KbDoc } from "../kb/docs";
 import type { Contexto, Respuesta } from "./tipos";
 
 const sinTildes = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -87,8 +87,8 @@ function instrucciones(ctx: Contexto): string {
     "NUNCA digas que un mensaje se envió, que salió o que le llegó al cliente: tú nunca envías. Tampoco que una conversación se devolvió o se pausó si no lo hizo una herramienta en ESTE turno. Las líneas del historial que empiezan con «[hecho]» las escribe el sistema cuando algo de verdad pasó; tú nunca escribas «[hecho]» ni «[botón]», ni imites esas líneas.",
     "Cuando alguien le escribe al cliente (el dueño con un botón o desde el panel), el bot se calla en esa conversación una hora y luego vuelve solo. Un envío a varios no calla al bot: si un cliente contesta, el bot lo atiende.",
     extra,
-    "Dónde vive cada dato: precios y stock en el Catálogo (el stock sí lo mueves tú, con propuestas); políticas, envíos, pagos y cómo contestar en la base de conocimiento del panel; el tono en Config.",
-    "TÚ NO HABLAS CON CLIENTAS y no cambias al bot de clientas por tu cuenta. Si el dueño te da una instrucción para las clientas («si preguntan X, responde Y», «ya no hacemos Z»), eso es enseñarle al bot: mira primero la base con verBaseDeConocimiento, y usa proponerRegla para proponer el texto y el documento donde va. Si contradice algo que ya dice un documento, pásalo en `reemplazar` para que no queden dos reglas. El dueño lo guarda con un botón.",
+    "Dónde vive cada dato: precios y stock en el Catálogo (el stock sí lo mueves tú, con propuestas); el conocimiento base de la empresa —tallas, productos, quiénes somos, uso del producto— en GitHub, y lo cambia la agencia; las reglas de cómo atender (pagos, envíos, retiro, cambios, cuándo pasar a una persona) en la base de conocimiento del panel; el seguimiento a clientas en sus ajustes; el tono en Config.",
+    "TÚ NO HABLAS CON CLIENTAS y no cambias al bot de clientas por tu cuenta. Si el dueño te da una instrucción para las clientas («si preguntan X, responde Y», «ya no hacemos Z»), eso es enseñarle al bot: mira primero la base con verBaseDeConocimiento, y usa proponerRegla para proponer el texto y el documento donde va. Si contradice algo que ya dice un documento, pásalo en `reemplazar` para que no queden dos reglas. El dueño lo guarda con un botón. Si lo que pide cambia el conocimiento base (de GitHub), proponerRegla le deja el texto para la agencia: dile que así no quedan dos versiones.",
     "NUNCA digas «entendido, respondo eso», «ya lo aprendí» ni nada parecido si no usaste proponerRegla: sin el botón no cambia nada y la clienta seguiría recibiendo la respuesta vieja. Los precios no se enseñan así: van en el Catálogo.",
     "Si piden algo que no puedes hacer, dilo y sugiere el comando: /ayuda los lista todos.",
   ]
@@ -126,13 +126,24 @@ function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
   return {
     verBaseDeConocimiento: tool({
       description:
-        "Lo que el bot de clientas sabe: los documentos de la base de conocimiento del panel. Sin título, la lista; con título, el texto de ese documento.",
+        "Lo que el bot de clientas sabe: los documentos del panel (comportamiento, los cambia el jefe) y los del conocimiento base (GitHub, los cambia la agencia). Sin título, la lista; con título, el texto de ese documento.",
       inputSchema: z.object({ titulo: z.string().default("") }),
       execute: async ({ titulo }) => {
-        const docs = await new KbDocsRepo(new Db(ctx.env.DB)).list();
-        if (!titulo.trim()) return docs.map((d) => `· ${d.title}`).join("\n") || "La base está vacía.";
-        const d = buscarDoc(docs, titulo);
-        return d ? `${d.title}\n\n${d.content}` : `No hay un documento «${titulo}». Existen:\n${docs.map((x) => `· ${x.title}`).join("\n")}`;
+        const panel = await new KbDocsRepo(new Db(ctx.env.DB)).list();
+        const lista = () =>
+          [
+            "Del panel (se pueden cambiar desde aquí):",
+            ...panel.map((d) => `· ${d.title}`),
+            "",
+            "Conocimiento base, de GitHub (lo cambia la agencia):",
+            ...DOCS_DE_GITHUB.map((d) => `· ${d.title}`),
+          ].join("\n");
+        if (!titulo.trim()) return lista();
+        const d = buscarDoc(panel, titulo);
+        if (d) return `${d.title}\n\n${d.content}`;
+        const g = buscarDoc(DOCS_DE_GITHUB, titulo);
+        if (g) return `${g.title} (conocimiento base, de GitHub: lo cambia la agencia)\n\n${g.content}`;
+        return `No hay un documento «${titulo}».\n\n${lista()}`;
       },
     }),
     proponerRegla: tool({
@@ -144,6 +155,21 @@ function herramientasBase(ctx: Contexto, salida: Respuesta[]) {
         reemplazar: z.string().optional().describe("Texto exacto del documento que esta regla reemplaza, si contradice algo"),
       }),
       execute: async ({ documento, texto, reemplazar }) => {
+        // El seguimiento no se enseña: es un ajuste que lee el proceso que lo manda.
+        if (/seguimiento/i.test(documento)) {
+          return "El seguimiento a clientas no va en la base de conocimiento: el proceso que lo manda no la lee. Usa verSeguimiento y proponerAjusteSeguimiento (o marcarCompra si es sobre una clienta).";
+        }
+        // El conocimiento base vive en GitHub: desde aquí no se cambia.
+        const deGithub = buscarDoc(DOCS_DE_GITHUB, documento);
+        if (deGithub) {
+          salida.push({
+            texto:
+              `📘 «${deGithub.title}» es conocimiento base de la empresa: vive en GitHub y lo actualiza la agencia, para que no queden dos versiones.\n\n` +
+              `Reenvíele esto a la agencia:\n\n«Cambio para «${deGithub.title}»: ${texto}»` +
+              (reemplazar ? `\n\n(en lugar de: «${reemplazar}»)` : ""),
+          });
+          return "Ese documento es de GitHub: no se cambia desde aquí. Ya le dejé al jefe el texto listo para reenviárselo a la agencia; dile que no cambió nada todavía.";
+        }
         const docs = await new KbDocsRepo(new Db(ctx.env.DB)).list();
         const d = buscarDoc(docs, documento);
         if (reemplazar && (!d || !d.content.includes(reemplazar))) {

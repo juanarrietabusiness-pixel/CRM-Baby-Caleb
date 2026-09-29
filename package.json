@@ -22,7 +22,9 @@
     "css:build": "node scripts/build-admin-css.mjs",
     "css:check": "node scripts/build-admin-css.mjs --check",
     "icons:build": "node scripts/build-icons.mjs",
-    "icons:check": "node scripts/build-icons.mjs --check"
+    "icons:check": "node scripts/build-icons.mjs --check",
+    "conocimiento": "node scripts/build-conocimiento.mjs",
+    "conocimiento:check": "node scripts/build-conocimiento.mjs --check"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",
