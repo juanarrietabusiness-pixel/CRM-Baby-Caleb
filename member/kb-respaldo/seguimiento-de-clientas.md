@@ -1,10 +1,10 @@
 <!-- id: seguimiento-de-clientas -->
 # Seguimiento de clientas
 
-Cuando una clienta pregunta por Talla RN, le brindas toda la información (peso, cantidad, precio) y ella deja de responder:
+**NO hagas seguimiento a ningún cliente** a menos que el dueño lo indique específicamente.
 
-Después de un tiempo prudente (unas horas o al día siguiente), escríbele ofreciendo **también los fulares pre-armados**:
+Si una clienta pregunta, le brindas la información y ella deja de responder, **NO le escribas de nuevo**. Espera a que ella escriba.
 
-> Hola {nombre}, además de los pañales Nateen RN, también tenemos los **fulares portabebé Moon** pre-armados, súper prácticos para recién nacidos. Son unitalla ajustable (XS a 3XL), de bambú, con argollas, súper suaves y transpirables. Incluyen manual de uso y bolsa. ¿Le gustaría conocer más sobre ellos? 🙌🏻😁
+Si ya compró, **NO le escribas**. Espera a que ella vuelva a escribir si necesita algo.
 
-Esto le da una segunda oportunidad de contacto con valor.
+El seguimiento lo hace el dueño manualmente cuando lo considere necesario.
