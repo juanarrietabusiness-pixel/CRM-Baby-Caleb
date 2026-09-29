@@ -95,10 +95,12 @@ export const GUION: CasoDelGuion[] = [
     debeContener: ["Pañales Dany Baby: no se manejan", "Nateen"],
   },
   {
-    id: "wipes-nateen-no",
-    pregunta: "¿van a llegar más wipes nateen?",
+    // Desde el 29-sep-2026 sí se venden (caja de 960): precio y presentación, del catálogo.
+    id: "wipes-nateen-si",
+    pregunta: "¿tienen wipes nateen?",
     fuente: "kb",
-    debeContener: ["Wipes Nateen: hoy no se manejan", "se le avisará"],
+    debeContener: ["Wipes Nateen: sí se manejan", "catalogQuery"],
+    noDebeContener: ["Wipes Nateen: hoy no se manejan"],
   },
   {
     id: "fular-colores",
@@ -160,7 +162,7 @@ export const GUION: CasoDelGuion[] = [
     id: "interior-ferguson",
     pregunta: "vivo en Veraguas, ¿me pueden enviar?",
     fuente: "kb",
-    debeContener: ["Veraguas", "Ferguson", "$2.50", "totalidad del producto"],
+    debeContener: ["Veraguas", "Ferguson", "$2.50", "Ferguson se paga la totalidad"],
   },
   {
     id: "mismo-dia",
@@ -178,7 +180,8 @@ export const GUION: CasoDelGuion[] = [
     id: "retiro",
     pregunta: "¿puedo pasar a buscarlo?",
     fuente: "kb",
-    debeContener: ["Altos de Curundú", "7:00 a.m.", "5:00 p.m.", "un día de anticipación"],
+    // Orden de la dueña (28-sep-2026): solo si insiste, y sin dar la dirección.
+    debeContener: ["tienda online", "un día de anticipación", "pasa la conversación a una persona"],
   },
   {
     id: "abono-minimo",

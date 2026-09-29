@@ -18,13 +18,19 @@ import { ZONAS_CIUDAD_PANAMA } from "../../member/zonas-envio";
 import {
   PRODUCTOS,
   TALLAS,
+  TALLAS_PANTS,
   TARIFAS_DELIVERY,
   OPERACION,
   ESCALADAS,
 } from "./verdad-del-cliente";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const chunks = buildFixtures(resolve(ROOT, "member/kb-respaldo"));
+// Lo que el bot encuentra con searchKb: el conocimiento base de GitHub
+// (member/conocimiento/) y la copia del panel (member/kb-respaldo/).
+const chunks = [
+  ...buildFixtures(resolve(ROOT, "member/conocimiento")),
+  ...buildFixtures(resolve(ROOT, "member/kb-respaldo")),
+];
 
 /**
  * Todo el texto que se va a indexar, junto y con el espacio normalizado.
@@ -92,8 +98,17 @@ describe("tallas y presentaciones", () => {
   });
 
   it("dice qué NO se maneja, para que el bot no lo ofrezca por si acaso", () => {
-    expect(KB).toMatch(/wipes nateen.*no se manejan/i);
     expect(KB).toMatch(/pañales dany baby.*no se manejan/i);
+  });
+
+  it("los wipes Nateen sí se manejan (29-sep-2026) y no quedó el «no se manejan» viejo", () => {
+    expect(KB).toMatch(/wipes nateen: sí se manejan/i);
+    expect(KB).not.toMatch(/wipes nateen: hoy no se manejan/i);
+  });
+
+  it.each(TALLAS_PANTS)("pants $talla tiene su rango de peso en libras y kilos", (t) => {
+    expect(KB).toContain(t.lbs);
+    expect(KB).toContain(t.kg);
   });
 });
 
@@ -129,7 +144,9 @@ describe("envíos y delivery", () => {
 
   it("cubre Ferguson: el cargo del motorizado y el pago total por adelantado", () => {
     expect(KB).toContain(OPERACION.cargoFerguson);
-    expect(KB).toMatch(/totalidad del producto/i);
+    // La dueña lo reescribió desde Telegram (25-sep): «en envíos por Ferguson
+    // se paga la totalidad antes».
+    expect(KB).toMatch(/Ferguson se paga la totalidad/i);
   });
 
   it("cubre los tiempos: corte de la 1 p.m. y última entrega a las 5 p.m.", () => {
@@ -139,10 +156,14 @@ describe("envíos y delivery", () => {
     expect(KB).toMatch(/domingos no hay entregas/i);
   });
 
-  it("cubre el retiro en Altos de Curundú con su horario", () => {
-    expect(KB).toContain(OPERACION.retiro);
-    for (const hora of OPERACION.retiroHorario) expect(KB).toContain(hora);
+  it("el retiro: solo si insiste, con un día de anticipación, y sin dar la dirección", () => {
+    // Orden de la dueña por Telegram (28-sep-2026): somos tienda online, se
+    // insiste en el delivery y no se menciona ninguna dirección. La coordina
+    // una persona cuando la clienta insiste.
+    expect(KB).toMatch(/tienda online/i);
+    expect(KB).toMatch(/INSISTA/);
     expect(KB).toMatch(/un día de anticipación/i);
+    expect(KB).toMatch(/NO menciones Altos de Curundú ni ninguna dirección/i);
   });
 });
 

@@ -2,10 +2,11 @@
 //
 // El dueño escribe documentos (horarios, políticas, FAQ, promos) y quedan
 // indexados en Vectorize AL GUARDAR: el bot los usa vía searchKb desde el
-// siguiente mensaje. Los fragmentos precargados del repo conviven con estos.
+// siguiente mensaje. Debajo se listan, de solo lectura, los del conocimiento
+// base que vienen de GitHub (member/conocimiento/): esos los cambia la agencia.
 import type { Env } from "../../env";
 import { Db } from "../../db/client";
-import { KbDocsRepo, MAX_DOC_CHARS, chunkContent, type KbDoc } from "../../kb/docs";
+import { KbDocsRepo, MAX_DOC_CHARS, chunkContent, DOCS_DE_GITHUB, type KbDoc } from "../../kb/docs";
 import {layout, ico, emptyState} from "./layout";
 
 function esc(s: string): string {
@@ -33,17 +34,38 @@ function banner(tone: "ok" | "bad" | "neutral", text: string): string {
 
 export async function renderKbList(
   env: Env,
-  flash?: { saved?: boolean; deleted?: boolean; reindexed?: string },
+  flash?: { saved?: boolean; deleted?: boolean; reindexed?: string; github?: string },
 ): Promise<string> {
   const docs = await new KbDocsRepo(new Db(env.DB)).list();
 
-  const bannerHtml = flash?.saved
-    ? banner("ok", "✓ Guardado e indexado — el bot ya puede usarlo.")
-    : flash?.deleted
-      ? banner("neutral", "Documento eliminado (también del índice del bot).")
-      : flash?.reindexed
-        ? banner("ok", `✓ Reindexado: ${esc(flash.reindexed)} fragmentos actualizados.`)
-        : "";
+  const bannerHtml = flash?.github
+    ? banner(
+        "bad",
+        `No se guardó: «${esc(flash.github)}» es conocimiento base y vive en GitHub. Pídale el cambio a la agencia, o use otro título si es una regla de cómo atender.`,
+      )
+    : flash?.saved
+      ? banner("ok", "✓ Guardado e indexado — el bot ya puede usarlo.")
+      : flash?.deleted
+        ? banner("neutral", "Documento eliminado (también del índice del bot).")
+        : flash?.reindexed
+          ? banner("ok", `✓ Reindexado: ${esc(flash.reindexed)} fragmentos actualizados.`)
+          : "";
+
+  const filasGithub = DOCS_DE_GITHUB.map((d) => {
+    const chunks = chunkContent(d.content).length;
+    return `
+      <div class="kbrow" style="display:flex;align-items:center;gap:12px;padding:13px 18px;border-top:1px solid var(--line)">
+        <div style="min-width:0;flex:1">
+          <a href="/admin/kb/github/${encodeURIComponent(d.id)}" class="font-display font-semibold text-[13px] text-cream" style="display:block">${esc(d.title)}</a>
+          <div class="text-dim text-[11.5px]" style="margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.content.replace(/\s+/g, " ").slice(0, 90))}</div>
+        </div>
+        <div class="text-dim text-[10.5px]" style="text-align:right;white-space:nowrap;flex:none">
+          <div>${chunks} ${chunks === 1 ? "fragmento" : "fragmentos"}</div>
+          <div>GitHub</div>
+        </div>
+        <a href="/admin/kb/github/${encodeURIComponent(d.id)}" class="kbedit" style="border:1px solid var(--line);color:var(--muted);padding:5px 12px;font-size:11px;white-space:nowrap;flex:none">Ver</a>
+      </div>`;
+  }).join("");
 
   const rows = docs.length
     ? docs
@@ -81,6 +103,16 @@ export async function renderKbList(
       ${rows}
     </div>
 
+    ${
+      filasGithub
+        ? `<h2 class="font-display font-semibold text-[13px] text-cream" style="margin:22px 0 6px">Conocimiento base de la empresa</h2>
+    <p class="text-dim text-[12px]" style="max-width:62ch;margin-bottom:10px">Tallas, productos y datos de ${esc(env.BUSINESS_NAME)}. Vienen de GitHub y los actualiza la agencia; el bot los usa igual que los de arriba. Aquí se leen, no se editan.</p>
+    <div class="bg-panel border border-line" style="margin-bottom:16px;overflow:hidden">
+      ${filasGithub}
+    </div>`
+        : ""
+    }
+
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px" class="text-dim text-[11.5px]">
       <span>Lo que el bot sabe es exactamente lo de esta página. GitHub guarda una copia cada día (solo historial: no se lee).</span>
       <form method="POST" action="/admin/kb/reindex" style="margin-left:auto">
@@ -91,6 +123,22 @@ export async function renderKbList(
     </div>`;
 
   return layout({ title: "Conocimiento", activeTab: "kb", body, env });
+}
+
+/** Un documento del conocimiento base (GitHub), de solo lectura. */
+export function renderKbGithub(doc: KbDoc, env: Env): string {
+  const body = `
+    <div style="margin-bottom:16px">
+      <a href="/admin/kb" style="font-size:12.5px;display:inline-flex;align-items:center;gap:6px">
+        <i data-lucide="arrow-left" width="14" height="14"></i> Volver a Conocimiento
+      </a>
+    </div>
+    <div class="bg-panel border border-line" style="padding:22px;display:flex;flex-direction:column;gap:14px">
+      <h2 class="font-display font-semibold text-[15px] text-cream">${esc(doc.title)}</h2>
+      <p class="text-dim text-[12px]">Conocimiento base: viene de GitHub (member/conocimiento/${esc(doc.id)}.md) y lo actualiza la agencia. El bot lo usa tal cual.</p>
+      <div class="text-muted text-[14px]" style="white-space:pre-wrap;line-height:1.55">${esc(doc.content)}</div>
+    </div>`;
+  return layout({ title: doc.title, activeTab: "kb", body, env });
 }
 
 export function renderKbEditor(doc: KbDoc | null, env: Env): string {

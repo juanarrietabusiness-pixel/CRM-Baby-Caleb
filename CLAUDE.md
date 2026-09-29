@@ -43,12 +43,19 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 - `src/db/catalog.ts` + `src/catalog/validation.ts` — el catálogo (D1, tabla `catalog_items`):
   código, nombre, costo, venta, stock y bodega. El costo **nunca** sale hacia el bot y la
   cantidad exacta de stock tampoco — ver `docs/PLAN_CATALOGO_BABY_CALEB.md`.
-- La base de conocimiento vive **solo en el panel** (`/admin/kb`, D1 `kb_docs`); el índice
-  es su espejo (`src/kb/docs.ts`, tabla `kb_indice`). `member/kb-respaldo/` es una COPIA
-  diaria que hace `respaldar-kb.yml`: el bot no la lee y el despliegue la ignora — no la
-  edites esperando cambiar al bot. Las pruebas de `test/babycaleb/` la leen.
-- `src/followup/run.ts` — el seguimiento a clientas que no contestan: 5 h, 3 días y 7 días,
-  de usted, lunes a viernes 8–18, y nunca a quien dijo que no le interesa (cron por hora).
+- La base de conocimiento tiene **dos dueños sin temas en común** (29-sep-2026):
+  el **conocimiento base** de la empresa (tallas, productos, quiénes somos, uso) en
+  `member/conocimiento/*.md` — lo cambia la agencia; tras editar, `pnpm conocimiento` — y
+  el **comportamiento** (pagos, envíos, retiro, cambios, agotados, escalar) en el panel
+  (`/admin/kb`, D1 `kb_docs`), que la dueña cambia también por Telegram. El índice es espejo
+  de los dos (`src/kb/docs.ts`, tabla `kb_indice`). `member/kb-respaldo/` es una COPIA diaria
+  del panel que hace `respaldar-kb.yml`: el bot no la lee — no la edites esperando cambiar al
+  bot. Las pruebas de `test/babycaleb/` leen las dos carpetas.
+- `src/followup/` — el seguimiento: solo a interesadas (el bot consultó catálogo o envío),
+  5 h / 3 días / 7 días, nunca si la dueña escribió último; quien compró (`compras.ts`)
+  descansa 15 días y recibe el de recompra. Todo eso son **ajustes** (`ajustes.ts`) que la
+  dueña cambia por Telegram (`/seguimiento`, `/compro`); **no** va en la base de
+  conocimiento, porque el cron no la lee. Ver `docs/AUDITORIA_CONOCIMIENTO.md`.
 - `src/niches/` — el "niche pack" genérico (Starter). Personaliza tono/columnas del panel.
 - `puente-wa/` — el canal **WhatsApp por código QR**: un Worker aparte
   (`juancitoads-bot-wa`) con un contenedor que sostiene el WebSocket de Baileys.

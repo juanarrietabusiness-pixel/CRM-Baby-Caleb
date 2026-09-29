@@ -15,6 +15,7 @@ import { channelLabel } from "../channels/labels";
 import { pickAdapter } from "../replies/sender";
 import type { ChannelId } from "../channels/shared";
 import { pausarPorHumano } from "../takeover";
+import { noQuiereSeguimiento } from "../followup/run";
 
 // ── Acciones pendientes (los botones) ──────────────────────────────────────
 
@@ -313,10 +314,14 @@ export function confirmacion(texto: string): boolean | null {
 
 // ── A quién sí se le puede escribir ────────────────────────────────────────
 
-/** ¿Dijo el cliente que no le interesa o que no le escriban? (de Baby Caleb) */
+/**
+ * ¿Dijo el cliente que no le interesa o que no le escriban? La MISMA regla que
+ * el seguimiento automático (src/followup/run.ts), para que las dos puertas no
+ * se contradigan. «Ya compré» a secas no está: quien compró sí puede recibir
+ * una difusión (la dueña la está mirando); «ya compré en otro lado», no.
+ */
 export function noQuiereQueLeEscriban(texto: string): boolean {
-  const t = sinTildes(texto);
-  return /\b(no (me )?interes|ya no (me )?interes|no estoy interesad|sin interes|no,? gracias|no me (escriba|escriban|escribas|contacte|contacten|contactes|moleste|molesten|molestes)|dej(e|en|a) de (escribir|mandar)|no (me )?(vuelva|vuelvan|vuelvas) a escribir|no quiero (nada|mas|recibir)|ya (lo )?compre|ya (lo )?consegui|ya no (lo |los |las )?necesito|no necesito nada|borr(e|en|a) mi numero)/.test(t);
+  return noQuiereSeguimiento(texto);
 }
 
 /**

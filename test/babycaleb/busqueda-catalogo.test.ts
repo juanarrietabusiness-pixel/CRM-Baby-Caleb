@@ -23,11 +23,11 @@ const NOMBRES: Record<string, string> = {
   "NAT-L": "Pañal Nateen Talla L de cierre — caja de 128 (15–39 lbs / 7–18 kg)",
   "NAT-XL": "Pañal Nateen Talla XL de cierre — caja de 112 (26–55 lbs / 12–25 kg)",
   "NAT-XXL": "Pañal Nateen Talla XXL de cierre — caja de 112 (+55 lbs / +25 kg)",
-  "NAT-P-L": "Pañal Nateen Talla L de pants — caja de 160 (15–39 lbs / 7–18 kg)",
-  "NAT-P-XL": "Pañal Nateen Talla XL de pants — caja de 160 (26–55 lbs / 12–25 kg)",
-  "NAT-P-XXL": "Pañal Nateen Talla XXL de pants — caja de 160 (+55 lbs / +25 kg)",
-  "DANY-AW1200": "Water wipes hipoalergénicas Dany Baby — 1,200 toallitas (24 paquetes de 50)",
+  "NAT-P-L": "Pañal Nateen Talla L de pants — caja de 160 (19–31 lbs / 9–14 kg)",
+  "NAT-P-XL": "Pañal Nateen Talla XL de pants — caja de 160 (26–37.5 lbs / 12–17 kg)",
+  "NAT-P-XXL": "Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)",
   "DANY-AW600": "Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)",
+  WIPESNAT: "Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)",
   "MOON-FUL": "Fular prearmado Moon de bambú — unitalla ajustable XS a 3XL (RN hasta ~25 lbs)",
 };
 
@@ -67,8 +67,9 @@ describe("CatalogRepo.search — palabra por palabra, no la frase entera", () =>
     expect(codigos(await repo.search("pants"))).toEqual(["NAT-P-L", "NAT-P-XL", "NAT-P-XXL"]);
   });
 
-  it("'wipes dany' trae las dos cajas de toallitas", async () => {
-    expect(codigos(await repo.search("wipes dany"))).toEqual(["DANY-AW1200", "DANY-AW600"]);
+  it("'wipes dany' trae la caja de Dany Baby, y 'wipes nateen' la de Nateen", async () => {
+    expect(codigos(await repo.search("wipes dany"))).toEqual(["DANY-AW600"]);
+    expect(codigos(await repo.search("wipes nateen"))).toEqual(["WIPESNAT"]);
   });
 
   it("'fular' encuentra el Moon", async () => {

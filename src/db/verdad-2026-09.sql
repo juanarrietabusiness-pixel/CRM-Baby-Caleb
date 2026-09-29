@@ -14,17 +14,13 @@
 -- actívelos. Entran inactivos a propósito, para que el bot no los ofrezca
 -- como agotados mientras tanto.
 
--- 1. Wipes Nateen fuera. El documento: "Por el momento únicamente nos
---    mantendremos con las toallitas húmedas de Dany Baby".
+-- 1. Códigos que salieron del catálogo.
+--    NAT-WIP era el código viejo de los wipes Nateen; hoy se venden como WIPESNAT.
+--    DANY-AW1200 (antes DANY-AW2) era el combo de 1,200 wipes Dany Baby: desde
+--    el 29-sep-2026 se vende solo la caja de 600.
 DELETE FROM catalog_items WHERE code = 'NAT-WIP';
-
--- 2. El combo de 1,200 toallitas pasa de DANY-AW2 a DANY-AW1200: el código
---    viejo decía "2 cajas" y ahora convive con la caja de 600, así que el
---    número de toallitas es lo que distingue a uno del otro sin ambigüedad.
---    OR REPLACE cubre el caso de que alguien ya hubiera creado DANY-AW1200 a
---    mano; el stock que gana es el del código viejo, que es el que se ha
---    venido usando.
-UPDATE OR REPLACE catalog_items SET code = 'DANY-AW1200' WHERE code = 'DANY-AW2';
+DELETE FROM catalog_items WHERE code = 'DANY-AW2';
+DELETE FROM catalog_items WHERE code = 'DANY-AW1200';
 
 -- 3. Precios y nombres corregidos. El stock y el estado activo NO se tocan.
 UPDATE catalog_items SET name = 'Pañal Nateen Talla RN de cierre — caja de 160 (4–11 lbs / 2–5 kg)', sale_price = 5000, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-RN';
@@ -33,23 +29,33 @@ UPDATE catalog_items SET name = 'Pañal Nateen Talla M de cierre — caja de 144
 UPDATE catalog_items SET name = 'Pañal Nateen Talla L de cierre — caja de 128 (15–39 lbs / 7–18 kg)', sale_price = 4500, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-L';
 UPDATE catalog_items SET name = 'Pañal Nateen Talla XL de cierre — caja de 112 (26–55 lbs / 12–25 kg)', sale_price = 4500, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-XL';
 UPDATE catalog_items SET name = 'Pañal Nateen Talla XXL de cierre — caja de 112 (+55 lbs / +25 kg)', sale_price = 4500, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-XXL';
-UPDATE catalog_items SET name = 'Water wipes hipoalergénicas Dany Baby — 1,200 toallitas (24 paquetes de 50)', sale_price = 4000, updated_at = strftime('%s','now') * 1000 WHERE code = 'DANY-AW1200';
 
--- 4. Productos que el documento trae y no estaban. Entran inactivos y en cero:
---    INSERT OR IGNORE para que volver a correr esto no pise el stock ya cargado.
+-- 3b. Costos que llegaron el 29-sep-2026. El nombre y el precio que la dueña
+--     haya puesto en el panel no se tocan.
+UPDATE catalog_items SET cost_price = 3600, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-P-L';
+UPDATE catalog_items SET cost_price = 3800, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-P-XL';
+UPDATE catalog_items SET cost_price = 3800, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-P-XXL';
+UPDATE catalog_items SET cost_price = 1400, updated_at = strftime('%s','now') * 1000 WHERE code = 'DANY-AW600';
+UPDATE catalog_items SET cost_price = 3220, updated_at = strftime('%s','now') * 1000 WHERE code = 'MOON-FUL';
+
+-- 4. Productos que no estaban. Entran inactivos y en cero: INSERT OR IGNORE
+--    para que volver a correr esto no pise el stock ya cargado.
 INSERT OR IGNORE INTO catalog_items (code, name, cost_price, sale_price, stock_qty, branch, active, updated_at) VALUES
-  ('NAT-P-L', 'Pañal Nateen Talla L de pants — caja de 160 (15–39 lbs / 7–18 kg)', NULL, 5500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
-  ('NAT-P-L', 'Pañal Nateen Talla L de pants — caja de 160 (15–39 lbs / 7–18 kg)', NULL, 5500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
-  ('NAT-P-L', 'Pañal Nateen Talla L de pants — caja de 160 (15–39 lbs / 7–18 kg)', NULL, 5500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
-  ('NAT-P-XL', 'Pañal Nateen Talla XL de pants — caja de 160 (26–55 lbs / 12–25 kg)', NULL, 5500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
-  ('NAT-P-XL', 'Pañal Nateen Talla XL de pants — caja de 160 (26–55 lbs / 12–25 kg)', NULL, 5500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
-  ('NAT-P-XL', 'Pañal Nateen Talla XL de pants — caja de 160 (26–55 lbs / 12–25 kg)', NULL, 5500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
-  ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+55 lbs / +25 kg)', NULL, 5500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
-  ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+55 lbs / +25 kg)', NULL, 5500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
-  ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+55 lbs / +25 kg)', NULL, 5500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', NULL, 2500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', NULL, 2500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', NULL, 2500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
-  ('MOON-FUL', 'Fular prearmado Moon de bambú — unitalla ajustable XS a 3XL (RN hasta ~25 lbs)', NULL, 4600, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
-  ('MOON-FUL', 'Fular prearmado Moon de bambú — unitalla ajustable XS a 3XL (RN hasta ~25 lbs)', NULL, 4600, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
-  ('MOON-FUL', 'Fular prearmado Moon de bambú — unitalla ajustable XS a 3XL (RN hasta ~25 lbs)', NULL, 4600, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000);
+  ('NAT-P-L', 'Pañal Nateen Talla L de pants — caja de 160 (19–31 lbs / 9–14 kg)', 3600, 5500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
+  ('NAT-P-L', 'Pañal Nateen Talla L de pants — caja de 160 (19–31 lbs / 9–14 kg)', 3600, 5500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
+  ('NAT-P-L', 'Pañal Nateen Talla L de pants — caja de 160 (19–31 lbs / 9–14 kg)', 3600, 5500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
+  ('NAT-P-XL', 'Pañal Nateen Talla XL de pants — caja de 160 (26–37.5 lbs / 12–17 kg)', 3800, 5500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
+  ('NAT-P-XL', 'Pañal Nateen Talla XL de pants — caja de 160 (26–37.5 lbs / 12–17 kg)', 3800, 5500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
+  ('NAT-P-XL', 'Pañal Nateen Talla XL de pants — caja de 160 (26–37.5 lbs / 12–17 kg)', 3800, 5500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
+  ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
+  ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
+  ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', 1400, 2500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', 1400, 2500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', 1400, 2500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
+  ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
+  ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
+  ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
+  ('MOON-FUL', 'Fular prearmado Moon de bambú — unitalla ajustable XS a 3XL (RN hasta ~25 lbs)', 3220, 4600, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
+  ('MOON-FUL', 'Fular prearmado Moon de bambú — unitalla ajustable XS a 3XL (RN hasta ~25 lbs)', 3220, 4600, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
+  ('MOON-FUL', 'Fular prearmado Moon de bambú — unitalla ajustable XS a 3XL (RN hasta ~25 lbs)', 3220, 4600, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000);

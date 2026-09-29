@@ -1,4 +1,6 @@
 <!-- id: uso-del-producto -->
+<!-- Conocimiento base de la empresa: vive en GitHub y lo actualiza la agencia.
+     El panel y la consola de Telegram no lo pueden cambiar. -->
 # Dudas sobre el producto en uso
 
 No es consejo médico: si preguntan por la salud del bebé con detalles

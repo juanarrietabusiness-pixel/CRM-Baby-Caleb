@@ -41,8 +41,8 @@ import type { ChannelId } from "../channels/shared";
 import { renderInsights } from "./views/insights";
 import { analyzeConversations } from "../insights/analyzer";
 import { renderAgentePage, renderAgenteCanvas, renderNodeModal, toggleTool, toastOob } from "./views/agente";
-import { renderKbList, renderKbEditor } from "./views/kb";
-import { KbDocsRepo, indexDoc, removeDocVectors, reindexAll, MAX_DOC_CHARS } from "../kb/docs";
+import { renderKbList, renderKbEditor, renderKbGithub } from "./views/kb";
+import { KbDocsRepo, indexDoc, removeDocVectors, reindexAll, docDeGithub, MAX_DOC_CHARS } from "../kb/docs";
 import { renderMejoras } from "./views/mejoras";
 import { runFlywheel, getLessons, saveLessons } from "../flywheel/detect";
 import { applySuggestion, dismissSuggestion } from "../flywheel/apply";
@@ -204,6 +204,7 @@ adminApp.get("/kb", async (c) =>
       saved: c.req.query("saved") === "1",
       deleted: c.req.query("deleted") === "1",
       reindexed: c.req.query("reindexed") ?? undefined,
+      github: c.req.query("github") ?? undefined,
     }),
   ),
 );
@@ -216,6 +217,13 @@ adminApp.get("/kb/:id/edit", async (c) => {
   return c.html(renderKbEditor(doc, c.env));
 });
 
+// Un documento del conocimiento base (GitHub): se lee, no se edita aquí.
+adminApp.get("/kb/github/:id", (c) => {
+  const doc = docDeGithub(c.req.param("id"));
+  if (!doc) return c.redirect("/admin/kb");
+  return c.html(renderKbGithub(doc, c.env));
+});
+
 // Save = persist in D1 + index into Vectorize immediately (stale vectors for
 // the doc are blanket-deleted first), so searchKb uses it on the next message.
 adminApp.post("/kb/save", async (c) => {
@@ -225,6 +233,10 @@ adminApp.post("/kb/save", async (c) => {
   if (!title || !content) return c.redirect("/admin/kb");
 
   const id = String(form.get("id") ?? "").trim() || crypto.randomUUID();
+  // El conocimiento base vive en GitHub: un documento del panel con su mismo id
+  // o título sería el mismo tema con dos dueños (ver src/kb/docs.ts).
+  const deGithub = docDeGithub(id) ?? docDeGithub(title);
+  if (deGithub) return c.redirect(`/admin/kb?github=${encodeURIComponent(deGithub.title)}`);
   const repo = new KbDocsRepo(new Db(c.env.DB));
   await repo.upsert({ id, title, content });
   const doc = (await repo.getById(id))!;

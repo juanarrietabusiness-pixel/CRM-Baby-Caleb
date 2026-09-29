@@ -99,11 +99,8 @@ describe("seed-catalog.sql — el catálogo dice lo que dice la dueña", () => {
     }
   });
 
-  it("los costos que el documento no trae quedan en NULL, no inventados", () => {
-    const sinCostoConocido = ["NAT-P-L", "NAT-P-XL", "NAT-P-XXL", "DANY-AW1200", "DANY-AW600", "MOON-FUL"];
-    for (const code of sinCostoConocido) {
-      expect(porCodigo.get(code)![0].cost, `${code} tiene un costo inventado`).toBe("NULL");
-    }
+  it.each(PRODUCTOS)("$code: el costo es el que dio la dueña, no uno inventado", (producto) => {
+    for (const fila of porCodigo.get(producto.code)!) expect(fila.cost).toBe(String(producto.costoCents));
   });
 
   it("ningún precio de venta queda por debajo del costo", () => {
