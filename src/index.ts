@@ -349,10 +349,14 @@ app.post("/kb/reindex", async (c) => {
     console.error("[kb/reindex] falló:", e);
     return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
   }
-  // `espejo`: lo contesta la versión que borra lo que ya no está en el panel.
-  // El despliegue lo espera — justo después de publicar, un reindex todavía
-  // puede caerle al Worker anterior (pasó el 24-sep).
-  return c.json({ ok: true, espejo: true, indexed: r.indexed, purged: r.purged }, 200);
+  // `version`: el commit de ESTE Worker. El despliegue reintenta hasta verlo —
+  // justo después de publicar, un reindex todavía puede caerle al Worker
+  // anterior (pasó el 24-sep, y el 29-sep con `espejo`, que la versión vieja
+  // también contestaba: la migración del conocimiento no corrió).
+  return c.json(
+    { ok: true, espejo: true, version: c.env.VERSION_GIT ?? null, indexed: r.indexed, purged: r.purged },
+    200,
+  );
 });
 
 // La copia de la base de conocimiento para GitHub (.github/workflows/respaldar-kb.yml).

@@ -108,6 +108,9 @@ export interface Env {
   // Token guarding POST /kb/reindex (header: X-Reindex-Token). Secret.
   // Set via `wrangler secret put KB_REINDEX_TOKEN`.
   KB_REINDEX_TOKEN: string;
+  // El commit desplegado (scripts/ci-deploy.mjs lo pone con --var). /kb/reindex
+  // lo contesta para que el despliegue sepa que le respondió la versión nueva.
+  VERSION_GIT?: string;
 
   // Control plane (hosted): glue para que un plano de control externo lea este
   // bot self-hosted vía los endpoints /api/*. Ambos opcionales; sin el token,
