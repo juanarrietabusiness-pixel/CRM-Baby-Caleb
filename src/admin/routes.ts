@@ -13,7 +13,7 @@
 import { parsePeerBots } from "./projects";
 import { Hono } from "hono";
 import { generateText } from "ai";
-import { createModel, pareceLlaveDeIa } from "../llm/provider";
+import { createModel, pareceLlaveDeIa, proveedorDelModelo, PROVEEDORES, type LlmProvider } from "../llm/provider";
 import { loadLlmOverrides, effectiveBusinessContext } from "../settings-loader";
 import type { Env } from "../env";
 import { checkBasicCredentials, timingSafeEqual } from "./auth";
@@ -913,17 +913,20 @@ adminApp.post("/config", async (c) => {
 
   // BYO-LLM: proveedor y modelo se guardan tal cual (allow-list de valores).
   const provRaw = form.get(SETTING_KEYS.llmProvider);
+  let proveedorElegido: LlmProvider | undefined;
   if (provRaw !== null) {
     const v = String(provRaw).trim().toLowerCase();
-    await repo.set(
-      SETTING_KEYS.llmProvider,
-      v === "anthropic" || v === "openai" || v === "xai" ? v : "",
-    );
+    proveedorElegido = (PROVEEDORES as readonly string[]).includes(v) ? (v as LlmProvider) : undefined;
+    await repo.set(SETTING_KEYS.llmProvider, proveedorElegido ?? "");
   }
   const modelRaw = form.get(SETTING_KEYS.llmModel);
+  const modeloElegido = modelRaw !== null ? String(modelRaw).trim().slice(0, 100) : "";
   if (modelRaw !== null) {
-    await repo.set(SETTING_KEYS.llmModel, String(modelRaw).trim().slice(0, 100));
+    await repo.set(SETTING_KEYS.llmModel, modeloElegido);
   }
+  // ¿De qué proveedor tiene que ser la llave? Del elegido; si es "automático"
+  // pero el modelo es de uno concreto (Muse, Grok…), de ese.
+  const proveedorDeLaLlave = proveedorElegido ?? (modeloElegido ? proveedorDelModelo(modeloElegido) : undefined);
   // La API key SOLO se sobreescribe si escribieron algo (el input siempre
   // llega vacío cuando no la tocaron); el checkbox la borra explícitamente.
   if (form.get("llm_api_key_clear") === "1") {
@@ -936,10 +939,14 @@ adminApp.post("/config", async (c) => {
       // contraseña como llave de IA, y con ella cada respuesta del bot habría
       // sido "Algo falló de mi lado".
       const llave = String(keyRaw).trim();
-      if (!pareceLlaveDeIa(llave)) {
-        return c.redirect(
-          `/admin/config?llmtest=${encodeURIComponent("err:Eso no parece una API key (empiezan con sk-ant-, sk- o xai-). No se guardó: si su navegador la autocompletó, bórrela del campo antes de guardar.")}`,
-        );
+      // Con Meta no hay prefijo que comprobar, así que se mira lo contrario:
+      // que no sea la llave de otra IA ni un token de Messenger/Instagram.
+      const esDeMeta = proveedorDeLaLlave === "meta";
+      if (!pareceLlaveDeIa(llave, esDeMeta ? "meta" : undefined)) {
+        const motivo = esDeMeta
+          ? "err:Eso no parece la llave de la IA de Meta. Es la de dev.meta.ai: no el token de la Página (EAA…) ni el de Instagram (IGAA…), ni una llave de Claude, ChatGPT o Grok. No se guardó."
+          : "err:Eso no parece una API key (empiezan con sk-ant-, sk- o xai-; la de Meta, eligiendo antes Muse Spark como proveedor). No se guardó: si su navegador la autocompletó, bórrela del campo antes de guardar.";
+        return c.redirect(`/admin/config?llmtest=${encodeURIComponent(motivo)}`);
       }
       await repo.set(SETTING_KEYS.llmApiKey, llave);
     }

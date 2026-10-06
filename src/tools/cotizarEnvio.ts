@@ -56,7 +56,13 @@ export function cotizarEnvioTool(_env: Env) {
         .describe("El lugar que dijo la clienta, tal cual: 'Tocumen', 'costa del este', 'La Chorrera'."),
     }),
     execute: async ({ zona }) => {
-      const exacta = ZONAS_CIUDAD_PANAMA.filter((z) => mencionada(zona, z));
+      // Panamá Oeste PRIMERO. Hay barrios con el mismo nombre a los dos lados
+      // del Canal: el 30-sep una clienta escribió "Brisas del Golf de Arraijan"
+      // y el bot le cotizó $5.00, la tarifa de Brisas del Golf de la ciudad.
+      // Si nombra Arraiján o La Chorrera, la tarifa no es fija y la da una
+      // persona, aunque el barrio también exista en la lista.
+      const enPanamaOeste = PANAMA_OESTE.nombres.some((n) => mencionada(zona, { nombre: n, tarifaCents: 0 }));
+      const exacta = enPanamaOeste ? [] : ZONAS_CIUDAD_PANAMA.filter((z) => mencionada(zona, z));
       if (exacta.length > 0) {
         // Si el texto nombra dos zonas ("San Francisco o Paitilla"), se
         // devuelven ambas y decide la clienta, en vez de elegir por ella.
@@ -67,7 +73,7 @@ export function cotizarEnvioTool(_env: Env) {
         };
       }
 
-      if (PANAMA_OESTE.nombres.some((n) => mencionada(zona, { nombre: n, tarifaCents: 0 }))) {
+      if (enPanamaOeste) {
         return {
           encontrada: false as const,
           zonaReconocida: "Panamá Oeste",

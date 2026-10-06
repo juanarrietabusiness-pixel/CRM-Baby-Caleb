@@ -6,7 +6,7 @@
 import type { Env } from "../../env";
 import { SETTING_KEYS } from "../../db/settings";
 import { renderBusinessContext } from "../../businessContext";
-import { CURATED_MODELS } from "../../llm/provider";
+import { CURATED_MODELS, entrenaConLosDatos } from "../../llm/provider";
 import {
   CONTROL_LIST,
   valueToLevel,
@@ -144,6 +144,7 @@ function renderLlmSection(settings: Record<string, string>, llmTest?: string): s
     { v: "anthropic", l: "Claude (Anthropic)" },
     { v: "openai", l: "ChatGPT (OpenAI)" },
     { v: "xai", l: "Grok (xAI)" },
+    { v: "meta", l: "Muse Spark (Meta)" },
   ]
     .map((o) => `<option value="${o.v}" ${provider === o.v ? "selected" : ""}>${o.l}</option>`)
     .join("");
@@ -157,6 +158,16 @@ function renderLlmSection(settings: Record<string, string>, llmTest?: string): s
   const xaiOpts = CURATED_MODELS.filter((m) => m.provider === "xai")
     .map((m) => `<option value="${esc(m.id)}" ${model === m.id ? "selected" : ""}>${esc(m.label)}</option>`)
     .join("");
+  const metaOpts = CURATED_MODELS.filter((m) => m.provider === "meta")
+    .map((m) => `<option value="${esc(m.id)}" ${model === m.id ? "selected" : ""}>${esc(m.label)}</option>`)
+    .join("");
+
+  // El Contributor es barato porque Meta entrena con lo que recibe, y aquí lo
+  // que recibe son las conversaciones de las clientas. Mientras esté elegido,
+  // el aviso no se puede cerrar: es una decisión que tiene que seguir a la vista.
+  const avisoEntrena = entrenaConLosDatos(model)
+    ? `<div role="alert" style="border:1px solid var(--bad);background:rgba(244,54,76,.08);color:var(--bad);padding:10px 12px;font-size:12px;font-weight:600">⚠ Con Muse Spark Contributor, Meta usa lo que se le envía para entrenar sus modelos: aquí eso son las conversaciones de sus clientas (nombres, teléfonos, direcciones). Si no lo quiere, elija Muse Spark 1.3.</div>`
+    : "";
 
   let testBanner = "";
   if (llmTest?.startsWith("ok:")) {
@@ -172,6 +183,7 @@ function renderLlmSection(settings: Record<string, string>, llmTest?: string): s
         <p class="text-dim text-[12px]">Elige qué inteligencia artificial usa tu bot. Puedes usar tu propia API key para pagar tú el consumo directamente. Si lo dejas en automático, el bot usa la configuración incluida (rápido para lo simple, inteligente para lo difícil).</p>
       </div>
       ${testBanner}
+      ${avisoEntrena}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div style="display:flex;flex-direction:column;gap:6px">
           <label class="font-display font-semibold text-[12.5px] text-cream">Proveedor</label>
@@ -184,12 +196,13 @@ function renderLlmSection(settings: Record<string, string>, llmTest?: string): s
             <optgroup label="Claude (Anthropic)">${anthropicOpts}</optgroup>
             <optgroup label="ChatGPT (OpenAI)">${openaiOpts}</optgroup>
             <optgroup label="Grok (xAI)">${xaiOpts}</optgroup>
+            <optgroup label="Muse Spark (Meta)">${metaOpts}</optgroup>
           </select>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px">
         <label class="font-display font-semibold text-[12.5px] text-cream">Tu API key (opcional)</label>
-        <p class="text-dim text-[11px]">${hasKey ? `Hay una key guardada (termina en …${esc(keyTail)}). Escribe una nueva para reemplazarla, o marca la casilla para quitarla.` : "Pégala aquí para que el consumo se cobre a tu cuenta. Vacío = usar la key incluida del sistema."}</p>
+        <p class="text-dim text-[11px]">${hasKey ? `Hay una key guardada (termina en …${esc(keyTail)}). Escribe una nueva para reemplazarla, o marca la casilla para quitarla.` : "Pégala aquí para que el consumo se cobre a tu cuenta. Vacío = usar la key incluida del sistema."} Para Meta es la llave de dev.meta.ai — no el token de la Página ni el de Instagram de la pestaña Conexiones.</p>
         <input type="password" name="${SETTING_KEYS.llmApiKey}" value="" autocomplete="new-password" data-1p-ignore data-lpignore="true"
                placeholder="${hasKey ? "••••••••••••" : "sk-ant-… o sk-…"}" style="${INPUT_STYLE}">
         ${hasKey ? `<label class="text-dim text-[11.5px]" style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" name="llm_api_key_clear" value="1"> Quitar mi API key y volver a la del sistema</label>` : ""}

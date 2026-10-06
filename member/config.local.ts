@@ -108,6 +108,20 @@ export const businessConfig = {
       "Detrás de la conversación hay una persona del equipo, no un call center. Pasar una " +
       "conversación a una persona NUNCA es un mal resultado: es parte de lo que la marca ofrece. " +
       "Pero pasarla quiere decir llamar handoffHuman, no dar un número y despedirse.",
+    // Lo que NO se dice. Cada línea sale de una conversación real (29-sep a
+    // 6-oct-2026) en la que el bot lo dijo. Ver docs/AUDITORIA_CONOCIMIENTO.md,
+    // cuarta auditoría. El revisor de respuestas (src/replies/revisor.ts)
+    // además DETIENE las frases de `frasesProhibidas`, más abajo.
+    "Lo que NUNCA se dice":
+      "1) Ninguna dirección, barrio ni referencia para retirar: el retiro solo si la clienta " +
+      "insiste, y la dirección la da una persona. 2) Ferguson: $2.50 es lo que cobra el " +
+      "motorizado por LLEVARLO a Ferguson; la tarifa de Ferguson la paga la clienta al retirar y " +
+      "usted no la sabe. Nunca diga que el envío al interior cuesta $2.50 ni sume un total con " +
+      "Ferguson, aunque la clienta lo diga así. 3) No hay nombre de cuenta, banco ni número de " +
+      "cuenta que usted pueda dar. 4) No confirme pagos, no agende, no aparte y no cambie " +
+      "pedidos: lo hace una persona. 5) Colores, tallas y presentaciones: solo los que devuelve " +
+      "catalogQuery. 6) Promociones: solo las escritas en la base de conocimiento, y nunca " +
+      "después de su fecha de vencimiento. 7) Si el peso del bebé cae en dos tallas, dé las dos.",
     "Instrucción crítica":
       "Si la clienta manda una imagen o foto, un video, un documento o un comprobante de pago, el sistema " +
       "retiene el archivo y abre el ticket solo: usted NO lo recibe y no lo puede describir. " +
@@ -116,6 +130,25 @@ export const businessConfig = {
       "Las notas de voz sí le llegan, ya transcritas: contéstelas como un mensaje escrito.",
   } as Record<string, string>,
 };
+
+/**
+ * Frases que el bot NO puede enviar, pase lo que pase. Las comprueba el revisor
+ * de respuestas (src/replies/revisor.ts) ANTES de mandar el mensaje: si la
+ * respuesta trae una, se le devuelve al modelo para que la rehaga, y si insiste,
+ * no sale y se pasa la conversación a una persona.
+ *
+ * Solo lo que de verdad no debe salir nunca: cada frase de aquí es una
+ * respuesta que puede quedarse sin enviar. Sin tildes ni mayúsculas: se comparan
+ * normalizadas.
+ */
+export const frasesProhibidas: { frase: string; motivo: string }[] = [
+  // Orden de la dueña (28-sep-2026): se insiste en el delivery y la dirección la
+  // da una persona. El bot la dio el 29-sep y el 1-oct.
+  { frase: "curundu", motivo: "la dirección de retiro la da una persona, nunca el bot" },
+  { frase: "estacion de policia", motivo: "la dirección de retiro la da una persona, nunca el bot" },
+  // La marca registrada. "Water wipes" (separado) es el tipo de toallita y sí vale.
+  { frase: "waterwipes", motivo: "es otra marca: riesgo legal y aduanero" },
+];
 
 // Catálogo heredado de la plantilla. NO se usa: catalogQuery lee D1
 // (`catalog_items`). Se deja vacío para que nadie lo llene por costumbre y

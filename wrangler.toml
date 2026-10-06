@@ -79,7 +79,13 @@ DASHBOARD_BASE_URL = "https://juancitoads-bot.juanarrietabusiness.workers.dev"
 WA_PUENTE_URL = "https://juancitoads-bot-wa.juanarrietabusiness.workers.dev"
 
 # Secrets (set with `wrangler secret put <NAME>` — never commit values):
-#   ANTHROPIC_API_KEY          required — Claude API
+#   ANTHROPIC_API_KEY          required — Claude API (o una de las de abajo)
+#   OPENAI_API_KEY / XAI_API_KEY   optional — ChatGPT / Grok como cerebro o respaldo
+#   META_API_KEY               optional — la IA de Meta (Muse Spark), de dev.meta.ai. También vale
+#                              MODEL_API_KEY. NO es META_PAGE_ACCESS_TOKEN (eso es Messenger/IG).
+#                              Ver src/llm/provider.ts. Y NUNCA pongas ANTHROPIC_BASE_URL en este
+#                              Worker aunque la guía de Meta lo pida: el código ya apunta cada
+#                              proveedor a su sitio, y esa variable mandaría la llave de Anthropic a Meta.
 #   DASHBOARD_PASSWORD         required (Pro) — HTTP Basic Auth for /admin (user: admin)
 #   KB_REINDEX_TOKEN           required — guards POST /kb/reindex (header: X-Reindex-Token)
 #                              set with: wrangler secret put KB_REINDEX_TOKEN

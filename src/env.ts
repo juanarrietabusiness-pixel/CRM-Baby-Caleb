@@ -27,15 +27,20 @@ export interface Env {
   // re-etiqueta el dashboard, aporta el playbook del giro y sus columnas.
   // Ausente/desconocido → pack genérico (comportamiento actual). Ver src/niches/.
   BOT_NICHE?: string;
-  // LLM provider for the chat brain: "anthropic" (default) | "openai".
-  // If unset and only OPENAI_API_KEY is present, auto-selects "openai".
+  // LLM provider for the chat brain: "anthropic" (default) | "openai" | "xai" | "meta".
+  // If unset and only OPENAI_API_KEY is present, auto-selects "openai"; si la
+  // ÚNICA llave de IA es la de Meta, "meta".
   // (Voice transcription + embeddings always run on Cloudflare Workers AI.)
-  LLM_PROVIDER?: "anthropic" | "openai";
+  LLM_PROVIDER?: "anthropic" | "openai" | "xai" | "meta";
   // Optional per-tier model id overrides (fast = cheap default, smart = upgrade).
   ANTHROPIC_MODEL_FAST?: string;
   ANTHROPIC_MODEL_SMART?: string;
   OPENAI_MODEL_FAST?: string;
   OPENAI_MODEL_SMART?: string;
+  META_MODEL_FAST?: string;   // por defecto muse-spark-1.3 (ver src/llm/provider.ts)
+  META_MODEL_SMART?: string;
+  /** Base de la API de Meta (por defecto https://api.meta.ai/v1). Solo para pruebas. */
+  META_BASE?: string;
   BUFFER_SECONDS: string;
   DASHBOARD_BASE_URL: string;
 
@@ -84,6 +89,12 @@ export interface Env {
   // Messenger, Instagram). Si falta, se usa la del código (src/channels/graph.ts).
   GRAPH_API_VERSION?: string;
   XAI_API_KEY?: string;             // xAI (Grok) — proveedor LLM alterno (ver src/llm/provider.ts)
+  // IA de Meta (Muse Spark) — proveedor LLM alterno. Es la llave de dev.meta.ai,
+  // NO el token de la Página ni el de Instagram de arriba (esos son la Graph API
+  // y no abren la IA). MODEL_API_KEY es el nombre que usa la documentación de
+  // Meta; se aceptan los dos, igual que en la aplicación de calendarios.
+  META_API_KEY?: string;
+  MODEL_API_KEY?: string;
 
   // ── Cal.com (agenda real para scheduleAppointment) ───────────────────────
   // Con estas vars, el bot consulta disponibilidad real y reserva en Cal.com.

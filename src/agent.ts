@@ -21,6 +21,17 @@ import { createModel } from "./llm/provider";
 import { costOfUsage } from "./pricing";
 import type { ChannelId } from "./channels/shared";
 import { pausarPorHumano, viaDeAtencion } from "./takeover";
+import { revisarRespuesta, hayQueBloquear, notaDeRevision, respuestaSegura } from "./replies/revisor";
+import type { Problema } from "./replies/revisor";
+import { frasesProhibidas } from "../member/config.local";
+
+/**
+ * Las tools que el modelo puede volver a usar al rehacer una respuesta que el
+ * revisor detuvo: solo las que CONSULTAN. Las que hacen algo (abrir un ticket,
+ * anotar un lead, pausar) ya corrieron en el primer intento; repetirlas
+ * duplicaría el ticket o el aviso a la dueña.
+ */
+const TOOLS_DE_CONSULTA = new Set(["catalogQuery", "searchKb", "cotizarEnvio"]);
 
 /**
  * Un mensaje que lleva más que esto en el buffer no es de "la clienta sigue
@@ -240,6 +251,37 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       }
     } catch (e) {
       console.warn("[SupportAgent] no se pudo reenviar a Telegram:", e);
+    }
+  }
+
+  /**
+   * El revisor detuvo una respuesta que no se pudo arreglar (un pago dado por
+   * bueno, una frase que el negocio prohíbe): se abre el ticket y se avisa a la
+   * dueña con lo que el bot iba a decir, para que conteste ella. Si ya hay un
+   * ticket abierto en la conversación, no se abre otro.
+   */
+  private async pasarAUnaPersonaPorRevisor(convId: string, borrador: string, problemas: Problema[]): Promise<void> {
+    try {
+      const db = new Db(this.env.DB);
+      const convs = new ConversationsRepo(db);
+      const conv = await convs.getById(convId);
+      if (conv?.open_ticket_id) return;
+      const motivo = problemas.map((p) => p.codigo).join(", ");
+      const ticketId = await new TicketsRepo(db).create({
+        conversationId: convId,
+        category: problemas.some((p) => p.codigo === "pago-confirmado") ? "billing" : "other",
+        summary: `El revisor detuvo una respuesta del bot (${motivo}). Conteste usted.`,
+        transcript: borrador.slice(0, 1500),
+      });
+      await convs.setOpenTicket(convId, ticketId);
+      await notifyOwner(this.env, {
+        reason: "respuesta detenida",
+        summary: `El bot iba a decir algo que no debe (${motivo}) y no lo mandó. Lo que iba a decir: «${borrador.slice(0, 300)}»`,
+        ticketId,
+        conversationId: convId,
+      });
+    } catch (e) {
+      console.error("[revisor] no se pudo abrir el ticket:", e);
     }
   }
 
@@ -468,36 +510,63 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     let toolCallCount = 0;
     let toolCallsMade: { toolName: string; input: unknown }[] = [];
     let usedModelId = modelId;
+    let usedModel: any = model;
+    /** Lo que devolvieron las tools en este turno, en texto: respaldo para el revisor. */
+    let datosDeTools = "";
+    let ok = true;
 
-    // Corre el loop del LLM con un modelo dado; deja los resultados en las vars.
-    const attempt = async (m: any) => {
+    // Corre el loop del LLM con un modelo dado. `extra` es para rehacer una
+    // respuesta: un bloque de sistema más y otras tools.
+    const correr = async (m: any, extra?: { system?: SystemModelMessage[]; tools?: typeof enabledTools }) => {
       const result = streamText({
         model: m,
-        system,
+        system: extra?.system ? [...system, ...extra.system] : system,
         messages: aiMessages,
-        tools: enabledTools,
+        tools: extra?.tools ?? enabledTools,
         stopWhen: ({ steps }) => steps.length >= 6,
         ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
       });
-      let text = "";
+      let streamed = "";
       for await (const chunk of result.textStream) {
-        text += chunk;
+        streamed += chunk;
       }
-      assistantText = text;
       const usage = await result.usage;
-      inputTokens = usage?.inputTokens ?? 0;
-      outputTokens = usage?.outputTokens ?? 0;
-      cachedTokens = usage?.cachedInputTokens ?? 0;
       const steps = await result.steps;
-      toolCallCount = steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0);
-      // Persist what the agent DID (not just what it said): tool name + input,
-      // feeding the dashboard's thread chips, stats and the Mi Agente counters.
-      toolCallsMade = steps.flatMap((s) =>
-        (s.toolCalls ?? []).map((tc: any) => ({
-          toolName: tc.toolName as string,
-          input: tc.input,
-        })),
-      );
+      // El texto de CADA paso, separado por una línea en blanco. textStream los
+      // pega sin espacio: "Déjeme consultar el catálogo.Acá están los
+      // productos" salió así en 76 respuestas entre el 29-sep y el 6-oct.
+      const porPasos = steps.map((st) => (st.text ?? "").trim()).filter(Boolean).join("\n\n");
+      return {
+        text: porPasos || streamed,
+        inputTokens: usage?.inputTokens ?? 0,
+        outputTokens: usage?.outputTokens ?? 0,
+        cachedTokens: usage?.cachedInputTokens ?? 0,
+        toolCallCount: steps.reduce((n, st) => n + (st.toolCalls?.length ?? 0), 0),
+        // Persist what the agent DID (not just what it said): tool name + input,
+        // feeding the dashboard's thread chips, stats and the Mi Agente counters.
+        toolCallsMade: steps.flatMap((st) =>
+          (st.toolCalls ?? []).map((tc: any) => ({
+            toolName: tc.toolName as string,
+            input: tc.input,
+          })),
+        ),
+        datosDeTools: steps
+          .flatMap((st) => (st.toolResults ?? []).map((tr: any) => `${tr.toolName}: ${JSON.stringify(tr.output)}`))
+          .join("\n"),
+      };
+    };
+
+    // Corre el loop y deja los resultados en las vars (el camino de siempre).
+    const attempt = async (m: any) => {
+      const r = await correr(m);
+      assistantText = r.text;
+      inputTokens = r.inputTokens;
+      outputTokens = r.outputTokens;
+      cachedTokens = r.cachedTokens;
+      toolCallCount = r.toolCallCount;
+      toolCallsMade = r.toolCallsMade;
+      datosDeTools = r.datosDeTools;
+      usedModel = m;
     };
 
     try {
@@ -513,7 +582,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       const { fallbackModel } = await import("./llm/provider");
       const primary = createModel(this.env, tier, cfg.llm);
       const fb = fallbackModel(this.env, tier, primary.provider);
-      let ok = false;
+      ok = false;
 
       await backoff(2000 + Math.floor(Math.random() * 1500));
       try {
@@ -559,6 +628,62 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
 
       if (!ok) {
         assistantText = "Algo falló de mi lado. Por favor, intente de nuevo en un momento.";
+      }
+    }
+
+    // El revisor: lo que la respuesta NO puede decir, antes de mandarla
+    // (src/replies/revisor.ts). Si encuentra algo, el modelo la rehace UNA vez
+    // con la lista de problemas delante; si lo que bloquea sigue ahí, no sale y
+    // la conversación pasa a una persona. Es un extra: si falla, sale la
+    // respuesta como antes.
+    let revision: Problema[] = [];
+    if (ok && assistantText.trim()) {
+      try {
+        const contextoRevision = (datos: string) => ({
+          formaDeTrato: cfg.formaDeTrato,
+          frasesProhibidas,
+          textoDeLaClienta: combined,
+          respaldoMontos: [cfg.systemPrompt, datos, ...history.map((m) => m.content)],
+        });
+        revision = revisarRespuesta(assistantText, contextoRevision(datosDeTools));
+        if (revision.length > 0) {
+          console.warn(`[revisor] conv ${convId}: ${revision.map((p) => p.codigo).join(", ")} — se rehace`);
+          const borrador = assistantText;
+          const consulta = Object.fromEntries(
+            Object.entries(enabledTools).filter(([n]) => TOOLS_DE_CONSULTA.has(n)),
+          ) as typeof enabledTools;
+          let rehecha: Awaited<ReturnType<typeof correr>> | null = null;
+          try {
+            rehecha = await correr(usedModel, {
+              system: [{ role: "system", content: notaDeRevision(borrador, revision, datosDeTools) }],
+              tools: consulta,
+            });
+          } catch (e) {
+            console.error("[revisor] no se pudo rehacer la respuesta:", e);
+          }
+          if (rehecha) {
+            inputTokens += rehecha.inputTokens;
+            outputTokens += rehecha.outputTokens;
+            cachedTokens += rehecha.cachedTokens;
+            toolCallsMade = [...toolCallsMade, ...rehecha.toolCallsMade];
+          }
+          const datos = [datosDeTools, rehecha?.datosDeTools ?? ""].filter(Boolean).join("\n");
+          const despues = rehecha?.text.trim() ? revisarRespuesta(rehecha.text, contextoRevision(datos)) : revision;
+          if (hayQueBloquear(despues)) {
+            console.warn(`[revisor] conv ${convId}: sigue ${despues.map((p) => p.codigo).join(", ")} — no sale, pasa a una persona`);
+            assistantText = respuestaSegura(cfg.formaDeTrato);
+            await this.pasarAUnaPersonaPorRevisor(convId, borrador, despues);
+          } else if (rehecha?.text.trim()) {
+            assistantText = rehecha.text;
+          }
+          // Queda a la vista en el hilo del panel, como una tool más.
+          toolCallsMade = [
+            ...toolCallsMade,
+            { toolName: "revisor", input: { corrigio: revision.map((p) => p.codigo), bloqueo: hayQueBloquear(despues) } },
+          ];
+        }
+      } catch (e) {
+        console.error("[revisor] falló; la respuesta sale sin revisar:", e);
       }
     }
 

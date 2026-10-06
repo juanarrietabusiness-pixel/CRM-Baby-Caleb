@@ -26,6 +26,8 @@ export interface AgentConfig {
   escalarMedia: boolean;
   /** BYO-LLM del dashboard (proveedor / API key / modelo). */
   llm: LlmOverrides;
+  /** usted / tú / vos. El revisor de respuestas busca el tuteo solo con "usted". */
+  formaDeTrato?: FormaDeTrato;
 }
 
 /**
@@ -197,5 +199,6 @@ export async function resolveAgentConfig(env: Env, toolNames: string[]): Promise
     temperature,
     monthlyBudgetUsd,
     llm: llmOverridesFrom(settings),
+    formaDeTrato,
   };
 }
