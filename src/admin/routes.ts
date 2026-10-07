@@ -13,7 +13,14 @@
 import { parsePeerBots } from "./projects";
 import { Hono } from "hono";
 import { generateText } from "ai";
-import { createModel, pareceLlaveDeIa, proveedorDelModelo, PROVEEDORES, type LlmProvider } from "../llm/provider";
+import {
+  createModel,
+  pareceLlaveDeIa,
+  proveedorDelModelo,
+  MAX_TOKENS_DE_PRUEBA,
+  PROVEEDORES,
+  type LlmProvider,
+} from "../llm/provider";
 import { loadLlmOverrides, effectiveBusinessContext } from "../settings-loader";
 import type { Env } from "../env";
 import { checkBasicCredentials, timingSafeEqual } from "./auth";
@@ -849,7 +856,7 @@ adminApp.get("/config/llm-test", async (c) => {
     const r = await generateText({
       model,
       prompt: "Responde únicamente: ok",
-      maxOutputTokens: 8,
+      maxOutputTokens: MAX_TOKENS_DE_PRUEBA,
     });
     const okText = r.text.trim().slice(0, 20) || "ok";
     return c.redirect(
