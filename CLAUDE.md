@@ -46,7 +46,12 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
   antes de enviar: el modelo la rehace una vez y, si sigue, pasa a una persona. Ver la
   cuarta auditoría de `docs/AUDITORIA_CONOCIMIENTO.md`.
 - `src/admin/` — el panel (`/admin`): Resumen, Conversaciones, Conexiones, Config, KB, Catálogo, Costos.
-- `src/tools/` — searchKb, handoffHuman, pauseBot, captureLead, scheduleAppointment, catalogQuery.
+- `src/tools/` — searchKb, handoffHuman, pauseBot, captureLead, scheduleAppointment, catalogQuery,
+  cotizarEnvio, y `avisarRetiroEnPersona`: **se vende solo online, por delivery** (decisión del
+  7-oct-2026). Si alguien quiere ir a la tienda o a la casa, el bot NO ofrece retiro, NO da
+  dirección y NO transfiere, pausa ni abre ticket: sigue ofreciendo el delivery y avisa en
+  silencio a la dueña por Telegram (un aviso cada 12 h por conversación); recibir a alguien lo
+  decide solo ella, y si escribe en el chat el bot se calla (`src/takeover.ts`).
 - `src/db/catalog.ts` + `src/catalog/validation.ts` — el catálogo (D1, tabla `catalog_items`):
   código, nombre, costo, venta, stock y bodega. El costo **nunca** sale hacia el bot y la
   cantidad exacta de stock tampoco — ver `docs/PLAN_CATALOGO_BABY_CALEB.md`.

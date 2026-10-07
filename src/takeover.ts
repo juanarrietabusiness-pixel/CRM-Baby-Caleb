@@ -70,7 +70,7 @@ export async function pausarPorHumano(env: Env, conversationId: string, via?: Vi
  * pausa y la devolución reescribían el JSON entero y se lo llevaban por delante.
  * `undefined` borra la llave.
  */
-async function cambiarMetadata(db: Db, conversationId: string, cambios: Record<string, unknown>): Promise<void> {
+export async function cambiarMetadata(db: Db, conversationId: string, cambios: Record<string, unknown>): Promise<void> {
   const fila = await db.first<{ metadata: string | null }>("SELECT metadata FROM conversations WHERE id = ?", [
     conversationId,
   ]);

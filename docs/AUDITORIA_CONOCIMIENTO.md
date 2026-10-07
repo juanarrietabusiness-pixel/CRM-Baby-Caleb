@@ -350,6 +350,17 @@ bloquear. Y antes que un juez, vale probar el bot en un modelo más grande
 (Sonnet, o Muse Spark 1.3 desde Config): cuesta lo mismo que un juez y quita el
 error de raíz en vez de corregirlo después.
 
+### 4 bis. Decisión del 7-oct-2026: solo delivery
+
+El dueño decidió que Baby Caleb vende **únicamente online, por delivery**. Se
+quitó el retiro y su «excepción»; quien pide ir a la tienda o a la casa **no se
+transfiere**: el bot sigue ofreciendo el delivery y avisa en silencio a la dueña
+(`avisarRetiroEnPersona`), que decide si interviene. En esta rama el documento
+«Tienda online…» de `member/kb-respaldo/` ya quedó así y **sin** la lista de
+precios (lo que ponía `main` en rojo). **El documento VIVO del panel hay que
+cambiarlo igual** (ver abajo): la copia nocturna baja del panel a GitHub y, si el
+panel conserva los precios, `main` vuelve a ponerse rojo en el próximo merge.
+
 ### 5. Lo que queda en manos de la dueña (no se tocó la base)
 
 1. **Panel → KB → "Tienda online y retiro en persona"**: quitar la sección

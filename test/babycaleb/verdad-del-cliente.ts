@@ -19,6 +19,10 @@
  *   · 25 y 28-sep-2026, la dueña por Telegram: el retiro solo si la clienta
  *     insiste y sin dar la dirección (ya no «Altos de Curundú, 7 a 5»); el
  *     texto de Ferguson.
+ *   · 7-oct-2026, el dueño: se vende ÚNICAMENTE online, por delivery. Ya no hay
+ *     retiro ni «excepción»: quien quiera ir en persona sigue siendo atendido, el
+ *     bot le ofrece el delivery y avisa en silencio a la dueña
+ *     (avisarRetiroEnPersona); nunca transfiere, pausa ni abre ticket por eso.
  *   · 29-sep-2026, la agencia con los precios de la dueña: costos de los pants,
  *     la caja de 1,200 wipes Dany Baby sale del catálogo (se vende por caja de
  *     600), los wipes Nateen SÍ se venden (caja de 960) y los rangos de peso de

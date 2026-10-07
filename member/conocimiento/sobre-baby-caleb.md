@@ -6,8 +6,9 @@
 Baby Caleb Panamá es una **tienda online** de esenciales de bebé hipoalergénicos
 y biodegradables: pañales Nateen (de cierre y de pants), toallitas Nateen y de
 agua Dany Baby, y fulares portabebé Moon. Nada más. Envíos con motorizados de
-confianza en Ciudad de Panamá y Panamá Oeste, y al interior por Ferguson. Para
-retirar en persona, ver "Tienda online y retiro en persona".
+confianza en Ciudad de Panamá y Panamá Oeste, y al interior por Ferguson. Se vende
+únicamente por delivery: no hay retiro en persona (ver "Solo delivery: tienda
+online sin retiro en persona").
 
 ## Por qué elegirnos
 

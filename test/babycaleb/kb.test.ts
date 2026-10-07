@@ -156,14 +156,24 @@ describe("envíos y delivery", () => {
     expect(KB).toMatch(/domingos no hay entregas/i);
   });
 
-  it("el retiro: solo si insiste, con un día de anticipación, y sin dar la dirección", () => {
-    // Orden de la dueña por Telegram (28-sep-2026): somos tienda online, se
-    // insiste en el delivery y no se menciona ninguna dirección. La coordina
-    // una persona cuando la clienta insiste.
+  it("solo delivery: no hay retiro, no se transfiere y se avisa a la dueña (7-oct-2026)", () => {
+    // Decisión del dueño: Baby Caleb vende ÚNICAMENTE online, por delivery. Quien
+    // quiera ir en persona NO recibe un retiro, ni una excepción, ni una
+    // dirección; el bot sigue ofreciendo el delivery y avisa en silencio a la
+    // dueña (avisarRetiroEnPersona), que decide si interviene.
     expect(KB).toMatch(/tienda online/i);
-    expect(KB).toMatch(/INSISTA/);
-    expect(KB).toMatch(/un día de anticipación/i);
-    expect(KB).toMatch(/NO menciones Altos de Curundú ni ninguna dirección/i);
+    expect(KB).toMatch(/únicamente por internet, con entrega por delivery/i);
+    expect(KB).toMatch(/NO ofrezca retiro, ni siquiera si la clienta insiste/i);
+    expect(KB).toMatch(/NO dé ninguna dirección/i);
+    expect(KB).toMatch(/NO corte la conversación, NO diga que la pasa con una persona, NO pause y NO abra ticket/i);
+    expect(KB).toContain("avisarRetiroEnPersona");
+  });
+
+  it("ya no queda la excepción del retiro ni su dirección", () => {
+    expect(KB).not.toMatch(/haremos esta excepción|podemos hacer esta excepción/i);
+    expect(KB).not.toMatch(/un día de anticipación/i);
+    expect(KB).not.toMatch(/Curundú/i);
+    expect(KB).not.toMatch(/pasa la conversación a una persona/i);
   });
 });
 
