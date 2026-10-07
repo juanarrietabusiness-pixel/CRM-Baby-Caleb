@@ -180,8 +180,9 @@ export const GUION: CasoDelGuion[] = [
     id: "retiro",
     pregunta: "¿puedo pasar a buscarlo?",
     fuente: "kb",
-    // Orden de la dueña (28-sep-2026): solo si insiste, y sin dar la dirección.
-    debeContener: ["tienda online", "un día de anticipación", "pasa la conversación a una persona"],
+    // Decisión del dueño (7-oct-2026): solo delivery. No se ofrece retiro, no se
+    // da dirección, no se transfiere: se sigue con el delivery y se avisa a la dueña.
+    debeContener: ["tienda online", "únicamente por internet", "avisarRetiroEnPersona"],
   },
   {
     id: "abono-minimo",

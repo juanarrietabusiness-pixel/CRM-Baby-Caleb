@@ -146,6 +146,32 @@ describe("escalar es llamar handoffHuman, no repartir el teléfono", () => {
   });
 });
 
+describe("un barrio con el mismo nombre a los dos lados del Canal", () => {
+  // Caso real (30-sep-2026): "Brisas del Golf de Arraijan calle 22" se cotizó a
+  // $5.00, la tarifa de Brisas del Golf de la ciudad. En Panamá Oeste la tarifa
+  // no es fija: la da una persona.
+  const cotizar = async (zona: string) =>
+    (await (cotizarEnvioTool({} as never) as never as { execute: Function }).execute({ zona })) as {
+      encontrada: boolean;
+      zonaReconocida?: string;
+      zonas?: { zona: string; tarifa: string }[];
+    };
+
+  it("si nombra Arraiján o La Chorrera, manda Panamá Oeste aunque el barrio esté en la lista", async () => {
+    for (const zona of ["Brisas del Golf de Arraijan calle 22 casa 224R", "Vista Alegre, Arraiján", "Ciudad Radial La Chorrera"]) {
+      const r = await cotizar(zona);
+      expect(r.encontrada, zona).toBe(false);
+      expect(r.zonaReconocida, zona).toBe("Panamá Oeste");
+    }
+  });
+
+  it("sin Panamá Oeste de por medio, Brisas del Golf sigue siendo la de la ciudad", async () => {
+    const r = await cotizar("Brisas del Golf");
+    expect(r.encontrada).toBe(true);
+    expect(r.zonas?.[0]).toEqual({ zona: "Brisas del Golf", tarifa: "$5.00" });
+  });
+});
+
 describe("el mismo producto para varios destinos se suma", () => {
   it("catalogQuery avisa de no consultar por separado", async () => {
     // Pidieron 40 cajas de talla L para una zona y 20 para otra. El bot

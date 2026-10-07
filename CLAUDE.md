@@ -37,9 +37,21 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 
 - `src/index.ts` — webhooks de canales (Telegram, WhatsApp, Meta…).
 - `src/agent.ts` — el Durable Object que piensa y responde (buffer + tools).
-- `src/llm/provider.ts` — el cerebro (Anthropic / OpenAI / xAI, con llave propia).
+- `src/llm/provider.ts` — el cerebro (Anthropic / OpenAI / xAI / **Meta** Muse Spark, con llave
+  propia). Meta va por su puerta compatible con Anthropic (`api.meta.ai/v1`) con
+  `META_API_KEY` (o `MODEL_API_KEY`), que **no** es el token de Messenger/Instagram. Cada
+  proveedor lleva su base explícita: nunca pongas `ANTHROPIC_BASE_URL` en el Worker.
+- `src/replies/revisor.ts` — lo que la respuesta NO puede decir (pago confirmado, pedido
+  tocado, promesa de entrega, tuteo, montos sin respaldo, `frasesProhibidas`), comprobado
+  antes de enviar: el modelo la rehace una vez y, si sigue, pasa a una persona. Ver la
+  cuarta auditoría de `docs/AUDITORIA_CONOCIMIENTO.md`.
 - `src/admin/` — el panel (`/admin`): Resumen, Conversaciones, Conexiones, Config, KB, Catálogo, Costos.
-- `src/tools/` — searchKb, handoffHuman, pauseBot, captureLead, scheduleAppointment, catalogQuery.
+- `src/tools/` — searchKb, handoffHuman, pauseBot, captureLead, scheduleAppointment, catalogQuery,
+  cotizarEnvio, y `avisarRetiroEnPersona`: **se vende solo online, por delivery** (decisión del
+  7-oct-2026). Si alguien quiere ir a la tienda o a la casa, el bot NO ofrece retiro, NO da
+  dirección y NO transfiere, pausa ni abre ticket: sigue ofreciendo el delivery y avisa en
+  silencio a la dueña por Telegram (un aviso cada 12 h por conversación); recibir a alguien lo
+  decide solo ella, y si escribe en el chat el bot se calla (`src/takeover.ts`).
 - `src/db/catalog.ts` + `src/catalog/validation.ts` — el catálogo (D1, tabla `catalog_items`):
   código, nombre, costo, venta, stock y bodega. El costo **nunca** sale hacia el bot y la
   cantidad exacta de stock tampoco — ver `docs/PLAN_CATALOGO_BABY_CALEB.md`.
@@ -71,6 +83,9 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
   **Un contenedor sano no toma la imagen nueva**: `puente-wa.yml` lo reinicia solo
   al terminar (sale solo cuando un merge cambia `puente-wa/`). Si ese paso avisa
   que no pudo, se reinicia desde el panel.
+- Instagram y Messenger: `docs/conectar-instagram-facebook.md` (para el dueño, sin terminal).
+  Si la dueña contesta desde la app de Instagram/Facebook el bot NO se calla todavía
+  (`parseMetaEvents` ignora los echoes).
 - `src/takeover.ts` — cuando una persona contesta (panel, teléfono del WhatsApp
   por QR o Telegram) el bot se calla en esa conversación. Un solo sitio para las
   tres puertas; el plazo sale de Config.

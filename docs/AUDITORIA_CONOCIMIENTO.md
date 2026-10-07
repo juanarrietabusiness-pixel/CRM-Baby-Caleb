@@ -237,3 +237,142 @@ Lo demás llega con el despliegue: el esquema crea `compras`, el reindex sube el
 conocimiento de GitHub y retira del panel los documentos que pasaron a GitHub y
 el de «Seguimiento de clientas». El seguimiento nuevo empieza a correr en la
 siguiente hora; no hay nada que activar.
+
+---
+
+## Cuarta auditoría (6-oct-2026): lo que el bot NO debe decir
+
+> Pregunta de la agencia: *verificar en paralelo el repositorio, la D1 de
+> Cloudflare y el conocimiento del panel; buscar huecos, eslabones sueltos y
+> situaciones en negativo. Le decimos al bot cómo comportarse, pero no qué no
+> tiene que decir ni qué no debe hacer. Y analizar si, antes de responder, puede
+> verificar que lo que va a decir es coherente con la información de la empresa.*
+
+Datos de la D1 de producción por el MCP de Cloudflare, **solo lectura**: no se
+cambió nada en la base. Se leyeron `settings`, `kb_docs`, `kb_indice`,
+`catalog_items`, `improvement_suggestions`, `customer_facts` y las **418
+respuestas del bot** del 29-sep al 6-oct (todas de Haiku 4.5: `model_override =
+haiku`).
+
+### 1. Lo que el bot dijo y no debía (conversaciones reales)
+
+Ninguna regla faltaba en el sentido amplio: el prompt ya decía "no confirmes una
+acción que no ejecutaste". Lo que faltaba era decirlo **en negativo y en
+concreto**, y que alguien mirara la respuesta antes de enviarla.
+
+| # | Lo que dijo | Veces | Por qué estaba mal |
+|---|---|---|---|
+| 1 | "✓ Le confirmo que recibimos su abono total de $57.50… Su pedido está listo para que Ferguson lo recoja hoy" — la clienta solo había escrito "ya le hice el abono" | 5 confirmaciones de pago | La regla "nunca dé por confirmado un pago" decía **"a partir de un archivo"**: un pago dicho por texto quedaba fuera. Y las palabras clave de escalar dicen "ya pagué", no "ya le hice el abono". |
+| 2 | "Le confirmo los $2.50 por Ferguson a Bugaba" | 1 | Le dio la razón a la clienta: $2.50 es el viaje del motorizado HASTA Ferguson; la tarifa de Ferguson va aparte. El principio 6 del prompt ("no contradigas al cliente") empuja a esto. |
+| 3 | "Su pedido queda actualizado: 1 caja Talla S" — un pedido ya pagado y despachado, y le volvió a pedir el abono | 3 pedidos "tocados" | La KB dice "un cambio de un pedido hecho → a una persona", pero solo llega si se busca. |
+| 4 | "Le confirmo que el motorizado llega hoy, antes de las 5:00 p.m." (la clienta era de Chiriquí) · "su pedido sale mañana en la mañana" (a Arraiján) | 4 promesas de entrega | El bot no tiene la agenda. |
+| 5 | "Altos de Curundú, después de la Estación de Policía" · "avísenos cuando esté cerca de Altos de Curundú" | 3 | La dirección que la dueña mandó quitar el 28-sep. El documento del panel todavía la **nombra** ("NO menciones Altos de Curundú"): nombrar lo prohibido lo pone delante del modelo. |
+| 6 | "Entiendo que recibiste un mensaje… para ayudarte con tus preguntas" (contestándole a un aviso de anuncios de Meta) · "queda atenta" | 4 tuteos | Haiku arrastra el registro del mensaje que recibe. |
+| 7 | "Caja talla XXL de pant: (precio del producto)" | 1 | Hueco de plantilla enviado tal cual. |
+| 8 | "El nombre de la cuenta es **Baby Caleb**" | 1 | Inventado. |
+| 9 | "Cuando tenga los datos, nos llama… Nuestro teléfono es +507 6757-5065" | 1 | Mandarla a otro canal en vez de `handoffHuman`. |
+| 10 | "¿Se refiere a: descuentos por cantidad, alguna promoción, combos o paquetes especiales?" | 1 | Inventó tipos de oferta como opciones de una pregunta. |
+| 11 | "Brisas del Golf de Arraiján" cotizado a $5.00 | 1 | **Fallo de `cotizarEnvio`**: el barrio existe a los dos lados del Canal y ganaba la tarifa de la ciudad sobre "Panamá Oeste no tiene tarifa fija". |
+| 12 | "Déjeme traerle el catálogo completo.Acá están los productos…" | 76 | El texto de antes y después de una tool se pegaba sin espacio. |
+
+### 2. Repositorio contra D1 contra panel
+
+| # | Hallazgo | Dónde | Gravedad |
+|---|---|---|---|
+| 1 | **El documento "Tienda online y retiro en persona" del panel trae la lista de precios** ($50 / $45 / $55, editado el 3-oct). Es una segunda lista de precios: el día que cambie uno en el catálogo, el bot puede decir el viejo. Le falta la L de cierre (128 pañales, agotada) y ofrece la XXL de pants, agotada desde el 5-oct. | D1 · `kb_docs` | **Alta** |
+| 2 | **Por ese mismo documento, las pruebas de `main` están en rojo** (la copia nocturna lo trajo a `member/kb-respaldo/`): `kb.test.ts` y `guion.test.ts`. **El próximo merge a `main` no se despliega** hasta que se quiten esos precios del panel. | GitHub | **Alta** |
+| 3 | Ese documento mezcla seis temas: ubicación y retiro, la promoción de wipes, cuántos wipes trae, tono, **cuántos pañales trae la caja** y estilo. Las tallas y cantidades son de GitHub (`tallas-y-productos.md`): dos dueños otra vez. Tono y estilo son de Config, no de la KB (solo llegan si una búsqueda trae ese pedazo). | D1 · `kb_docs` | Media |
+| 4 | **"Wipes gratis hasta el 15 de octubre"**: nada la quita el 16. Tampoco dice con qué cajas aplica (¿pants? ¿la talla agotada que se aparta?) ni descuenta el paquete del inventario de WIPESNAT. | D1 · `kb_docs` | Media (vence en 9 días) |
+| 5 | **72 sugerencias pendientes en Mejoras**, varias contra GitHub: "ante consultas vagas, ofrece catálogo completo con precios" contra "si pregunta en general, pregunte cuál le interesa". Aprobada, cualquiera entra al prompt de CADA turno como lección. | D1 · `improvement_suggestions` | Media |
+| 6 | Fular: GitHub (y el documento de la dueña) dicen **gris y verde menta**; el catálogo solo tiene **gris**. El bot puede ofrecer un verde menta que no se puede vender. | GitHub ↔ D1 | Media |
+| 7 | **El Crisol**: el tarifario dice $5.00; la dueña cotizó $6.00 el 3-oct. Uno de los dos está viejo. | `member/zonas-envio.ts` ↔ conversación | Media |
+| 8 | "¿Causa rozaduras? **No**… no producen pañalitis ni rozaduras": una garantía de salud que no está en el documento de la dueña, en el mismo archivo que dice "nunca exagere un beneficio". | GitHub · `uso-del-producto.md` | Baja |
+| 9 | `customer_facts` guarda datos con montos ("pagó $15 por cambio y servicio de domicilio") que entran al prompt de esa clienta. | D1 | Baja |
+| 10 | `model_override = haiku`: todo el tráfico va al modelo más chico. Casi todos los casos de §1 son fallos típicos de un modelo chico. | D1 · `settings` | Decisión |
+| 11 | Si la dueña contesta desde la app de Instagram o Facebook, **el bot no se calla** (los "echoes" de Meta se ignoran; en WhatsApp por QR sí se calla). | `src/channels/meta.ts` | Media (cuando se conecte Meta) |
+
+### 3. Lo que se arregló en código (rama `claude/elegant-allen-tyw26o`)
+
+- **`<lo_que_no_puedes_hacer>`** en el prompt (`src/system-prompt.ts`): diez
+  prohibiciones en negativo, una por caso real (confirmar pagos, tocar pedidos,
+  prometer entregas, dar por cierta la cifra de la clienta, inventar ofertas,
+  datos de pago, huecos, mandar a otro canal, seguir después de escalar,
+  contestar avisos automáticos). Se arma según las tools activas.
+- **"Lo que NUNCA se dice"** en `member/config.local.ts`, lo específico de Baby
+  Caleb (dirección de retiro, Ferguson, cuenta bancaria, colores, promociones
+  vencidas, tallas en el borde), y `frasesProhibidas`.
+- **El revisor** (`src/replies/revisor.ts`), ver §4.
+- `cotizarEnvio`: si nombran Arraiján o La Chorrera, manda Panamá Oeste.
+- El texto de cada paso de la tool va separado por una línea en blanco.
+- El ejemplo del prompt que tuteaba ("de 30 no te puedo cumplir") y la regla
+  "Emojis: cero", que contradecía a todos los guiones de la dueña.
+
+### 4. ¿Puede verificar antes de responder? Sí, en dos capas
+
+**Capa 1 — el revisor determinista (hecho).** Después de que el modelo escribe y
+antes de enviar, `revisarRespuesta()` busca lo que se puede comprobar sin
+entender la conversación: confirmación de pago, pedido tocado, promesa de
+entrega, hueco de plantilla, datos bancarios, mandar a otro canal, frases
+prohibidas del negocio, tuteo, y **montos sin respaldo** (cada $ de la respuesta
+tiene que salir de una tool de ese turno, del prompt o de la conversación, o de
+sumarlos y multiplicarlos como en una cotización: precio × cajas + envío − abono).
+
+- Si encuentra algo, el modelo **rehace la respuesta una vez** con la lista de
+  problemas, su borrador y lo que devolvieron las tools; al rehacer solo puede
+  consultar (catálogo, KB, envío), así no duplica tickets ni avisos.
+- Si lo que **bloquea** (pago confirmado, frase prohibida) sigue ahí, la
+  respuesta no sale: la clienta recibe "le paso con una persona del equipo" y se
+  abre un ticket con lo que el bot iba a decir.
+- Queda a la vista en el hilo del panel como una tool más: `→ revisor`.
+- **Medido contra las 418 respuestas reales: detiene 19 (4.5%) y las 19 eran
+  errores de verdad.** Ninguna respuesta buena frenada. Costo: una llamada más
+  en ~1 de cada 22 turnos (≈ $0.15 al mes con el tráfico actual). Si el revisor
+  falla, la respuesta sale como antes.
+
+**Capa 2 — un juez con IA (propuesta, no hecha).** Un segundo modelo lee el
+borrador junto a lo que devolvieron las tools y el contexto del negocio, y
+contesta "coherente / incoherente, por esto". Atrapa lo que una expresión
+regular no ve: una talla mal orientada por peso, mezclar dos productos, una
+política mal resumida.
+
+| | Por turno | Al mes (≈ 1,230 turnos) | Tiempo extra |
+|---|---|---|---|
+| Hoy (Haiku, sin juez) | ≈ $0.0029 | ≈ $3.60 | — |
+| Juez Haiku en TODOS los turnos | + ≈ $0.004 | + ≈ $5 | 1–3 s |
+| Juez solo en turnos de riesgo (montos, pagos, cambios, quejas: ≈ 30%) | + ≈ $0.004 | + ≈ $1.50 | 1–3 s, solo en esos |
+| Juez Muse Spark 1.3 (Meta) en turnos de riesgo | + ≈ $0.006 | + ≈ $2.20 | similar |
+
+Recomendación: **primero ver una o dos semanas qué atrapa la capa 1** (las
+marcas `→ revisor` del panel) y encender la capa 2 **solo en turnos de riesgo**
+si sigue saliendo algo que la capa 1 no ve. Un juez del mismo tamaño que el bot
+se equivoca en las mismas cosas: su veredicto tiene que llevar a rehacer, no a
+bloquear. Y antes que un juez, vale probar el bot en un modelo más grande
+(Sonnet, o Muse Spark 1.3 desde Config): cuesta lo mismo que un juez y quita el
+error de raíz en vez de corregirlo después.
+
+### 4 bis. Decisión del 7-oct-2026: solo delivery
+
+El dueño decidió que Baby Caleb vende **únicamente online, por delivery**. Se
+quitó el retiro y su «excepción»; quien pide ir a la tienda o a la casa **no se
+transfiere**: el bot sigue ofreciendo el delivery y avisa en silencio a la dueña
+(`avisarRetiroEnPersona`), que decide si interviene. En esta rama el documento
+«Tienda online…» de `member/kb-respaldo/` ya quedó así y **sin** la lista de
+precios (lo que ponía `main` en rojo). **El documento VIVO del panel hay que
+cambiarlo igual** (ver abajo): la copia nocturna baja del panel a GitHub y, si el
+panel conserva los precios, `main` vuelve a ponerse rojo en el próximo merge.
+
+### 5. Lo que queda en manos de la dueña (no se tocó la base)
+
+1. **Panel → KB → "Tienda online y retiro en persona"**: quitar la sección
+   "Cuántos pañales trae la caja" entera (precios y cantidades ya los da
+   `catalogQuery`; tallas, GitHub) y las de "Tono al atender" y "Estilo de
+   respuestas" (esas van en Config → Instrucciones adicionales). Cambiar
+   "NO menciones Altos de Curundú ni ninguna dirección específica" por "No dé
+   ninguna dirección ni zona de retiro". **Esto pone `main` en verde otra vez.**
+2. Decidir qué pasa con la promoción de wipes el 16-oct (borrarla ese día, o
+   escribir con qué cajas aplica).
+3. **Mejoras**: rechazar las sugerencias que piden dar el catálogo completo con
+   precios ante una pregunta vaga.
+4. Confirmar la tarifa de El Crisol ($5 o $6) y si el fular verde menta se vende
+   (si sí, falta en el catálogo).
+5. Pensar en subir el modelo de Haiku a algo más grande.

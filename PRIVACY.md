@@ -30,7 +30,9 @@ El bot **no guarda audios ni imágenes**: los transcribe o los describe al vuelo
 
 ## 3. A dónde sale la información
 
-Para poder responder, el texto de la conversación se envía al **proveedor de IA que tú elegiste** (Anthropic, OpenAI o xAI) con **tu** llave. Ese proveedor procesa el mensaje bajo *sus* términos: revísalos y, si tu giro maneja datos sensibles (salud, finanzas, menores), confirma que su política te sirve.
+Para poder responder, el texto de la conversación se envía al **proveedor de IA que tú elegiste** (Anthropic, OpenAI, xAI o Meta) con **tu** llave. Ese proveedor procesa el mensaje bajo *sus* términos: revísalos y, si tu giro maneja datos sensibles (salud, finanzas, menores), confirma que su política te sirve.
+
+**Ojo con Meta "Contributor"** (`muse-spark-1.2-contributor`): es barato porque Meta **entrena sus modelos con lo que recibe**, y aquí lo que recibe son las conversaciones de tus clientes, con nombres, teléfonos y direcciones. El panel lo avisa en rojo mientras esté elegido. El modelo de Meta por defecto (`muse-spark-1.3`) no entrena con tus datos.
 
 Las notas de voz se transcriben con **Workers AI**, que corre dentro de tu propia cuenta de Cloudflare.
 

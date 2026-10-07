@@ -95,6 +95,15 @@ describe("el contexto sí trae lo que no está en ninguna otra parte", () => {
     expect(contexto).not.toMatch(/Curundú/i);
   });
 
+  it("solo delivery (7-oct-2026): no ofrece retiro, no transfiere, y avisa a la dueña", () => {
+    expect(contexto).toMatch(/ÚNICAMENTE por internet/);
+    expect(contexto).toMatch(/NO ofrezca retiro \(ni siquiera si insiste\)/);
+    expect(contexto).toMatch(/NO corte la conversación, NO diga que la pasa con una persona, NO pause y NO abra\s+ticket/);
+    expect(contexto).toContain("avisarRetiroEnPersona");
+    // La dirección no se da ni en la «excepción» que había antes.
+    expect(contexto).not.toMatch(/una persona coordina|excepción/i);
+  });
+
   it("que las imágenes y comprobantes los revisa una persona, siempre", () => {
     // Antes decía "escale" a secas. Ahora dice algo más fuerte y además
     // cierto: el archivo ni siquiera le llega al bot, y el ticket ya está

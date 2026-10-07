@@ -8,6 +8,7 @@ import { captureLeadTool } from "./captureLead";
 import { scheduleAppointmentTool } from "./scheduleAppointment";
 import { catalogQueryTool } from "./catalogQuery";
 import { cotizarEnvioTool } from "./cotizarEnvio";
+import { avisarRetiroEnPersonaTool } from "./avisarRetiroEnPersona";
 
 export interface ToolContext {
   env: Env;
@@ -24,6 +25,9 @@ export function buildTools(ctx: ToolContext) {
     pauseBot: pauseBotTool(ctx.env, ctx.getConversationId),
     snoozeUser: snoozeUserTool(ctx.env, ctx.getConversationId),
     captureLead: captureLeadTool(ctx.env, ctx.getConversationId),
+    // Aviso en silencio a la dueña cuando alguien quiere ir en persona: el bot
+    // sigue atendiendo y ofreciendo delivery, no escala ni pausa.
+    avisarRetiroEnPersona: avisarRetiroEnPersonaTool(ctx.env, ctx.getConversationId),
   };
 
   // Pro tier additions

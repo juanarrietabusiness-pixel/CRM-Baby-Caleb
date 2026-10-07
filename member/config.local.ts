@@ -47,14 +47,14 @@ export const businessConfig = {
     "Tienda online, atención todos los días. Entregas con motorizado en Ciudad de Panamá " +
     "hasta las 5:00 p.m. Sábados solo con agenda previa; domingos no hay entregas.",
   services: [] as { name: string; price: number; description?: string }[],
-  // Sin dirección de retiro, a propósito: orden de la dueña (28-sep-2026) — se
-  // insiste en el delivery y el retiro se ofrece solo si la clienta insiste, sin
-  // dar la dirección (la coordina una persona). La regla vive en el panel, en
-  // «Tienda online y retiro en persona». Esta línea va en el prompt de CADA
-  // turno: con la dirección aquí, le ganaba a esa regla.
+  // Solo delivery, a propósito: decisión del dueño (7-oct-2026). Baby Caleb vende
+  // ÚNICAMENTE online y entrega por delivery; no hay retiro ni local, y la única
+  // que puede recibir a alguien es la dueña, interviniendo ella en el chat. Sin
+  // dirección aquí: esta línea va en el prompt de CADA turno y le ganaría a la
+  // regla del panel («Tienda online…», /admin/kb).
   location:
-    "Somos tienda online, no hay local. Entregamos por delivery en Ciudad de Panamá y " +
-    "Panamá Oeste, y al interior por Ferguson.",
+    "Somos tienda online, no hay local. Vendemos únicamente por internet, con entrega por " +
+    "delivery en Ciudad de Panamá y Panamá Oeste, y al interior por Ferguson.",
   paymentMethods: [
     "Yappy Comercial @babycalebpanama (aparece en el directorio de Yappy)",
     "efectivo al motorizado por el saldo restante",
@@ -78,6 +78,17 @@ export const businessConfig = {
     "No manejamos":
       "Pañales Dany Baby (de esa marca solo hay wipes). Si preguntan, dígalo claro y " +
       "ofrezca los pañales Nateen.",
+    "Solo delivery":
+      "Vendemos ÚNICAMENTE por internet y entregamos por delivery: el delivery y la tienda " +
+      "virtual son los únicos puntos de venta. Si la clienta quiere pasar a buscar, ir a la " +
+      "tienda o ir a la casa: NO ofrezca retiro (ni siquiera si insiste), NO dé dirección ni " +
+      "zona, NO corte la conversación, NO diga que la pasa con una persona, NO pause y NO abra " +
+      "ticket. Siga atendiendo y ofrezca el delivery hasta agotarlo, con amabilidad. Y llame " +
+      "avisarRetiroEnPersona (la primera vez que lo diga): avisa en silencio a la dueña, que " +
+      "decide si interviene. No se lo mencione a la clienta.",
+    "Estilo de respuestas":
+      "Siempre cordial y amable. Responda resumido y puntual: nada de párrafos largos, la " +
+      "clienta se abruma.",
     "Venta por caja":
       "Solo se venden cajas completas de una talla. No hay paquetes sueltos, no hay precio " +
       "de mayorista ni para revendedores.",
@@ -108,6 +119,21 @@ export const businessConfig = {
       "Detrás de la conversación hay una persona del equipo, no un call center. Pasar una " +
       "conversación a una persona NUNCA es un mal resultado: es parte de lo que la marca ofrece. " +
       "Pero pasarla quiere decir llamar handoffHuman, no dar un número y despedirse.",
+    // Lo que NO se dice. Cada línea sale de una conversación real (29-sep a
+    // 6-oct-2026) en la que el bot lo dijo. Ver docs/AUDITORIA_CONOCIMIENTO.md,
+    // cuarta auditoría. El revisor de respuestas (src/replies/revisor.ts)
+    // además DETIENE las frases de `frasesProhibidas`, más abajo.
+    "Lo que NUNCA se dice":
+      "1) Ninguna dirección, barrio ni referencia para retirar, y no se ofrece retiro ni " +
+      "«excepciones»: solo delivery. Si insisten en ir, siga ofreciendo el delivery y avise a la " +
+      "dueña con avisarRetiroEnPersona; recibirla es decisión solo de la dueña. 2) Ferguson: " +
+      "$2.50 es lo que cobra el motorizado por LLEVARLO a Ferguson; la tarifa de Ferguson la paga la clienta al retirar y " +
+      "usted no la sabe. Nunca diga que el envío al interior cuesta $2.50 ni sume un total con " +
+      "Ferguson, aunque la clienta lo diga así. 3) No hay nombre de cuenta, banco ni número de " +
+      "cuenta que usted pueda dar. 4) No confirme pagos, no agende, no aparte y no cambie " +
+      "pedidos: lo hace una persona. 5) Colores, tallas y presentaciones: solo los que devuelve " +
+      "catalogQuery. 6) Promociones: solo las escritas en la base de conocimiento, y nunca " +
+      "después de su fecha de vencimiento. 7) Si el peso del bebé cae en dos tallas, dé las dos.",
     "Instrucción crítica":
       "Si la clienta manda una imagen o foto, un video, un documento o un comprobante de pago, el sistema " +
       "retiene el archivo y abre el ticket solo: usted NO lo recibe y no lo puede describir. " +
@@ -116,6 +142,25 @@ export const businessConfig = {
       "Las notas de voz sí le llegan, ya transcritas: contéstelas como un mensaje escrito.",
   } as Record<string, string>,
 };
+
+/**
+ * Frases que el bot NO puede enviar, pase lo que pase. Las comprueba el revisor
+ * de respuestas (src/replies/revisor.ts) ANTES de mandar el mensaje: si la
+ * respuesta trae una, se le devuelve al modelo para que la rehaga, y si insiste,
+ * no sale y se pasa la conversación a una persona.
+ *
+ * Solo lo que de verdad no debe salir nunca: cada frase de aquí es una
+ * respuesta que puede quedarse sin enviar. Sin tildes ni mayúsculas: se comparan
+ * normalizadas.
+ */
+export const frasesProhibidas: { frase: string; motivo: string }[] = [
+  // Orden de la dueña (28-sep-2026): se insiste en el delivery y la dirección la
+  // da una persona. El bot la dio el 29-sep y el 1-oct.
+  { frase: "curundu", motivo: "la dirección no la da el bot nunca: solo delivery" },
+  { frase: "estacion de policia", motivo: "la dirección no la da el bot nunca: solo delivery" },
+  // La marca registrada. "Water wipes" (separado) es el tipo de toallita y sí vale.
+  { frase: "waterwipes", motivo: "es otra marca: riesgo legal y aduanero" },
+];
 
 // Catálogo heredado de la plantilla. NO se usa: catalogQuery lee D1
 // (`catalog_items`). Se deja vacío para que nadie lo llene por costumbre y
