@@ -7,6 +7,7 @@ import type { Env } from "../../env";
 import { SETTING_KEYS } from "../../db/settings";
 import { renderBusinessContext } from "../../businessContext";
 import { CURATED_MODELS, entrenaConLosDatos } from "../../llm/provider";
+import { haceCuanto, leerFalloLlm } from "../../llm/ultimoFallo";
 import {
   CONTROL_LIST,
   valueToLevel,
@@ -176,6 +177,19 @@ function renderLlmSection(settings: Record<string, string>, llmTest?: string): s
     testBanner = `<div style="border:1px solid var(--bad);background:rgba(244,54,76,.1);color:var(--bad);padding:9px 12px;font-size:12px;font-weight:600">✕ Falló la prueba: ${esc(llmTest.slice(4, 200))}</div>`;
   }
 
+  // El error real del último mensaje que falló (src/llm/ultimoFallo.ts). La
+  // prueba de arriba es una petición mínima; el chat real lleva herramientas y
+  // streaming, y puede fallar donde la prueba no. Solo se muestra si es de hoy.
+  const fallo = leerFalloLlm(settings);
+  const falloBanner =
+    fallo && Date.now() - fallo.cuando < 48 * 60 * 60 * 1000
+      ? `<div role="status" style="border:1px solid var(--bad);background:rgba(244,54,76,.08);padding:10px 12px;font-size:12px;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere">
+          <strong style="color:var(--bad)">Último fallo real del bot · ${esc(haceCuanto(fallo.cuando))} · ${esc(fallo.proveedor)}/${esc(fallo.modelo)}</strong>
+          <span class="text-cream">${esc(fallo.mensaje)}</span>
+          <span class="text-dim">${fallo.recuperado ? `La clienta recibió respuesta${fallo.respaldo ? ` del modelo de respaldo (${esc(fallo.respaldo)})` : " en un reintento"}.` : "La clienta recibió «Algo falló de mi lado»."}</span>
+        </div>`
+      : "";
+
   return `
     <div class="bg-panel border border-line" style="padding:20px;display:flex;flex-direction:column;gap:18px">
       <div style="display:flex;flex-direction:column;gap:2px">
@@ -183,6 +197,7 @@ function renderLlmSection(settings: Record<string, string>, llmTest?: string): s
         <p class="text-dim text-[12px]">Elige qué inteligencia artificial usa tu bot. Puedes usar tu propia API key para pagar tú el consumo directamente. Si lo dejas en automático, el bot usa la configuración incluida (rápido para lo simple, inteligente para lo difícil).</p>
       </div>
       ${testBanner}
+      ${falloBanner}
       ${avisoEntrena}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div style="display:flex;flex-direction:column;gap:6px">

@@ -17,7 +17,8 @@ import { monthIaCostUsd, applyBudgetGuard } from "./budget";
 import { CustomerFactsRepo } from "./db/facts";
 import { TicketsRepo } from "./db/tickets";
 import { notifyOwner } from "./tools/handoffHuman";
-import { createModel } from "./llm/provider";
+import { createModel, OPCIONES_POR_PROVEEDOR } from "./llm/provider";
+import { anotarFalloLlm, describirError, secretosDelEntorno } from "./llm/ultimoFallo";
 import { costOfUsage } from "./pricing";
 import type { ChannelId } from "./channels/shared";
 import { pausarPorHumano, viaDeAtencion } from "./takeover";
@@ -523,6 +524,8 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         system: extra?.system ? [...system, ...extra.system] : system,
         messages: aiMessages,
         tools: extra?.tools ?? enabledTools,
+        // Opciones por proveedor: con Meta, sin `eager_input_streaming` en las tools.
+        providerOptions: OPCIONES_POR_PROVEEDOR,
         stopWhen: ({ steps }) => steps.length >= 6,
         ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
       });
@@ -578,6 +581,8 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       // intento). El jitter des-sincroniza mensajes que llegaron en el mismo
       // segundo. El bot no puede quedarse mudo el día del evento.
       console.error("[SupportAgent.processBuffer] streamText failed:", e);
+      // El error REAL, para Config: sin esto solo queda en los logs de Cloudflare.
+      const falloReal = describirError(e, secretosDelEntorno(this.env, cfg.llm?.apiKey));
       const backoff = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const { fallbackModel } = await import("./llm/provider");
       const primary = createModel(this.env, tier, cfg.llm);
@@ -625,6 +630,15 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
           console.error("[SupportAgent.processBuffer] sin la imagen también falló:", e4);
         }
       }
+
+      await anotarFalloLlm(this.env, {
+        cuando: Date.now(),
+        proveedor: primary.provider,
+        modelo: modelId,
+        mensaje: falloReal,
+        recuperado: ok,
+        respaldo: ok && usedModelId !== modelId ? usedModelId : undefined,
+      });
 
       if (!ok) {
         assistantText = "Algo falló de mi lado. Por favor, intente de nuevo en un momento.";

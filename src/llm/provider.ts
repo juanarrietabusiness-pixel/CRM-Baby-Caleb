@@ -56,6 +56,20 @@ export const MODELO_MUSE_CONTRIBUIDOR = "muse-spark-1.2-contributor";
  * antepone algo a la respuesta.
  */
 export const MAX_TOKENS_DE_PRUEBA = 32;
+/**
+ * Opciones de proveedor que se mandan en CADA llamada del chat. La clave es el
+ * nombre del proveedor del modelo (`meta`): el SDK solo lee la de su propio
+ * proveedor, así que con Claude u OpenAI esto no hace nada.
+ *
+ * `toolStreaming: false` quita `eager_input_streaming: true`, un campo propio de
+ * Anthropic que el SDK agrega a CADA herramienta cuando hay streaming. «Probar
+ * mi configuración» (sin herramientas ni streaming) salía en verde con Muse y el
+ * chat real fallaba en cada mensaje; ese campo es lo único así de raro que lleva
+ * la petición real. Para un chat no cambia nada: los argumentos de una
+ * herramienta llegan completos en vez de a pedazos.
+ */
+export const OPCIONES_POR_PROVEEDOR = { meta: { toolStreaming: false } } as const;
+
 export const META_BASE_URL = "https://api.meta.ai/v1";
 export const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 
