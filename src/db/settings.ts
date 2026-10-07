@@ -29,6 +29,11 @@ export const SETTING_KEYS = {
   llmProvider: "llm_provider", // "" (auto) | anthropic | openai
   llmApiKey: "llm_api_key", // owner's API key; empty = use the env key
   llmModel: "llm_model", // concrete model id; empty = auto tiers (fast⇄smart)
+  // El último fallo REAL del modelo en una conversación (JSON, ver
+  // src/llm/ultimoFallo.ts): el error que devolvió el proveedor. Config lo
+  // muestra, porque el error solo vivía en los logs de Cloudflare y "Algo falló
+  // de mi lado" no dice nada. Se pisa en cada fallo: es el último, no un historial.
+  ultimoFalloLlm: "ultimo_fallo_llm",
   // Reglas extra del dueño que se SUMAN al prompt generado (pestaña Config).
   // No confundir con system_prompt_override, que lo REEMPLAZA entero — ver
   // src/settings-loader.ts para la historia de por qué son dos llaves.
