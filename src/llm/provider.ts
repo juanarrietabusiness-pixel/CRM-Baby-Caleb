@@ -49,6 +49,13 @@ const XAI_DEFAULTS: Record<Tier, string> = {
 
 export const MODELO_MUSE = "muse-spark-1.3";
 export const MODELO_MUSE_CONTRIBUIDOR = "muse-spark-1.2-contributor";
+/**
+ * Tokens de respuesta de la prueba de «Probar mi configuración». Meta rechaza
+ * `max_tokens` por debajo de 16 («The number must be >= 16») y la prueba pedía 8:
+ * la llave llegaba bien y la prueba fallaba igual. 32 deja holgura si el modelo
+ * antepone algo a la respuesta.
+ */
+export const MAX_TOKENS_DE_PRUEBA = 32;
 export const META_BASE_URL = "https://api.meta.ai/v1";
 export const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 
