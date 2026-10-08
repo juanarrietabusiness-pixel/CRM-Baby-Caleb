@@ -40,11 +40,9 @@ solo.
 ## Promoción de wipes gratis con caja de pañales
 
 Cuando pregunten por caja de pañales, agrega esto a tu respuesta:
-
 Por la compra de su caja de pañales lleva un paquete de wipes completamente gratis hasta el 15 de octubre.
 
 ## Cantidad de wipes en la promoción
 
 Cuando pregunten cuántos wipes o toallitas incluye la oferta de compra una caja y llevas wipes gratis responde:
-
 La oferta incluye un paquete de wipes Nateen de 80 unidades
