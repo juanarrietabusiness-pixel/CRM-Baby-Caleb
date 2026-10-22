@@ -169,6 +169,72 @@ function checkDeQuien(datos: DatosToken, propios: Set<string>): DiagCheck {
 }
 
 /**
+ * ¿A qué campos está suscrita la app en ESTA Página?
+ *
+ * Es distinto de tener el webhook configurado en el panel de Meta: lo que
+ * gobierna la entrega es `subscribed_fields` de la Página. Si ahí no está
+ * `messages`, Meta no manda los mensajes entrantes por mucho que el webhook
+ * esté verde — y el síntoma sería justo el nuestro, porque los ecos y recibos
+ * viajan por otra vía.
+ *
+ * El calendario suscribe sus Páginas por API al encender la bandeja; en el CRM
+ * se hizo a mano desde el panel. No tiene por qué haber quedado igual.
+ */
+async function checkSuscripcion(env: Env, token: string): Promise<DiagCheck> {
+  const label = "Campos suscritos de la Página";
+  let res: Response;
+  try {
+    res = await fetch(`https://graph.facebook.com/${graphVersion(env)}/me/subscribed_apps`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (e: any) {
+    return { id: "suscripcion", label, status: "fail", detail: `No se pudo hablar con Meta: ${e?.message ?? e}` };
+  }
+  if (!res.ok) {
+    const err = await graphError(res);
+    return {
+      id: "suscripcion",
+      label,
+      status: err.transient ? "warn" : "fail",
+      detail: `Meta rechazó la consulta: ${err.text}`,
+      fix: fixDeError(err),
+    };
+  }
+  const json = (await res.json().catch(() => ({}))) as {
+    data?: { id?: string; name?: string; subscribed_fields?: string[] }[];
+  };
+  const apps = json.data ?? [];
+  if (apps.length === 0) {
+    return {
+      id: "suscripcion",
+      label,
+      status: "fail",
+      detail: "NINGUNA app está suscrita a esta Página.",
+      fix: "Sin suscripción Meta no manda nada. Hay que suscribir la Página a la app con el campo messages.",
+    };
+  }
+  const mia = apps.find((a) => a.id === APP_DEL_BOT) ?? apps[0];
+  const campos = mia.subscribed_fields ?? [];
+  const nombre = mia.name ?? mia.id ?? "la app";
+  if (!campos.includes("messages")) {
+    return {
+      id: "suscripcion",
+      label,
+      status: "fail",
+      detail: `"${nombre}" está suscrita a: ${campos.join(", ") || "ningún campo"}. NO incluye "messages".`,
+      fix: "Aquí está el problema: sin el campo messages en la suscripción de la Página, Meta no entrega los mensajes entrantes aunque el webhook esté bien. Hay que suscribir la Página con messages.",
+    };
+  }
+  const otras = apps.length > 1 ? ` Hay ${apps.length} apps suscritas.` : "";
+  return {
+    id: "suscripcion",
+    label,
+    status: "ok",
+    detail: `"${nombre}" suscrita a: ${campos.join(", ")}.${otras}`,
+  };
+}
+
+/**
  * Paso 3 — ¿la Página trae Instagram colgando, visto desde ESTE token? Leer
  * ese campo pide `pages_read_engagement`, así que un fallo aquí dice tanto
  * del otorgamiento como de la vinculación.
@@ -408,6 +474,7 @@ export async function diagnoseInstagramRead(env: Env): Promise<InstagramReadDiag
   const datos = await leerToken(env, token);
   checks.push(checkDeQuien(datos, propios));
   checks.push(checkPermisos(datos));
+  checks.push(await checkSuscripcion(env, token));
   checks.push(await checkInstagramVinculado(env, token, propios));
   checks.push(await checkConversaciones(env, token, propios));
   const verdict: DiagStatus = checks.some((c) => c.status === "fail")

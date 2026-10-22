@@ -25,13 +25,18 @@ function json(body: unknown, status = 200) {
  * por defecto, hace que Meta no revele los permisos del token (el caso en que
  * `debug_token` no sirve y manda la prueba de las conversaciones).
  */
-function stubFetch(conversaciones: () => Response, permisos?: () => Response) {
+function stubFetch(conversaciones: () => Response, permisos?: () => Response, suscripcion?: () => Response) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: any) => {
       const u = String(url);
       if (u.includes("/conversations")) return conversaciones();
       if (u.includes("debug_token")) return permisos ? permisos() : json({}, 400);
+      if (u.includes("subscribed_apps")) {
+        return suscripcion
+          ? suscripcion()
+          : json({ data: [{ id: "2099638607582456", name: "Baby Cale CRM", subscribed_fields: ["messages"] }] });
+      }
       return json(PAGE);
     }),
   );
@@ -116,7 +121,7 @@ describe("diagnoseInstagramRead", () => {
     expect(d.verdict).toBe("fail");
     expect(d.checks.find((c) => c.id === "ig")!.detail).toContain("NO ve ninguna cuenta de Instagram");
     // Las cuatro preguntas se hacen igual: frenarse escondía el diagnóstico.
-    expect(d.checks.map((c) => c.id)).toEqual(["token", "permisos", "ig", "conversaciones"]);
+    expect(d.checks.map((c) => c.id)).toEqual(["token", "permisos", "suscripcion", "ig", "conversaciones"]);
   });
 
   it("el error 100 por pages_read_engagement se traduce al otorgamiento que falta", async () => {
@@ -221,6 +226,41 @@ describe("diagnoseInstagramRead", () => {
     stubFetch(() => json({ data: [] }));
     const d = await diagnoseInstagramRead(env());
     expect(d.checks.find((c) => c.id === "permisos")!.status).toBe("skip");
+  });
+
+  // Lo que gobierna la entrega no es el webhook del panel, es esto.
+  it("si la suscripción de la Página no incluye messages, lo señala como EL problema", async () => {
+    stubFetch(
+      () => json({ data: [] }),
+      () => json({ data: { scopes: TODOS } }),
+      () => json({ data: [{ id: "2099638607582456", name: "Baby Cale CRM", subscribed_fields: ["feed"] }] }),
+    );
+    const d = await diagnoseInstagramRead(env());
+    const s = d.checks.find((c) => c.id === "suscripcion")!;
+    expect(s.status).toBe("fail");
+    expect(s.detail).toContain('NO incluye "messages"');
+    expect(s.fix).toContain("Aquí está el problema");
+  });
+
+  it("sin ninguna app suscrita, lo dice sin rodeos", async () => {
+    stubFetch(
+      () => json({ data: [] }),
+      () => json({ data: { scopes: TODOS } }),
+      () => json({ data: [] }),
+    );
+    const s = (await diagnoseInstagramRead(env())).checks.find((c) => c.id === "suscripcion")!;
+    expect(s.status).toBe("fail");
+    expect(s.detail).toContain("NINGUNA app");
+  });
+
+  it("con messages suscrito, pasa", async () => {
+    stubFetch(
+      () => json({ data: [] }),
+      () => json({ data: { scopes: TODOS } }),
+    );
+    const s = (await diagnoseInstagramRead(env())).checks.find((c) => c.id === "suscripcion")!;
+    expect(s.status).toBe("ok");
+    expect(s.detail).toContain("messages");
   });
 
   it("un token vencido se explica como tal", async () => {
