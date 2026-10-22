@@ -26,6 +26,8 @@ interface ChannelStatus {
   howTo: string;
   /** Ruta del diagnóstico en vivo (pregunta al proveedor), si el canal tiene. */
   diagPath?: string;
+  /** Texto del botón del diagnóstico. Por defecto, "Probar conexión con Meta". */
+  diagLabel?: string;
   /**
    * Qué dice el badge cuando `ok` es verdadero. Por defecto, "CONECTADO".
    *
@@ -186,6 +188,11 @@ function channelStatuses(env: Env): ChannelStatus[] {
       howTo:
         "En la app de Meta suscribe el campo messages del producto Instagram (no basta el de Messenger) y en la app de Instagram activa Configuración → Mensajes → Herramientas conectadas → permitir acceso a los mensajes.",
       diagSources: ["meta:instagram"],
+      // Con acceso estándar el webhook solo trae los DMs de quien tiene rol en
+      // la app. Esto comprueba el otro camino: PREGUNTARLE a Meta por las
+      // conversaciones de la cuenta, que no depende de quién escribió.
+      diagPath: "/admin/conexiones/instagram/diagnostico",
+      diagLabel: "Probar lectura de DMs",
     },
     {
       id: "manychat",
@@ -276,10 +283,10 @@ export function renderConexiones(env: Env, diagEventos: WebhookDiag = {}): strin
       // a Meta de verdad: token, suscripción de la app y handshake del webhook.
       const diag = ch.diagPath
         ? `<div style="display:flex;flex-direction:column;gap:8px">
-             <button type="button" class="text-[11px]" style="border:1px solid var(--line);color:var(--cream);padding:5px 10px;cursor:pointer;background:none;align-self:flex-start"
+             <button type="button" class="ghostbtn text-[12px]" style="border:1px solid var(--line);color:var(--cream);padding:5px 14px;cursor:pointer;background:none;align-self:flex-start"
                      hx-get="${esc(ch.diagPath)}" hx-target="#diag-${esc(ch.id)}" hx-swap="innerHTML"
                      hx-indicator="#diag-${esc(ch.id)}-load">
-               Probar conexión con Meta
+               ${esc(ch.diagLabel ?? "Probar conexión con Meta")}
              </button>
              <span id="diag-${esc(ch.id)}-load" class="htmx-indicator text-dim text-[11px]">consultando a Meta…</span>
              <div id="diag-${esc(ch.id)}"></div>

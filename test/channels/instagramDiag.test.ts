@@ -1,0 +1,114 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { diagnoseInstagramRead } from "../../src/channels/instagramDiag";
+
+// Lo que importa de esta comprobación es que distinga tres respuestas de Meta
+// que se parecen y significan cosas MUY distintas:
+//   • un límite de peticiones  → reintenta, no concluye nada (warn)
+//   • un permiso denegado      → al token le falta instagram_manage_messages (fail)
+//   • conversaciones de verdad → el camino de preguntar funciona (ok)
+const PAGE = {
+  id: "1122334455",
+  name: "Baby Caleb",
+  instagram_business_account: { id: "17841471553036144", username: "babycalebpanama" },
+};
+
+function env(extra: Record<string, unknown> = {}) {
+  return { META_PAGE_ACCESS_TOKEN: "page-token", ...extra } as any;
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status });
+}
+
+/** Responde `me` con la Página y deja que el test decida el de conversaciones. */
+function stubFetch(conversaciones: () => Response) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: any) => (String(url).includes("/conversations") ? conversaciones() : json(PAGE))),
+  );
+}
+
+describe("diagnoseInstagramRead", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sin token no pregunta nada", async () => {
+    const d = await diagnoseInstagramRead({} as any);
+    expect(d.verdict).toBe("fail");
+    expect(d.checks[0].detail).toContain("META_PAGE_ACCESS_TOKEN");
+  });
+
+  it("cuenta las conversaciones y a cuántas personas distintas", async () => {
+    stubFetch(() =>
+      json({
+        data: [
+          {
+            id: "c1",
+            updated_time: new Date().toISOString(),
+            participants: { data: [{ id: "17841471553036144", username: "babycalebpanama" }, { id: "999", username: "clienta_uno" }] },
+          },
+          {
+            id: "c2",
+            updated_time: new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString(),
+            participants: { data: [{ id: "17841471553036144" }, { id: "888", username: "clienta_dos" }] },
+          },
+        ],
+      }),
+    );
+    const d = await diagnoseInstagramRead(env());
+    expect(d.verdict).toBe("ok");
+    const conv = d.checks.find((c) => c.id === "conversaciones")!;
+    expect(conv.status).toBe("ok");
+    expect(conv.detail).toContain("2 conversación(es)");
+    expect(conv.detail).toContain("2 persona(s)");
+    // Solo una está dentro de la ventana de 24 h en que Meta deja responder.
+    expect(conv.detail).toContain("1 con actividad en las últimas 24 h");
+    expect(conv.detail).toContain("@clienta_uno");
+    // La cuenta propia nunca se cuenta como interlocutor.
+    expect(conv.detail).not.toContain("babycalebpanama");
+  });
+
+  it("un límite de peticiones es warn, no un veredicto", async () => {
+    stubFetch(() => json({ error: { message: "User request limit reached", code: 17 } }, 400));
+    const d = await diagnoseInstagramRead(env());
+    expect(d.verdict).toBe("warn");
+    const conv = d.checks.find((c) => c.id === "conversaciones")!;
+    expect(conv.status).toBe("warn");
+    expect(conv.fix).toContain("NO un permiso denegado");
+  });
+
+  it("un permiso denegado señala el permiso que falta en el token", async () => {
+    stubFetch(() =>
+      json({ error: { message: "(#10) Application does not have permission for this action", code: 10 } }, 403),
+    );
+    const d = await diagnoseInstagramRead(env());
+    expect(d.verdict).toBe("fail");
+    expect(d.checks.find((c) => c.id === "conversaciones")!.fix).toContain("instagram_manage_messages");
+  });
+
+  it("cero conversaciones no es un sí ni un no", async () => {
+    stubFetch(() => json({ data: [] }));
+    const d = await diagnoseInstagramRead(env());
+    expect(d.verdict).toBe("warn");
+    expect(d.checks.find((c) => c.id === "conversaciones")!.fix).toContain("Manda un DM");
+  });
+
+  it("sin Instagram vinculado a la Página se detiene ahí", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ id: "1122334455", name: "Baby Caleb" })));
+    const d = await diagnoseInstagramRead(env());
+    expect(d.verdict).toBe("fail");
+    expect(d.checks[0].detail).toContain("NO trae cuenta de Instagram");
+    // No sigue preguntando si ya sabe que no hay Instagram.
+    expect(d.checks).toHaveLength(1);
+  });
+
+  it("un token vencido se explica como tal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ error: { message: "Error validating access token", code: 190 } }, 401)),
+    );
+    const d = await diagnoseInstagramRead(env());
+    expect(d.verdict).toBe("fail");
+    expect(d.checks[0].fix).toContain("venció");
+  });
+});

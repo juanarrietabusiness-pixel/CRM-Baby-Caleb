@@ -80,6 +80,7 @@ import {
 } from "./views/avisoDueno";
 import { renderWhatsappQrPanel, type EstadoDelPuente } from "./views/whatsappQr";
 import { diagnoseWhatsAppCloud } from "../channels/whatsappDiag";
+import { diagnoseInstagramRead } from "../channels/instagramDiag";
 import { renderCampanas } from "./views/campanas";
 import { sendCampaign, createHandoffTemplate, contentApprovalStatus } from "../campaigns";
 import { Db } from "../db/client";
@@ -692,6 +693,14 @@ adminApp.get("/conexiones", async (c) =>
 // la URL del webhook contesta el handshake. Solo lee: no envía nada.
 adminApp.get("/conexiones/whatsapp/diagnostico", async (c) =>
   c.html(renderWhatsAppDiag(await diagnoseWhatsAppCloud(c.env))),
+);
+
+// Diagnóstico EN VIVO de la LECTURA de DMs de Instagram. El webhook, con acceso
+// estándar, solo trae los de quien tiene rol en la app; preguntarle a Meta por
+// las conversaciones de la cuenta no depende de quién escribió. Esto comprueba
+// ese camino con el token del bot antes de construir nada encima. Solo lee.
+adminApp.get("/conexiones/instagram/diagnostico", async (c) =>
+  c.html(renderWhatsAppDiag(await diagnoseInstagramRead(c.env))),
 );
 
 // --- WhatsApp por QR --------------------------------------------------------
