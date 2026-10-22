@@ -116,7 +116,11 @@ confirma que el bot responde.
 - **Mensajes llegan pero el bot no responde / 403 "bad signature":** falta o está
   mal el `META_APP_SECRET` (o `INSTAGRAM_APP_SECRET` si es IG Login).
 - **IG no responde pero Messenger sí:** la cuenta IG no está vinculada a la Página,
-  o falta suscribir el campo `messages` de Instagram, o `IG_DM_SOURCE="manychat"`
-  está desviando los DMs.
+  o falta suscribir el campo `messages` **del objeto Instagram** (no basta el de
+  Page), o la cuenta de IG no dio el permiso de "Herramientas conectadas", o
+  `IG_DM_SOURCE="manychat"` está desviando los DMs. La tarjeta **Instagram DMs
+  (Meta)** de `/admin/conexiones` dice qué pasó con el último evento que mandó
+  Meta; el procedimiento completo está en
+  [`docs/REVISAR-INSTAGRAM.md`](../../../docs/REVISAR-INSTAGRAM.md).
 - **El bot manda respuestas dobles en IG:** tienes Meta oficial **y** ManyChat
   activos para IG sin `IG_DM_SOURCE="manychat"`. Pon esa bandera.

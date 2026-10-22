@@ -4,6 +4,7 @@
 // paso 4 del onboarding (CLAUDE.md): conectar canales uno por uno y verlos
 // ponerse verdes.
 import type { Env } from "../../env";
+import type { WebhookDiag } from "../../channels/webhookDiag";
 import { layout } from "./layout";
 import type { WhatsAppDiagnosis, DiagStatus } from "../../channels/whatsappDiag";
 import { renderWhatsappQrCard } from "./whatsappQr";
@@ -43,6 +44,8 @@ interface ChannelStatus {
   okLabel?: string;
   /** HTML extra dentro de la tarjeta (panel en vivo). */
   panel?: string;
+  /** Claves de `webhook_diag` que alimentan la línea "último evento". */
+  diagSources?: string[];
 }
 
 function channelStatuses(env: Env): ChannelStatus[] {
@@ -61,6 +64,25 @@ function channelStatuses(env: Env): ChannelStatus[] {
     !has(env.META_VERIFY_TOKEN) && "META_VERIFY_TOKEN",
     !has(env.META_APP_SECRET) && "META_APP_SECRET",
   ].filter(Boolean) as string[];
+  // Instagram tiene DOS caminos y por eso su propia tarjeta: vía Página
+  // (Page Access Token + App Secret de la app de Facebook) o IG Login
+  // standalone (INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_APP_SECRET). Antes compartía
+  // tarjeta con Messenger y se veía verde aunque IG estuviera muerto.
+  const igLogin = has(env.INSTAGRAM_ACCESS_TOKEN);
+  const instagramMissing = [
+    !igLogin && !has(env.META_PAGE_ACCESS_TOKEN) && "META_PAGE_ACCESS_TOKEN (o INSTAGRAM_ACCESS_TOKEN)",
+    !has(env.META_VERIFY_TOKEN) && "META_VERIFY_TOKEN",
+    igLogin && !has(env.INSTAGRAM_APP_SECRET) && "INSTAGRAM_APP_SECRET",
+    !igLogin && !has(env.META_APP_SECRET) && "META_APP_SECRET",
+  ].filter(Boolean) as string[];
+  // Banderas que apagan Instagram sin apagar Messenger: la causa #1 de
+  // "me llegan los de Messenger pero no los de Instagram".
+  const igOff =
+    env.IG_OFFICIAL === "off"
+      ? 'IG_OFFICIAL="off": el canal oficial de Instagram está APAGADO. El webhook responde 200 a Meta y descarta el DM. Quita la var de wrangler.toml y vuelve a desplegar.'
+      : env.IG_DM_SOURCE === "manychat"
+        ? 'IG_DM_SOURCE="manychat": los DMs de Instagram se descartan aquí porque deberían entrar por ManyChat. Quita la var si ya no usas ManyChat.'
+        : undefined;
   const manychatMissing = [!has(env.MANYCHAT_API_KEY) && "MANYCHAT_API_KEY"].filter(
     Boolean,
   ) as string[];
@@ -141,16 +163,29 @@ function channelStatuses(env: Env): ChannelStatus[] {
     },
     {
       id: "meta",
-      name: "Instagram + Messenger (Meta)",
-      // lucide quitó los íconos de MARCA, así que "instagram" dejaba un hueco
-      // en la tarjeta. Se usa el mismo sustituto que ya eligió el canvas del
-      // agente para este canal (ver CHANNEL_ICON en agente.ts).
-      icon: "camera",
-      desc: "DMs de Instagram y Messenger con la API oficial de Meta.",
+      name: "Messenger (Meta)",
+      icon: "message-square",
+      desc: "Mensajes de Facebook Messenger con la API oficial de Meta.",
       ok: metaMissing.length === 0,
       missing: metaMissing,
       webhookPath: "/webhooks/meta",
-      howTo: "App de Meta → Webhooks → suscribe messages con tu VERIFY_TOKEN; la firma se valida sola.",
+      howTo: "App de Meta → Messenger → Webhooks: suscribe messages con tu VERIFY_TOKEN y agrega la Página.",
+      diagSources: ["meta:page"],
+    },
+    {
+      id: "instagram",
+      name: "Instagram DMs (Meta)",
+      // lucide quitó los íconos de MARCA: "instagram" dejaría un hueco. Mismo
+      // sustituto que usa el canvas del agente (CHANNEL_ICON en agente.ts).
+      icon: "camera",
+      desc: "DMs de Instagram por la API oficial. Mismo webhook que Messenger, suscripción aparte.",
+      ok: instagramMissing.length === 0 && !igOff,
+      missing: instagramMissing,
+      webhookPath: "/webhooks/meta",
+      securityNote: igOff,
+      howTo:
+        "En la app de Meta suscribe el campo messages del producto Instagram (no basta el de Messenger) y en la app de Instagram activa Configuración → Mensajes → Herramientas conectadas → permitir acceso a los mensajes.",
+      diagSources: ["meta:instagram"],
     },
     {
       id: "manychat",
@@ -172,7 +207,43 @@ function esc(s: string): string {
   );
 }
 
-export function renderConexiones(env: Env): string {
+/** "hace 3 min" / "hace 2 h" / "hace 5 d" — para la línea de último evento. */
+function hace(at: number): string {
+  const ms = Date.now() - at;
+  if (ms < 60_000) return "hace menos de 1 min";
+  const min = Math.floor(ms / 60_000);
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  return `hace ${Math.floor(h / 24)} d`;
+}
+
+/**
+ * Línea de diagnóstico: qué pasó con el último evento que Meta mandó para este
+ * canal. Es lo que distingue "Meta no está mandando nada" (nunca llegó un
+ * evento) de "llegó y lo rechazamos nosotros" (firma o bandera).
+ */
+function diagLine(ch: ChannelStatus, diag: WebhookDiag): string {
+  if (!ch.diagSources?.length) return "";
+  const entries = ch.diagSources.map((s) => diag[s]).filter(Boolean) as WebhookDiag[string][];
+  if (entries.length === 0) {
+    return `<div class="text-[11.5px]" style="color:var(--warn)">⚠ Nunca ha llegado un evento por este canal. Revisa la suscripción del webhook en la app de Meta.</div>`;
+  }
+  const e = entries.sort((a, b) => b.at - a.at)[0];
+  const color =
+    e.outcome === "ok" ? "var(--ok)" : e.outcome === "sin_mensaje" ? "var(--dim)" : "var(--bad)";
+  const label: Record<string, string> = {
+    ok: "procesado",
+    firma_rechazada: "RECHAZADO por firma inválida",
+    ignorado: "IGNORADO por configuración",
+    sin_mensaje: "sin contenido para el bot",
+  };
+  return `<div class="text-[11.5px]" style="color:${color}">Último evento ${esc(hace(e.at))}: ${esc(
+    label[e.outcome] ?? e.outcome,
+  )}${e.detail ? ` — ${esc(e.detail)}` : ""} · ${e.count} evento(s) en total</div>`;
+}
+
+export function renderConexiones(env: Env, diag: WebhookDiag = {}): string {
   const channels = channelStatuses(env);
   const connected = channels.filter((ch) => ch.ok).length;
   const base = (env.DASHBOARD_BASE_URL ?? "").replace(/\/$/, "");
@@ -229,6 +300,7 @@ export function renderConexiones(env: Env): string {
           <p class="text-dim text-[12px]" style="margin:0">${esc(ch.desc)}</p>
           ${missing}
           ${security}
+          ${diagLine(ch, diag)}
           ${webhook}
           ${diag}
           ${ch.panel ?? ""}

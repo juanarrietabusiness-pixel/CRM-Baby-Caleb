@@ -68,6 +68,7 @@ import {
 } from "../catalog/validation";
 import { renderConfig, CONSERVAR } from "./views/config";
 import { renderConexiones, renderWhatsAppDiag } from "./views/conexiones";
+import { readWebhookDiag } from "../channels/webhookDiag";
 import { pausarPorHumano, devolverAlBot } from "../takeover";
 import { chatDelDueno, crearCodigoDeVinculo, desvincular, protegerConsola } from "../owner/dueno";
 import { nombreDelBot } from "../owner/telegram";
@@ -682,7 +683,9 @@ adminApp.post("/catalogo/:code/borrar", async (c) => {
 });
 
 // Conexiones: mapa de canales con estado verde/gris (paso 4 del onboarding).
-adminApp.get("/conexiones", (c) => c.html(renderConexiones(c.env)));
+adminApp.get("/conexiones", async (c) =>
+  c.html(renderConexiones(c.env, await readWebhookDiag(c.env))),
+);
 
 // Diagnóstico EN VIVO de WhatsApp Cloud: pregunta a Meta si el token sirve, si
 // la app está suscrita a la WABA (la causa #1 de "no llegan los mensajes") y si

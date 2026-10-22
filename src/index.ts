@@ -7,6 +7,7 @@ import { webhookConfiable } from "./owner/telegram";
 import { manychatAdapter } from "./channels/manychat";
 import { twilioAdapter } from "./channels/twilio";
 import { parseMetaEvents, verifyMetaSignature } from "./channels/meta";
+import { recordWebhookEvent } from "./channels/webhookDiag";
 import { parseWhatsAppEvents, serveWhatsAppMedia } from "./channels/whatsapp";
 import { whatsappQrAdapter, parseRespuestaPropia, esChatDeUnaPersona } from "./channels/whatsappQr";
 import { registrarRespuestaDelTelefono } from "./takeover";
@@ -187,6 +188,29 @@ app.get("/webhooks/meta", (c) => {
 app.post("/webhooks/meta", async (c) => {
   const raw = await c.req.text();
   const sig = c.req.header("x-hub-signature-256");
+  // Qué producto manda el evento: "page" = Messenger, "instagram" = DMs de IG.
+  // Se lee ANTES de validar la firma solo para el diagnóstico (saber de qué
+  // canal era el evento rechazado); ninguna decisión de negocio depende de
+  // este valor sin firma válida.
+  let declaredObject = "desconocido";
+  try {
+    const peek = JSON.parse(raw) as { object?: string };
+    if (typeof peek?.object === "string" && peek.object) declaredObject = peek.object;
+  } catch {
+    // cuerpo no-JSON: se reporta abajo
+  }
+  const source = `meta:${declaredObject}`;
+  // `waitUntil` cuando exista (producción); en tests/Miniflare sin ctx, await directo.
+  const note = (outcome: Parameters<typeof recordWebhookEvent>[2], detail?: string) => {
+    const p = recordWebhookEvent(c.env, source, outcome, detail);
+    try {
+      c.executionCtx.waitUntil(p);
+      return Promise.resolve();
+    } catch {
+      return p;
+    }
+  };
+
   // Messenger (app de Facebook) e Instagram (IG Login) pueden firmar con App
   // Secrets DISTINTOS aunque sea la misma app de Meta. Aceptamos la firma si
   // cuadra con cualquiera de los dos secretos configurados (fail-closed si con
@@ -194,11 +218,19 @@ app.post("/webhooks/meta", async (c) => {
   const valid =
     (!!c.env.META_APP_SECRET && (await verifyMetaSignature(raw, sig, c.env.META_APP_SECRET))) ||
     (!!c.env.INSTAGRAM_APP_SECRET && (await verifyMetaSignature(raw, sig, c.env.INSTAGRAM_APP_SECRET)));
-  if (!valid) return c.text("bad signature", 403);
+  if (!valid) {
+    // El motivo más común en Instagram: el producto "Instagram con IG Login"
+    // firma con SU App Secret y no se guardó INSTAGRAM_APP_SECRET.
+    const detail = `firma no cuadró (secrets configurados: META_APP_SECRET=${!!c.env.META_APP_SECRET}, INSTAGRAM_APP_SECRET=${!!c.env.INSTAGRAM_APP_SECRET}, firma presente=${!!sig})`;
+    console.warn(`meta webhook rechazado [${source}]: ${detail}`);
+    await note("firma_rechazada", detail);
+    return c.text("bad signature", 403);
+  }
   let body: unknown;
   try {
     body = JSON.parse(raw);
   } catch {
+    await note("sin_mensaje", "cuerpo no es JSON válido");
     return c.text("bad json", 400);
   }
   // Kill-switch del canal oficial de Instagram (IG_OFFICIAL="off"): se ignora
@@ -206,17 +238,36 @@ app.post("/webhooks/meta", async (c) => {
   // (decisión de diseño). Messenger (object === "page") no se ve
   // afectado. Para reactivar: quitar la var y redeploy.
   if ((body as { object?: string }).object === "instagram" && c.env.IG_OFFICIAL === "off") {
+    console.warn("meta webhook: evento de Instagram descartado por IG_OFFICIAL=off");
+    await note("ignorado", 'IG_OFFICIAL="off" apaga el canal oficial de Instagram');
     return c.text("EVENT_RECEIVED", 200);
   }
 
-  for (const msg of parseMetaEvents(body as any)) {
+  const events = parseMetaEvents(body as any);
+  let ingested = 0;
+  let skipped = 0;
+  for (const msg of events) {
     // Anti-duplicado: cuando IG_DM_SOURCE="manychat", los DMs de Instagram
     // entran SOLO por el webhook de ManyChat — el canal oficial los ignora
     // (si no, cada DM se procesa DOBLE: 2x LLM, 2x respuestas al lead y
     // colisiones de rate limit en ráfagas de historias).
-    if (msg.channel === "instagram" && c.env.IG_DM_SOURCE === "manychat") continue;
+    if (msg.channel === "instagram" && c.env.IG_DM_SOURCE === "manychat") {
+      skipped++;
+      continue;
+    }
     const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
     await c.env.AGENT.get(doId).ingest(msg);
+    ingested++;
+  }
+  if (ingested > 0) {
+    await note("ok", `${ingested} mensaje(s) encolado(s) al agente`);
+  } else if (skipped > 0) {
+    console.warn("meta webhook: DM de Instagram descartado por IG_DM_SOURCE=manychat");
+    await note("ignorado", 'IG_DM_SOURCE="manychat" desvía los DMs de Instagram a ManyChat');
+  } else {
+    // Llegó firmado y válido, pero sin nada que contestar: recibos de entrega /
+    // lectura, echoes de la propia página, reacciones, quick replies.
+    await note("sin_mensaje", "evento sin texto, audio ni imagen (recibo, echo o reacción)");
   }
   return c.text("EVENT_RECEIVED", 200);
 });
