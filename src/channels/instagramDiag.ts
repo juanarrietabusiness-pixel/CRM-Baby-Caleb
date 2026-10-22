@@ -75,22 +75,37 @@ interface Conversacion {
   messages?: { data?: { id?: string; created_time?: string; from?: { id?: string } }[] };
 }
 
+/** Un error 100 por permisos nombra el permiso que falta: se lo decimos. */
+function fixDeError(err: LeidoError): string {
+  if (err.transient) return "Meta limitó las peticiones o tuvo un tropiezo. Reintenta en unos minutos.";
+  if (err.code === 190) {
+    return "El token venció o fue revocado. Genera el de la Página otra vez y guárdalo como META_PAGE_ACCESS_TOKEN.";
+  }
+  if (err.code === 100 && /pages_read_engagement|Page Public/i.test(err.text)) {
+    return "Al token le falta pages_read_engagement, así que el otorgamiento de la Página a la app es mínimo. Ese otorgamiento se hace con un inicio de sesión de Facebook que pida los permisos; regenerar el token no lo arregla.";
+  }
+  if (esPermiso(err.code) || err.code === 100) {
+    return "Al token le faltan permisos sobre esta Página. Hay que hacer el otorgamiento con un inicio de sesión que pida instagram_basic, instagram_manage_messages, pages_messaging, pages_read_engagement y pages_manage_metadata.";
+  }
+  return "Comprueba que META_PAGE_ACCESS_TOKEN sea el token de la Página Baby Caleb, generado por la app Baby Cale CRM.";
+}
+
 /**
- * Paso 1 — ¿el token sirve, de qué Página es y tiene Instagram colgando?
- * Devuelve también los ids propios, para no contarlos como interlocutores.
+ * Paso 1 — ¿de quién es el token? Solo id y nombre: es lo que un token de
+ * Página puede leer de sí mismo sin permisos extra, así que si ESTO falla, el
+ * token no es de una Página o no sirve.
  */
-async function checkToken(
+async function checkTokenBasico(
   env: Env,
   token: string,
 ): Promise<{ check: DiagCheck; propios: Set<string> }> {
-  const label = "Token de la Página e Instagram vinculado";
+  const label = "De quién es el token";
   const propios = new Set<string>();
   let res: Response;
   try {
-    res = await fetch(
-      `https://graph.facebook.com/${graphVersion(env)}/me?fields=id,name,instagram_business_account{id,username}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
+    res = await fetch(`https://graph.facebook.com/${graphVersion(env)}/me?fields=id,name`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
   } catch (e: any) {
     return {
       check: { id: "token", label, status: "fail", detail: `No se pudo hablar con Meta: ${e?.message ?? e}` },
@@ -105,44 +120,64 @@ async function checkToken(
         label,
         status: err.transient ? "warn" : "fail",
         detail: `Meta rechazó la consulta: ${err.text}`,
-        fix: err.transient
-          ? "Meta limitó las peticiones o tuvo un tropiezo. Reintenta en unos minutos."
-          : err.code === 190
-            ? "El token venció o fue revocado. Genera el de la Página otra vez en Meta y guárdalo como META_PAGE_ACCESS_TOKEN."
-            : "Comprueba que META_PAGE_ACCESS_TOKEN sea el token de la Página Baby Caleb, generado por la app Baby Cale CRM.",
+        fix: fixDeError(err),
       },
       propios,
+    };
+  }
+  const page = (await res.json().catch(() => ({}))) as { id?: string; name?: string };
+  if (page.id) propios.add(String(page.id));
+  return {
+    check: { id: "token", label, status: "ok", detail: `El token es de "${page.name ?? page.id}".` },
+    propios,
+  };
+}
+
+/**
+ * Paso 3 — ¿la Página trae Instagram colgando, visto desde ESTE token? Leer
+ * ese campo pide `pages_read_engagement`, así que un fallo aquí dice tanto
+ * del otorgamiento como de la vinculación.
+ */
+async function checkInstagramVinculado(
+  env: Env,
+  token: string,
+  propios: Set<string>,
+): Promise<DiagCheck> {
+  const label = "Instagram vinculado a la Página";
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://graph.facebook.com/${graphVersion(env)}/me?fields=instagram_business_account{id,username}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+  } catch (e: any) {
+    return { id: "ig", label, status: "fail", detail: `No se pudo hablar con Meta: ${e?.message ?? e}` };
+  }
+  if (!res.ok) {
+    const err = await graphError(res);
+    return {
+      id: "ig",
+      label,
+      status: err.transient ? "warn" : "fail",
+      detail: `Meta rechazó la consulta: ${err.text}`,
+      fix: fixDeError(err),
     };
   }
   const page = (await res.json().catch(() => ({}))) as {
-    id?: string;
-    name?: string;
     instagram_business_account?: { id?: string; username?: string };
   };
-  if (page.id) propios.add(String(page.id));
   const ig = page.instagram_business_account;
-  if (ig?.id) propios.add(String(ig.id));
   if (!ig?.id) {
     return {
-      check: {
-        id: "token",
-        label,
-        status: "fail",
-        detail: `El token sirve y es de la Página "${page.name ?? page.id}", pero NO trae cuenta de Instagram vinculada.`,
-        fix: "Vincula la cuenta de Instagram a esa Página y vuelve a generar el token con instagram_basic e instagram_manage_messages.",
-      },
-      propios,
+      id: "ig",
+      label,
+      status: "fail",
+      detail: "El token lee la Página pero NO ve ninguna cuenta de Instagram vinculada.",
+      fix: "Vincula la cuenta de Instagram a esa Página y vuelve a generar el token.",
     };
   }
-  return {
-    check: {
-      id: "token",
-      label,
-      status: "ok",
-      detail: `Página "${page.name ?? page.id}" con Instagram @${ig.username ?? ig.id} vinculado.`,
-    },
-    propios,
-  };
+  propios.add(String(ig.id));
+  return { id: "ig", label, status: "ok", detail: `Instagram @${ig.username ?? ig.id} vinculado a la Página.` };
 }
 
 /**
@@ -298,12 +333,13 @@ export async function diagnoseInstagramRead(env: Env): Promise<InstagramReadDiag
     });
     return { checks, verdict: "fail", checkedAt: Date.now() };
   }
-  const { check: tokenCheck, propios } = await checkToken(env, token);
+  // Las cuatro preguntas se hacen SIEMPRE, aunque una falle: cada una dice algo
+  // distinto, y la más valiosa —qué permisos lleva el token— no depende de que
+  // las otras funcionen. Frenarse en la primera fue esconder el diagnóstico.
+  const { check: tokenCheck, propios } = await checkTokenBasico(env, token);
   checks.push(tokenCheck);
-  if (tokenCheck.status === "fail") {
-    return { checks, verdict: "fail", checkedAt: Date.now() };
-  }
   checks.push(await checkPermisos(env, token));
+  checks.push(await checkInstagramVinculado(env, token, propios));
   checks.push(await checkConversaciones(env, token, propios));
   const verdict: DiagStatus = checks.some((c) => c.status === "fail")
     ? "fail"

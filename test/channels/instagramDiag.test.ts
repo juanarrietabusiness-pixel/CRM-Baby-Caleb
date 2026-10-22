@@ -104,13 +104,37 @@ describe("diagnoseInstagramRead", () => {
     expect(d.checks.find((c) => c.id === "conversaciones")!.fix).toContain("Manda un DM");
   });
 
-  it("sin Instagram vinculado a la Página se detiene ahí", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ id: "1122334455", name: "Baby Caleb" })));
+  it("sin Instagram vinculado lo dice, pero sigue preguntando lo demás", async () => {
+    // El token lee la Página pero no ve Instagram colgando.
+    vi.stubGlobal("fetch", vi.fn(async (url: any) =>
+      String(url).includes("/conversations")
+        ? json({ data: [] })
+        : json({ id: "1122334455", name: "Baby Caleb" }),
+    ));
     const d = await diagnoseInstagramRead(env());
     expect(d.verdict).toBe("fail");
-    expect(d.checks[0].detail).toContain("NO trae cuenta de Instagram");
-    // No sigue preguntando si ya sabe que no hay Instagram.
-    expect(d.checks).toHaveLength(1);
+    expect(d.checks.find((c) => c.id === "ig")!.detail).toContain("NO ve ninguna cuenta de Instagram");
+    // Las cuatro preguntas se hacen igual: frenarse escondía el diagnóstico.
+    expect(d.checks.map((c) => c.id)).toEqual(["token", "permisos", "ig", "conversaciones"]);
+  });
+
+  it("el error 100 por pages_read_engagement se traduce al otorgamiento que falta", async () => {
+    // Es lo que devolvió Meta de verdad el 22-oct-2026 con el token de la app.
+    const err100 = {
+      error: {
+        message:
+          "(#100) Object does not exist, cannot be loaded due to missing permission or reviewable feature, or does not support this operation. This endpoint requires the 'pages_read_engagement' permission or the 'Page Public Content Access' feature",
+        code: 100,
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: any) =>
+      String(url).includes("fields=instagram_business_account") ? json(err100, 400) : json({ id: "1", name: "Baby Caleb" }),
+    ));
+    const d = await diagnoseInstagramRead(env());
+    const ig = d.checks.find((c) => c.id === "ig")!;
+    expect(ig.status).toBe("fail");
+    expect(ig.fix).toContain("pages_read_engagement");
+    expect(ig.fix).toContain("regenerar el token no lo arregla");
   });
 
   it("si el token no lleva instagram_manage_messages, lo dice y explica que regenerarlo no sirve", async () => {
