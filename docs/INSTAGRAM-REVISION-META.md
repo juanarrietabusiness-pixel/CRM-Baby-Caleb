@@ -1,115 +1,106 @@
-# Instagram: por qué el calendario funciona sin revisión y el bot no
+# Instagram: la causa real es el permiso dentro del token
 
-## Dónde estamos
+## Lo que se probó (22 oct 2026)
 
-Los DMs de Instagram **ya entran al bot y el bot responde**, pero solo los de
-cuentas con rol en la app. Los de terceros no llegan.
+Prueba hecha a mano, con una cuenta de **una persona sin rol en la app**: esa
+persona mandó un DM de Instagram a una cuenta del calendario, el mensaje
+**apareció solo en la Bandeja a los ~30 segundos, sin pulsar "Actualizar"**, y
+se pudo responder desde ahí.
 
-El diagnóstico técnico está cerrado: webhooks, Página suscrita, cuenta vinculada
-y token están bien. El límite es el **nivel de acceso** de
-`instagram_manage_messages`, que está en acceso estándar:
+Eso llegó por **webhook**. Comprobado en el código del calendario:
 
-> *Standard Access — Webhooks will only be sent if the person using your app has
-> a role on the app.*
-> *Advanced Access — Webhooks will be sent when any person uses your app.*
+- Su cron de cada minuto publica cola, métricas, informes y Estudio —
+  `worker/index.js`, `scheduled()`. **No lee la Bandeja.**
+- La pantalla solo consulta a Meta con el botón (`onClick` en
+  `src/pages/Bandeja.jsx`). El único `setInterval` es un reloj que refresca las
+  horas relativas.
 
-Es exactamente el comportamiento observado.
+Nada preguntó a Meta en esos 30 segundos.
 
-## La diferencia real con el calendario: webhook vs. preguntar
+## Qué significa
 
-En el calendario **no se hizo ninguna revisión de Meta**, y funciona con los
-mensajes de todo el mundo. La razón no es un permiso distinto — es que **no usa
-webhooks para leer los DMs**.
+El webhook del calendario **sí entrega DMs de terceros**, con:
 
-Su Bandeja los **pregunta** (`worker/lib/bandeja/graph.js`):
+| | Calendario |
+|---|---|
+| `instagram_manage_messages` | "Listo para prueba" (acceso estándar) |
+| Revisión de la app | Ninguna |
+| Negocio verificado | No |
 
-```
-GET /{page-id}/conversations
-     ?platform=instagram
-     &fields=id,updated_time,participants,messages.limit(N){id,message,from,to,created_time}
-```
+O sea que la regla que parecía bloquearnos —*"con acceso estándar el webhook
+solo se manda si quien usa la app tiene rol"*— no es lo que frena al CRM. Si lo
+fuera, el calendario tampoco recibiría nada, y recibe.
 
-Con el token de la Página. Y ahí está la clave: eso lee **las conversaciones de
-tu propia cuenta**, que son datos tuyos, autorizados por ti al conectar la app.
-No importa quién escribió — no hay regla de rol en esa lectura. Su `DEPLOY.md`
-lo confirma: *"Sin el webhook … la Bandeja funciona igual con el botón
-Actualizar, que lee los últimos comentarios de las publicaciones recientes y las
-últimas conversaciones."*
+**Entonces lo que falta en el CRM es el permiso otorgado, no el nivel de
+acceso.**
 
-El bot del CRM, en cambio, depende **enteramente** del webhook, y el webhook con
-acceso estándar sí está limitado por el rol de **quien envía** el mensaje.
+## La causa, y por qué encaja con todo
 
-| | Calendario (Bandeja) | Bot del CRM (hoy) |
-|---|---|---|
-| Cómo se enteran | Pregunta cada tanto (`/conversations`) | Espera el webhook |
-| Permiso que manda | El que dio el dueño de la cuenta | El rol de quien envía |
-| Funciona con terceros sin revisión | **Sí** | **No** |
-| Qué tan rápido | Cuando se consulta | Al instante |
+Meta exige que `instagram_manage_messages` **viaje dentro del Page Access
+Token**, además de tener el webhook suscrito al tema Instagram.
 
-Misma ruta (`graph.facebook.com`, Facebook Login), mismos permisos, mecanismo
-distinto. Eso es todo lo que había.
+Y en la app Baby Cale CRM, la pantalla de tokens muestra **"—" en las 12
+Páginas**: nunca se generó un token con esos permisos. El bot está funcionando
+con un token que no los lleva.
 
-## La salida que esto abre: que el bot también pregunte
+Eso explica el síntoma exacto, sin forzar nada:
 
-El bot puede leer las conversaciones igual que la Bandeja: un cron que consulta
-`/{page-id}/conversations?platform=instagram`, detecta los mensajes nuevos y los
-mete al agente por el mismo camino que ya usa el webhook.
+- **Sin el permiso otorgado**, Meta entrega solo lo que el acceso estándar
+  permite de todos modos: los DMs de quien tiene rol en la app. ← el CRM hoy.
+- **Con el permiso otorgado**, entrega los DMs de cualquiera. ← el calendario.
 
-**Sin revisión de Meta, sin video, sin verificación del negocio.** Y es todo
-dentro de este repositorio.
+El calendario consiguió ese otorgamiento con su botón **"Conceder permisos de
+comentarios y mensajes"**, que pide exactamente `pages_manage_metadata`,
+`pages_manage_engagement`, `pages_messaging` e `instagram_manage_messages`. Está
+en su propio `DEPLOY.md`.
 
-Lo que cuesta, dicho honestamente:
+## Lo que hay que hacer (y lo que ya NO hace falta)
 
-- **Demora.** El cron de Cloudflare va por minuto, así que la respuesta llega
-  hasta ~1 minuto después, no al instante. Para soporte es aceptable; no es
-  igual que el webhook.
-- **Hay que evitar duplicados.** Guardar una marca de agua (último mensaje visto)
-  para no reprocesar ni contestar dos veces, y para no chocar con los DMs que sí
-  llegan por webhook.
-- **La ventana de 24 h sigue siendo de Meta.** Pasado ese plazo desde el último
-  mensaje de la persona, Meta no deja responder. Eso no lo cambia ningún
-  mecanismo.
-- **Primero hay que comprobarlo, no asumirlo.** El paso 1 es un botón en el panel
-  que haga esa consulta con el token guardado y muestre cuántas conversaciones
-  devuelve y de quién. Si ahí aparecen terceros, el camino está confirmado; si
-  no, se cae y volvemos a la revisión.
+### Hacer
+1. **Generar el Page Access Token** de la Página Baby Caleb en la app Baby Cale
+   CRM, otorgando `instagram_basic`, `instagram_manage_messages`,
+   `pages_messaging` y `pages_manage_metadata`.
+2. **Guardarlo** como `META_PAGE_ACCESS_TOKEN` (panel de Cloudflare → Workers →
+   `juancitoads-bot` → Settings → Variables and Secrets, o
+   `wrangler secret put`).
+3. **Comprobar** con el botón "Probar lectura de DMs" de
+   `/admin/conexiones` → tarjeta Instagram DMs (Meta). Si el token lleva el
+   permiso, esa consulta funciona; si no, lo dice con el nombre del permiso que
+   falta.
+4. **Probar** con un DM desde una cuenta sin rol.
 
-## Las otras salidas
+### Ya no hace falta
+- ❌ **El cron que pregunta.** Si el webhook entrega, no hay que construirlo.
+  Queda como red de seguridad opcional, no como solución.
+- ❌ **La revisión de Meta y el video.** El calendario recibe DMs de terceros
+  sin revisión aprobada.
+- ❌ **La verificación del negocio.** Ninguno de los dos negocios está
+  verificado, y el calendario funciona igual.
+- ❌ **El puente desde el calendario.**
 
-### Pasar la revisión de Meta
-Da entrega instantánea por webhook, que es lo ideal. Cuesta semanas: verificación
-del negocio *Baby Kaleb*, video del flujo y descripción del caso de uso. Se pide
-con "Añadir a la revisión de la aplicación" para `instagram_manage_messages` y
-`pages_messaging`, mencionando `business_management` como dependencia.
+## Honestidad sobre esto
 
-Ventaja del momento actual: con tus cuentas el flujo completo ya funciona (DM
-entra, bot responde, se ve en el panel), que es justo lo que el revisor necesita
-poder reproducir. El video se graba hoy.
+Que la causa sea el permiso del token es una **inferencia fuerte**, no una
+certeza: encaja con todo lo observado y con lo que exige la documentación, pero
+no está comprobada hasta que el token nuevo esté puesto. Lo que **sí** es
+certeza, por la prueba de hoy, es que el acceso estándar sin revisión **no
+impide** recibir DMs de terceros por webhook.
 
-### Rol de Evaluador
-Atajo para pocas personas conocidas mientras se tramita lo demás. No escala a
-clientela real.
+Si con el token nuevo sigue sin llegar, el siguiente sospechoso es la
+suscripción de la Página: el calendario la hace por API
+(`/{page-id}/subscribed_apps` con `feed,messages`) al encender la bandeja,
+mientras que en el CRM se hizo a mano desde el panel de Meta.
 
-### Puente desde el calendario
-La app del calendario ya recibe esos DMs; se le podría agregar un reenvío al
-webhook del bot. Funciona, pero acopla los dos sistemas: si el calendario se
-cae, el bot deja de recibir. Comparado con que el bot pregunte por su cuenta,
-tiene más partes y más dueños. No lo recomiendo.
+## Lo que corrijo
 
-## Lo que corrijo de lo que dije antes
-
-- Dije que había "posibilidad real de que el acceso estándar alcance" porque Meta
-  dice que basta para las cuentas que uno maneja. Tu prueba lo refutó: para el
-  webhook, el rol lo necesita **quien envía**, no el dueño de la cuenta.
-- Dije que el calendario también había pasado por la revisión, apoyado en su
-  `DEPLOY.md`, que describe ese trámite. Me dijiste que nunca se hizo, y el
-  código le da la razón a tu memoria: la Bandeja lee por API, y ese camino no
-  pide revisión. La guía describe la revisión como lo que haría falta para los
-  webhooks, no como algo que se hizo.
+Dije que el camino era hacer que el bot **preguntara** como la Bandeja, porque
+creía que la Bandeja se enteraba preguntando. El código dice que se entera por
+webhook. La diferencia entre los dos sistemas nunca fue el mecanismo: es el
+permiso que lleva el token.
 
 ## Fuentes
 
-- [Webhooks for Instagram Messaging — niveles de acceso](https://developers.facebook.com/docs/instagram-messaging/webhooks)
-- [Instagram Platform — Overview](https://developers.facebook.com/docs/instagram-platform/overview/)
-- `worker/lib/bandeja/graph.js` y `DEPLOY.md` del repo
+- [Webhooks for Instagram Messaging](https://developers.facebook.com/docs/instagram-messaging/webhooks)
+- [Instagram Messaging with the Messenger Platform](https://developers.facebook.com/docs/messenger-platform/instagram)
+- `worker/index.js`, `src/pages/Bandeja.jsx` y `DEPLOY.md` del repo
   `CALENDARIOS-MARKETING-APP`.
