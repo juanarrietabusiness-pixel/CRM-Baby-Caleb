@@ -146,7 +146,66 @@ async function checkToken(
 }
 
 /**
- * Paso 2 — la prueba de verdad: pedir las conversaciones de Instagram. Si
+ * Paso 2 — qué permisos lleva el token POR DENTRO.
+ *
+ * El generador de tokens de Meta no deja elegir permisos: el token solo lleva
+ * lo que la Página ya le concedió a la app. Por eso regenerarlo no arregla
+ * nada si el otorgamiento nunca se hizo — y por eso hay que poder VER lo que
+ * lleva, sin que nadie tenga que copiar el token a ninguna herramienta.
+ *
+ * Es lo mismo que hace el "Access Token Debugger" de Meta, aquí adentro.
+ * Best-effort: si Meta no deja leer los scopes con este token, se marca como
+ * no comprobable y manda la prueba de verdad, que es pedir las conversaciones.
+ */
+async function checkPermisos(env: Env, token: string): Promise<DiagCheck> {
+  const label = "Permisos dentro del token";
+  const falta =
+    "El token NO lleva instagram_manage_messages. Regenerarlo no sirve: ese generador no deja elegir permisos, solo refleja lo que la Página ya le concedió a la app. Hay que hacer el otorgamiento con un inicio de sesión de Facebook que pida los cuatro permisos (Explorador de la API de Graph, o una configuración de Inicio de sesión con Facebook para empresas) y DESPUÉS volver a generar el token de la Página.";
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://graph.facebook.com/${graphVersion(env)}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`,
+    );
+  } catch {
+    return { id: "permisos", label, status: "skip", detail: "No se pudo consultar los permisos del token." };
+  }
+  if (!res.ok) {
+    return {
+      id: "permisos",
+      label,
+      status: "skip",
+      detail: "Meta no deja leer los permisos con este token; lo dice la prueba de abajo.",
+    };
+  }
+  const json = (await res.json().catch(() => ({}))) as { data?: { scopes?: string[]; type?: string } };
+  const scopes = json.data?.scopes ?? [];
+  if (scopes.length === 0) {
+    return {
+      id: "permisos",
+      label,
+      status: "skip",
+      detail: "Meta no devolvió la lista de permisos del token; lo dice la prueba de abajo.",
+    };
+  }
+  const necesarios = ["instagram_basic", "instagram_manage_messages", "pages_messaging", "pages_manage_metadata"];
+  const faltantes = necesarios.filter((p) => !scopes.includes(p));
+  if (faltantes.includes("instagram_manage_messages")) {
+    return { id: "permisos", label, status: "fail", detail: `El token lleva: ${scopes.join(", ")}.`, fix: falta };
+  }
+  if (faltantes.length > 0) {
+    return {
+      id: "permisos",
+      label,
+      status: "warn",
+      detail: `Lleva instagram_manage_messages, pero le falta: ${faltantes.join(", ")}.`,
+      fix: "Los DMs deberían entrar igual. Si algo más falla, otorga también esos permisos.",
+    };
+  }
+  return { id: "permisos", label, status: "ok", detail: `El token lleva los cuatro permisos necesarios.` };
+}
+
+/**
+ * Paso 3 — la prueba de verdad: pedir las conversaciones de Instagram. Si
  * vuelven conversaciones de gente que no es la cuenta, el camino de "preguntar"
  * funciona con acceso estándar y el bot puede dejar de depender del webhook.
  */
@@ -244,6 +303,7 @@ export async function diagnoseInstagramRead(env: Env): Promise<InstagramReadDiag
   if (tokenCheck.status === "fail") {
     return { checks, verdict: "fail", checkedAt: Date.now() };
   }
+  checks.push(await checkPermisos(env, token));
   checks.push(await checkConversaciones(env, token, propios));
   const verdict: DiagStatus = checks.some((c) => c.status === "fail")
     ? "fail"

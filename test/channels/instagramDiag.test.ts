@@ -20,13 +20,24 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status });
 }
 
-/** Responde `me` con la Página y deja que el test decida el de conversaciones. */
-function stubFetch(conversaciones: () => Response) {
+/**
+ * Responde `me` con la Página, deja que el test decida el de conversaciones y,
+ * por defecto, hace que Meta no revele los permisos del token (el caso en que
+ * `debug_token` no sirve y manda la prueba de las conversaciones).
+ */
+function stubFetch(conversaciones: () => Response, permisos?: () => Response) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: any) => (String(url).includes("/conversations") ? conversaciones() : json(PAGE))),
+    vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("/conversations")) return conversaciones();
+      if (u.includes("debug_token")) return permisos ? permisos() : json({}, 400);
+      return json(PAGE);
+    }),
   );
 }
+
+const CUATRO = ["instagram_basic", "instagram_manage_messages", "pages_messaging", "pages_manage_metadata"];
 
 describe("diagnoseInstagramRead", () => {
   beforeEach(() => vi.unstubAllGlobals());
@@ -100,6 +111,35 @@ describe("diagnoseInstagramRead", () => {
     expect(d.checks[0].detail).toContain("NO trae cuenta de Instagram");
     // No sigue preguntando si ya sabe que no hay Instagram.
     expect(d.checks).toHaveLength(1);
+  });
+
+  it("si el token no lleva instagram_manage_messages, lo dice y explica que regenerarlo no sirve", async () => {
+    stubFetch(
+      () => json({ data: [] }),
+      () => json({ data: { scopes: ["instagram_basic", "pages_messaging", "pages_show_list"] } }),
+    );
+    const d = await diagnoseInstagramRead(env());
+    expect(d.verdict).toBe("fail");
+    const permisos = d.checks.find((c) => c.id === "permisos")!;
+    expect(permisos.status).toBe("fail");
+    expect(permisos.fix).toContain("Regenerarlo no sirve");
+    expect(permisos.fix).toContain("otorgamiento");
+  });
+
+  it("con los cuatro permisos dentro, el token pasa", async () => {
+    stubFetch(
+      () => json({ data: [] }),
+      () => json({ data: { scopes: CUATRO } }),
+    );
+    const d = await diagnoseInstagramRead(env());
+    const permisos = d.checks.find((c) => c.id === "permisos")!;
+    expect(permisos.status).toBe("ok");
+  });
+
+  it("si Meta no revela los permisos, no concluye nada y deja hablar a la prueba real", async () => {
+    stubFetch(() => json({ data: [] }));
+    const d = await diagnoseInstagramRead(env());
+    expect(d.checks.find((c) => c.id === "permisos")!.status).toBe("skip");
   });
 
   it("un token vencido se explica como tal", async () => {
