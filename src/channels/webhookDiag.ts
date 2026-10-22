@@ -31,6 +31,12 @@ export interface WebhookDiagEntry {
   detail?: string;
   /** Cuántos eventos de esta fuente se han visto (desde que existe el registro). */
   count: number;
+  /**
+   * Cuántos por resultado. El `outcome` solo cuenta el último, y eso esconde
+   * la historia: "8 eventos" con el último sin contenido no dice si alguno se
+   * procesó. Con esto, la tarjeta puede decir "8 eventos: 0 procesados".
+   */
+  counts?: Partial<Record<WebhookOutcome, number>>;
 }
 
 export type WebhookDiag = Record<string, WebhookDiagEntry>;
@@ -71,11 +77,14 @@ export async function recordWebhookEvent(
     const repo = new SettingsRepo(new Db(env.DB));
     const diag = parse(await repo.get(WEBHOOK_DIAG_KEY));
     const prev = diag[source];
+    const counts = { ...(prev?.counts ?? {}) };
+    counts[outcome] = (counts[outcome] ?? 0) + 1;
     diag[source] = {
       at: Date.now(),
       outcome,
       detail,
       count: (prev?.count ?? 0) + 1,
+      counts,
     };
     await repo.set(WEBHOOK_DIAG_KEY, JSON.stringify(diag));
   } catch {

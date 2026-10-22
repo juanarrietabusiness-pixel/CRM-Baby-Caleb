@@ -73,6 +73,75 @@ export function parseMetaEvents(body: MetaWebhookBody): IncomingMessage[] {
 }
 
 /**
+ * Por qué se descartó cada evento de un POST, para el diagnóstico del panel.
+ *
+ * `parseMetaEvents` tira cuatro clases de evento en silencio, y una de ellas
+ * —"sin texto ni audio ni imagen"— incluye mensajes de verdad: una respuesta a
+ * una historia llega como adjunto `story_mention`, y un producto compartido
+ * como `share`. Si eso estuviera pasando, el síntoma sería idéntico al de "no
+ * me llegan los DMs", pero la culpa sería nuestra y no de Meta.
+ *
+ * Cuenta sin guardar nada del cliente: ni texto, ni ids, solo tipos.
+ */
+export interface ResumenMeta {
+  total: number;
+  conMensaje: number;
+  echo: number;
+  quickReply: number;
+  sinRemitente: number;
+  /** Eventos sin `message`: recibos de entrega y de lectura, reacciones. */
+  recibo: number;
+  /** Trae mensaje, pero sin texto ni audio ni imagen: aquí viven los perdidos. */
+  sinContenido: number;
+  /** Tipos de adjunto vistos en los descartados (story_mention, share, …). */
+  tipos: string[];
+}
+
+export function resumirMetaEventos(body: MetaWebhookBody): ResumenMeta {
+  const r: ResumenMeta = {
+    total: 0, conMensaje: 0, echo: 0, quickReply: 0, sinRemitente: 0, recibo: 0, sinContenido: 0, tipos: [],
+  };
+  const tipos = new Set<string>();
+  for (const entry of body.entry ?? []) {
+    for (const ev of entry.messaging ?? []) {
+      r.total++;
+      const m = ev.message;
+      if (!m) { r.recibo++; continue; }
+      if (m.is_echo) { r.echo++; continue; }
+      if (m.quick_reply) { r.quickReply++; continue; }
+      if (!ev.sender?.id) { r.sinRemitente++; continue; }
+      const tieneMedio = m.attachments?.some((a) => a.type === "audio" || a.type === "image");
+      if (!m.text && !tieneMedio) {
+        r.sinContenido++;
+        for (const a of m.attachments ?? []) if (a?.type) tipos.add(a.type);
+        continue;
+      }
+      r.conMensaje++;
+    }
+  }
+  r.tipos = [...tipos];
+  return r;
+}
+
+/** El resumen en una línea de español, para la tarjeta de Conexiones. */
+export function describirResumen(r: ResumenMeta): string {
+  const partes: string[] = [];
+  if (r.conMensaje) partes.push(`${r.conMensaje} con mensaje`);
+  if (r.recibo) partes.push(`${r.recibo} recibo/reacción`);
+  if (r.echo) partes.push(`${r.echo} eco de la propia cuenta`);
+  if (r.quickReply) partes.push(`${r.quickReply} tap de botón`);
+  if (r.sinRemitente) partes.push(`${r.sinRemitente} sin remitente`);
+  if (r.sinContenido) {
+    partes.push(
+      r.tipos.length
+        ? `${r.sinContenido} con adjunto que NO procesamos (${r.tipos.join(", ")})`
+        : `${r.sinContenido} sin texto ni adjunto`,
+    );
+  }
+  return `${r.total} evento(s): ${partes.join(", ") || "ninguno reconocible"}`;
+}
+
+/**
  * Valida la firma HMAC-SHA256 (`X-Hub-Signature-256: sha256=<hex>`) que Meta
  * pone en cada POST, usando el App Secret. Comparación en tiempo constante.
  * Fail-closed: sin firma válida o sin secret → false.

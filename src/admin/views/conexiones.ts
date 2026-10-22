@@ -245,9 +245,16 @@ function diagLine(ch: ChannelStatus, diag: WebhookDiag): string {
     ignorado: "IGNORADO por configuración",
     sin_mensaje: "sin contenido para el bot",
   };
+  // El historial por resultado: "8 eventos" con el último sin contenido no
+  // dice si alguno llegó a procesarse. Esto sí.
+  const hist = Object.entries(e.counts ?? {})
+    .map(([k, n]) => `${n} ${label[k] ?? k}`)
+    .join(" · ");
   return `<div class="text-[11.5px]" style="color:${color}">Último evento ${esc(hace(e.at))}: ${esc(
     label[e.outcome] ?? e.outcome,
-  )}${e.detail ? ` — ${esc(e.detail)}` : ""} · ${e.count} evento(s) en total</div>`;
+  )}${e.detail ? ` — ${esc(e.detail)}` : ""}<br>${e.count} evento(s) en total${
+    hist ? `: ${esc(hist)}` : ""
+  }</div>`;
 }
 
 // `diagEventos`, no `diag`: dentro del map de tarjetas ya hay un `diag` local

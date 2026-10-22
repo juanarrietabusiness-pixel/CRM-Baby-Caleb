@@ -6,7 +6,7 @@ import { atenderAlDueno } from "./owner/consola";
 import { webhookConfiable } from "./owner/telegram";
 import { manychatAdapter } from "./channels/manychat";
 import { twilioAdapter } from "./channels/twilio";
-import { parseMetaEvents, verifyMetaSignature } from "./channels/meta";
+import { parseMetaEvents, verifyMetaSignature, resumirMetaEventos, describirResumen } from "./channels/meta";
 import { recordWebhookEvent } from "./channels/webhookDiag";
 import { parseWhatsAppEvents, serveWhatsAppMedia } from "./channels/whatsapp";
 import { whatsappQrAdapter, parseRespuestaPropia, esChatDeUnaPersona } from "./channels/whatsappQr";
@@ -265,9 +265,10 @@ app.post("/webhooks/meta", async (c) => {
     console.warn("meta webhook: DM de Instagram descartado por IG_DM_SOURCE=manychat");
     await note("ignorado", 'IG_DM_SOURCE="manychat" desvía los DMs de Instagram a ManyChat');
   } else {
-    // Llegó firmado y válido, pero sin nada que contestar: recibos de entrega /
-    // lectura, echoes de la propia página, reacciones, quick replies.
-    await note("sin_mensaje", "evento sin texto, audio ni imagen (recibo, echo o reacción)");
+    // Llegó firmado y válido, pero sin nada que contestar. Decir EXACTAMENTE
+    // qué era: si aparecen adjuntos tipo story_mention o share, entonces son
+    // mensajes de verdad que estamos tirando nosotros, no Meta.
+    await note("sin_mensaje", describirResumen(resumirMetaEventos(body as any)));
   }
   return c.text("EVENT_RECEIVED", 200);
 });

@@ -31,7 +31,9 @@ interface GraphErr {
 }
 
 /** Códigos de Graph que son "vuelve a intentar", no "no tienes permiso". */
-const TRANSITORIOS = [1, 2, 4, 17, 32, 341, 613, 9004];
+// -2 es el "Timeout" de Graph: la consulta tardó demasiado del lado de Meta.
+// No dice nada de permisos, así que se reintenta como cualquier tropiezo.
+const TRANSITORIOS = [-2, 1, 2, 4, 17, 32, 341, 613, 9004];
 
 interface LeidoError {
   text: string;
@@ -326,7 +328,9 @@ async function checkConversaciones(env: Env, token: string, propios: Set<string>
         label,
         status: "warn",
         detail: `Meta no contestó esta vez: ${err.text}`,
-        fix: "Es un límite de peticiones o un tropiezo de Meta, NO un permiso denegado. Vuelve a probar en unos minutos.",
+        fix: /timeout/i.test(err.text)
+          ? "Timeout: la consulta tardó demasiado del lado de Meta, pero ESTABA autorizada. Suele pasar con buzones grandes. Vuelve a probar en unos minutos."
+          : "Es un límite de peticiones o un tropiezo de Meta, NO un permiso denegado. Vuelve a probar en unos minutos.",
       };
     }
     return {
