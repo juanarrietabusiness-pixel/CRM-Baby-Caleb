@@ -243,7 +243,9 @@ function diagLine(ch: ChannelStatus, diag: WebhookDiag): string {
   )}${e.detail ? ` — ${esc(e.detail)}` : ""} · ${e.count} evento(s) en total</div>`;
 }
 
-export function renderConexiones(env: Env, diag: WebhookDiag = {}): string {
+// `diagEventos`, no `diag`: dentro del map de tarjetas ya hay un `diag` local
+// —el panel que le pregunta a Meta en vivo— y el nombre corto lo tapaba.
+export function renderConexiones(env: Env, diagEventos: WebhookDiag = {}): string {
   const channels = channelStatuses(env);
   const connected = channels.filter((ch) => ch.ok).length;
   const base = (env.DASHBOARD_BASE_URL ?? "").replace(/\/$/, "");
@@ -300,7 +302,7 @@ export function renderConexiones(env: Env, diag: WebhookDiag = {}): string {
           <p class="text-dim text-[12px]" style="margin:0">${esc(ch.desc)}</p>
           ${missing}
           ${security}
-          ${diagLine(ch, diag)}
+          ${diagLine(ch, diagEventos)}
           ${webhook}
           ${diag}
           ${ch.panel ?? ""}
