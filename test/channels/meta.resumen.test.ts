@@ -59,6 +59,26 @@ describe("resumirMetaEventos", () => {
     expect(resumirMetaEventos(b).conMensaje).toBe(parseMetaEvents(b as any).length);
   });
 
+  // La hipótesis del 22-oct: entran los ecos y no los mensajes porque otra app
+  // es la receptora principal de la Página y los nuestros caen en `standby`.
+  it("delata los eventos en standby, que es donde van si otra app manda", () => {
+    const r = resumirMetaEventos({
+      object: "instagram",
+      entry: [{ id: "1", standby: [ev({ mid: "1", text: "hola" })], messaging: [] }],
+    } as any);
+    expect(r.standby).toBe(1);
+    expect(r.total).toBe(1);
+    expect(r.conMensaje).toBe(0);
+    expect(describirResumen(r)).toContain("en STANDBY");
+    expect(describirResumen(r)).toContain("receptora principal");
+  });
+
+  it("avisa si Meta manda una llave que no sabemos leer", () => {
+    const r = resumirMetaEventos({ object: "instagram", entry: [{ id: "1", message_reactions: [{}] }] } as any);
+    expect(r.otrasLlaves).toEqual(["message_reactions"]);
+    expect(describirResumen(r)).toContain("llaves que no leemos: message_reactions");
+  });
+
   it("lo resume en una línea legible", () => {
     const r = resumirMetaEventos(body(ev({ mid: "1", text: "hola" }), ev({ mid: "2", is_echo: true, text: "x" })));
     expect(describirResumen(r)).toBe("2 evento(s): 1 con mensaje, 1 eco de la propia cuenta");

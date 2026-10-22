@@ -95,15 +95,36 @@ export interface ResumenMeta {
   sinContenido: number;
   /** Tipos de adjunto vistos en los descartados (story_mention, share, …). */
   tipos: string[];
+  /**
+   * Eventos que Meta puso en `standby` en vez de en `messaging`.
+   *
+   * Cuando dos apps están suscritas a la misma Página, el protocolo de
+   * transferencia de Meta manda los mensajes entrantes SOLO a la receptora
+   * principal; las demás los reciben aquí. Los ecos y los recibos llegan
+   * igual por `messaging`, así que el síntoma es exactamente este: "salen sí,
+   * entran no". No los procesamos —sin control del hilo no se puede
+   * responder— pero contarlos dice si es esto lo que pasa.
+   */
+  standby: number;
+  /** Otras llaves de `entry` que no sabemos leer, por si Meta cambia la forma. */
+  otrasLlaves: string[];
 }
+
+const LLAVES_CONOCIDAS = new Set(["id", "time", "messaging", "standby", "changes"]);
 
 export function resumirMetaEventos(body: MetaWebhookBody): ResumenMeta {
   const r: ResumenMeta = {
     total: 0, conMensaje: 0, echo: 0, quickReply: 0, sinRemitente: 0, recibo: 0, sinContenido: 0, tipos: [],
+    standby: 0, otrasLlaves: [],
   };
   const tipos = new Set<string>();
-  for (const entry of body.entry ?? []) {
-    for (const ev of entry.messaging ?? []) {
+  const otras = new Set<string>();
+  for (const entry of (body.entry ?? []) as Record<string, unknown>[]) {
+    const enEspera = Array.isArray(entry.standby) ? entry.standby : [];
+    r.standby += enEspera.length;
+    r.total += enEspera.length; // llegaron: que el conteo no los esconda
+    for (const k of Object.keys(entry)) if (!LLAVES_CONOCIDAS.has(k)) otras.add(k);
+    for (const ev of ((entry.messaging ?? []) as MetaMessaging[])) {
       r.total++;
       const m = ev.message;
       if (!m) { r.recibo++; continue; }
@@ -120,12 +141,19 @@ export function resumirMetaEventos(body: MetaWebhookBody): ResumenMeta {
     }
   }
   r.tipos = [...tipos];
+  r.otrasLlaves = [...otras];
   return r;
 }
 
 /** El resumen en una línea de español, para la tarjeta de Conexiones. */
 export function describirResumen(r: ResumenMeta): string {
   const partes: string[] = [];
+  // Primero, porque si aparece explica TODO lo demás.
+  if (r.standby) {
+    partes.push(
+      `${r.standby} en STANDBY (otra app de Meta es la receptora principal de esta Página; por eso entran los ecos y no los mensajes)`,
+    );
+  }
   if (r.conMensaje) partes.push(`${r.conMensaje} con mensaje`);
   if (r.recibo) partes.push(`${r.recibo} recibo/reacción`);
   if (r.echo) partes.push(`${r.echo} eco de la propia cuenta`);
@@ -138,6 +166,7 @@ export function describirResumen(r: ResumenMeta): string {
         : `${r.sinContenido} sin texto ni adjunto`,
     );
   }
+  if (r.otrasLlaves.length) partes.push(`llaves que no leemos: ${r.otrasLlaves.join(", ")}`);
   return `${r.total} evento(s): ${partes.join(", ") || "ninguno reconocible"}`;
 }
 
