@@ -38,6 +38,7 @@ function stubFetch(conversaciones: () => Response, permisos?: () => Response) {
 }
 
 const CUATRO = ["instagram_basic", "instagram_manage_messages", "pages_messaging", "pages_manage_metadata"];
+const TODOS = [...CUATRO, "pages_read_engagement"];
 
 describe("diagnoseInstagramRead", () => {
   beforeEach(() => vi.unstubAllGlobals());
@@ -132,9 +133,10 @@ describe("diagnoseInstagramRead", () => {
     ));
     const d = await diagnoseInstagramRead(env());
     const ig = d.checks.find((c) => c.id === "ig")!;
-    expect(ig.status).toBe("fail");
-    expect(ig.fix).toContain("pages_read_engagement");
-    expect(ig.fix).toContain("regenerar el token no lo arregla");
+    // No es "roto": es "no comprobable desde aquí", y no bloquea los DMs.
+    expect(ig.status).toBe("warn");
+    expect(ig.detail).toContain("pages_read_engagement");
+    expect(ig.fix).toContain("No bloquea los DMs");
   });
 
   it("si el token no lleva instagram_manage_messages, lo dice y explica que regenerarlo no sirve", async () => {
@@ -150,14 +152,69 @@ describe("diagnoseInstagramRead", () => {
     expect(permisos.fix).toContain("otorgamiento");
   });
 
-  it("con los cuatro permisos dentro, el token pasa", async () => {
+  it("con todos los permisos dentro, el token pasa", async () => {
+    stubFetch(
+      () => json({ data: [] }),
+      () => json({ data: { scopes: TODOS } }),
+    );
+    const d = await diagnoseInstagramRead(env());
+    expect(d.checks.find((c) => c.id === "permisos")!.status).toBe("ok");
+  });
+
+  // El caso real del 22-oct-2026: tiene el de mensajes de Instagram, que es el
+  // que manda, pero le falta el de leer la Página. Eso no bloquea los DMs.
+  it("con instagram_manage_messages pero sin pages_read_engagement, avisa sin alarmar", async () => {
     stubFetch(
       () => json({ data: [] }),
       () => json({ data: { scopes: CUATRO } }),
     );
     const d = await diagnoseInstagramRead(env());
     const permisos = d.checks.find((c) => c.id === "permisos")!;
-    expect(permisos.status).toBe("ok");
+    expect(permisos.status).toBe("warn");
+    expect(permisos.detail).toContain("pages_read_engagement");
+    expect(permisos.fix).toContain("no la mensajería");
+  });
+
+  it("dice de quién es el token y si caduca, sin leer la Página", async () => {
+    stubFetch(
+      () => json({ data: [] }),
+      () => json({ data: { scopes: TODOS, profile_id: "1122334455", app_id: "2099638607582456", type: "PAGE", expires_at: 0 } }),
+    );
+    const d = await diagnoseInstagramRead(env());
+    const quien = d.checks.find((c) => c.id === "token")!;
+    expect(quien.status).toBe("ok");
+    expect(quien.detail).toContain("de una Página");
+    expect(quien.detail).toContain("1122334455");
+    expect(quien.detail).toContain("No caduca");
+  });
+
+  it("avisa si el token lo emitió otra app", async () => {
+    stubFetch(
+      () => json({ data: [] }),
+      () => json({ data: { scopes: TODOS, profile_id: "999", app_id: "2501027797085987", type: "PAGE" } }),
+    );
+    const d = await diagnoseInstagramRead(env());
+    const quien = d.checks.find((c) => c.id === "token")!;
+    expect(quien.status).toBe("warn");
+    expect(quien.detail).toContain("NO es Baby Cale CRM");
+  });
+
+  it("si Meta pide una consulta más pequeña, reintenta pidiendo menos", async () => {
+    const pequeno = { error: { message: "Please reduce the amount of data you're asking for", code: 1 } };
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("debug_token")) return json({ data: { scopes: TODOS } });
+      if (!u.includes("/conversations")) return json({}, 400);
+      urls.push(u);
+      // Solo la tercera, la más pequeña, pasa.
+      return urls.length < 3 ? json(pequeno, 400) : json({ data: [{ id: "c1", updated_time: new Date().toISOString() }] });
+    }));
+    const d = await diagnoseInstagramRead(env());
+    expect(urls).toHaveLength(3);
+    expect(urls[0]).toContain("limit=10");
+    expect(urls[2]).toContain("limit=3");
+    expect(d.checks.find((c) => c.id === "conversaciones")!.status).toBe("ok");
   });
 
   it("si Meta no revela los permisos, no concluye nada y deja hablar a la prueba real", async () => {
@@ -173,6 +230,7 @@ describe("diagnoseInstagramRead", () => {
     );
     const d = await diagnoseInstagramRead(env());
     expect(d.verdict).toBe("fail");
-    expect(d.checks[0].fix).toContain("venció");
+    // Con el token muerto, debug_token tampoco contesta: lo dice la prueba real.
+    expect(d.checks.find((c) => c.id === "conversaciones")!.fix).toContain("venció");
   });
 });

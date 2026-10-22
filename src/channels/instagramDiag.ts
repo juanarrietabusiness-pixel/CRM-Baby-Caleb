@@ -90,46 +90,79 @@ function fixDeError(err: LeidoError): string {
   return "Comprueba que META_PAGE_ACCESS_TOKEN sea el token de la Página Baby Caleb, generado por la app Baby Cale CRM.";
 }
 
+interface DatosToken {
+  scopes: string[];
+  /** Id de la Página (o del usuario) dueña del token. */
+  profileId?: string;
+  appId?: string;
+  /** "PAGE" | "USER" | … */
+  type?: string;
+  /** Epoch en segundos; 0 = no caduca. */
+  expiresAt?: number;
+  error?: string;
+}
+
 /**
- * Paso 1 — ¿de quién es el token? Solo id y nombre: es lo que un token de
- * Página puede leer de sí mismo sin permisos extra, así que si ESTO falla, el
- * token no es de una Página o no sirve.
+ * Una sola consulta a `debug_token`, que es el "Access Token Debugger" de Meta.
+ * Es la única pregunta que NO necesita permisos sobre la Página: habla del
+ * token en sí. Por eso de aquí sale tanto quién es el dueño como qué permisos
+ * lleva — leer `/me` ya pide `pages_read_engagement`, y si falta, esconde todo
+ * lo demás.
  */
-async function checkTokenBasico(
-  env: Env,
-  token: string,
-): Promise<{ check: DiagCheck; propios: Set<string> }> {
-  const label = "De quién es el token";
-  const propios = new Set<string>();
-  let res: Response;
+async function leerToken(env: Env, token: string): Promise<DatosToken> {
   try {
-    res = await fetch(`https://graph.facebook.com/${graphVersion(env)}/me?fields=id,name`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(
+      `https://graph.facebook.com/${graphVersion(env)}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`,
+    );
+    if (!res.ok) return { scopes: [], error: (await graphError(res)).text };
+    const json = (await res.json().catch(() => ({}))) as {
+      data?: { scopes?: string[]; profile_id?: string; app_id?: string; type?: string; expires_at?: number };
+    };
+    const d = json.data ?? {};
+    return {
+      scopes: d.scopes ?? [],
+      profileId: d.profile_id ? String(d.profile_id) : undefined,
+      appId: d.app_id ? String(d.app_id) : undefined,
+      type: d.type,
+      expiresAt: typeof d.expires_at === "number" ? d.expires_at : undefined,
+    };
   } catch (e: any) {
+    return { scopes: [], error: e?.message ?? String(e) };
+  }
+}
+
+/** La app a la que pertenece el token del bot, para detectar un token ajeno. */
+const APP_DEL_BOT = "2099638607582456"; // Baby Cale CRM
+
+/** Paso 1 — de quién es el token, sin pedirle permiso a nadie. */
+function checkDeQuien(datos: DatosToken, propios: Set<string>): DiagCheck {
+  const label = "De quién es el token";
+  if (datos.error || !datos.profileId) {
     return {
-      check: { id: "token", label, status: "fail", detail: `No se pudo hablar con Meta: ${e?.message ?? e}` },
-      propios,
+      id: "token",
+      label,
+      status: "skip",
+      detail: datos.error ? `Meta no quiso describir el token: ${datos.error}` : "Meta no dijo de quién es el token.",
     };
   }
-  if (!res.ok) {
-    const err = await graphError(res);
-    return {
-      check: {
-        id: "token",
-        label,
-        status: err.transient ? "warn" : "fail",
-        detail: `Meta rechazó la consulta: ${err.text}`,
-        fix: fixDeError(err),
-      },
-      propios,
-    };
-  }
-  const page = (await res.json().catch(() => ({}))) as { id?: string; name?: string };
-  if (page.id) propios.add(String(page.id));
+  propios.add(datos.profileId);
+  const tipo = datos.type === "PAGE" ? "de una Página" : `de tipo ${datos.type ?? "desconocido"}`;
+  const app =
+    datos.appId && datos.appId !== APP_DEL_BOT
+      ? ` ⚠ Lo emitió la app ${datos.appId}, que NO es Baby Cale CRM (${APP_DEL_BOT}).`
+      : "";
+  // Un token que caduca es una bomba de tiempo: el bot deja de contestar el día
+  // que expira, sin que nadie toque nada.
+  const caduca =
+    datos.expiresAt && datos.expiresAt > 0
+      ? ` Caduca el ${new Date(datos.expiresAt * 1000).toLocaleDateString("es-PA")}.`
+      : " No caduca.";
   return {
-    check: { id: "token", label, status: "ok", detail: `El token es de "${page.name ?? page.id}".` },
-    propios,
+    id: "token",
+    label,
+    status: app ? "warn" : "ok",
+    detail: `Token ${tipo}, id ${datos.profileId}.${caduca}${app}`,
+    fix: app ? "Genera el token desde la app Baby Cale CRM, que es la que tiene el webhook del bot." : undefined,
   };
 }
 
@@ -155,6 +188,17 @@ async function checkInstagramVinculado(
   }
   if (!res.ok) {
     const err = await graphError(res);
+    // Sin `pages_read_engagement` no se puede leer NINGÚN campo de la Página.
+    // Eso no bloquea los DMs: es "no comprobable desde aquí", no "roto".
+    if (err.code === 100 && /pages_read_engagement|Page Public/i.test(err.text)) {
+      return {
+        id: "ig",
+        label,
+        status: "warn",
+        detail: "No se puede comprobar desde aquí: al token le falta pages_read_engagement para leer los datos de la Página.",
+        fix: "No bloquea los DMs. La vinculación ya se vio en Meta Business Suite; si quieres comprobarla por API, añade pages_read_engagement al otorgamiento.",
+      };
+    }
     return {
       id: "ig",
       label,
@@ -192,29 +236,11 @@ async function checkInstagramVinculado(
  * Best-effort: si Meta no deja leer los scopes con este token, se marca como
  * no comprobable y manda la prueba de verdad, que es pedir las conversaciones.
  */
-async function checkPermisos(env: Env, token: string): Promise<DiagCheck> {
+function checkPermisos(datos: DatosToken): DiagCheck {
   const label = "Permisos dentro del token";
   const falta =
-    "El token NO lleva instagram_manage_messages. Regenerarlo no sirve: ese generador no deja elegir permisos, solo refleja lo que la Página ya le concedió a la app. Hay que hacer el otorgamiento con un inicio de sesión de Facebook que pida los cuatro permisos (Explorador de la API de Graph, o una configuración de Inicio de sesión con Facebook para empresas) y DESPUÉS volver a generar el token de la Página.";
-  let res: Response;
-  try {
-    res = await fetch(
-      `https://graph.facebook.com/${graphVersion(env)}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`,
-    );
-  } catch {
-    return { id: "permisos", label, status: "skip", detail: "No se pudo consultar los permisos del token." };
-  }
-  if (!res.ok) {
-    return {
-      id: "permisos",
-      label,
-      status: "skip",
-      detail: "Meta no deja leer los permisos con este token; lo dice la prueba de abajo.",
-    };
-  }
-  const json = (await res.json().catch(() => ({}))) as { data?: { scopes?: string[]; type?: string } };
-  const scopes = json.data?.scopes ?? [];
-  if (scopes.length === 0) {
+    "El token NO lleva instagram_manage_messages. Regenerarlo no sirve: ese generador no deja elegir permisos, solo refleja lo que la Página ya le concedió a la app. Hay que hacer el otorgamiento con un inicio de sesión de Facebook que pida los permisos (Explorador de la API de Graph, o una configuración de Inicio de sesión con Facebook para empresas) y DESPUÉS volver a generar el token.";
+  if (datos.scopes.length === 0) {
     return {
       id: "permisos",
       label,
@@ -222,21 +248,31 @@ async function checkPermisos(env: Env, token: string): Promise<DiagCheck> {
       detail: "Meta no devolvió la lista de permisos del token; lo dice la prueba de abajo.",
     };
   }
-  const necesarios = ["instagram_basic", "instagram_manage_messages", "pages_messaging", "pages_manage_metadata"];
-  const faltantes = necesarios.filter((p) => !scopes.includes(p));
+  // `pages_read_engagement` no sirve para los DMs, pero sin él no se puede leer
+  // NADA de la Página — ni su nombre. Por eso va en la lista aunque Meta no lo
+  // pida para mensajería.
+  const necesarios = [
+    "instagram_basic",
+    "instagram_manage_messages",
+    "pages_messaging",
+    "pages_manage_metadata",
+    "pages_read_engagement",
+  ];
+  const faltantes = necesarios.filter((p) => !datos.scopes.includes(p));
+  const lleva = `Lleva: ${datos.scopes.join(", ")}.`;
   if (faltantes.includes("instagram_manage_messages")) {
-    return { id: "permisos", label, status: "fail", detail: `El token lleva: ${scopes.join(", ")}.`, fix: falta };
+    return { id: "permisos", label, status: "fail", detail: lleva, fix: falta };
   }
   if (faltantes.length > 0) {
     return {
       id: "permisos",
       label,
       status: "warn",
-      detail: `Lleva instagram_manage_messages, pero le falta: ${faltantes.join(", ")}.`,
-      fix: "Los DMs deberían entrar igual. Si algo más falla, otorga también esos permisos.",
+      detail: `${lleva} Le falta: ${faltantes.join(", ")}.`,
+      fix: "Tiene el de mensajes de Instagram, que es el que manda para recibir y responder DMs. Los que faltan limitan otras consultas (por ejemplo leer los datos de la Página), no la mensajería.",
     };
   }
-  return { id: "permisos", label, status: "ok", detail: `El token lleva los cuatro permisos necesarios.` };
+  return { id: "permisos", label, status: "ok", detail: `${lleva} Están todos los necesarios.` };
 }
 
 /**
@@ -246,19 +282,44 @@ async function checkPermisos(env: Env, token: string): Promise<DiagCheck> {
  */
 async function checkConversaciones(env: Env, token: string, propios: Set<string>): Promise<DiagCheck> {
   const label = "Lectura de conversaciones de Instagram";
+  // Meta rechaza una consulta "demasiado grande" con un código 1 y el mensaje
+  // "Please reduce the amount of data you're asking for" — que NO es un
+  // permiso denegado: la consulta estaba autorizada. Así que se pide menos y
+  // se reintenta, de lo más completo a lo mínimo.
   // Sin `message`: para saber si el camino existe bastan ids, fechas y quién es.
-  const fields = "id,updated_time,participants,messages.limit(1){id,created_time,from}";
-  let res: Response;
-  try {
-    res = await fetch(
-      `https://graph.facebook.com/${graphVersion(env)}/me/conversations?platform=instagram&fields=${encodeURIComponent(fields)}&limit=25`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-  } catch (e: any) {
-    return { id: "conversaciones", label, status: "fail", detail: `No se pudo hablar con Meta: ${e?.message ?? e}` };
+  const intentos = [
+    { fields: "id,updated_time,participants,messages.limit(1){id,created_time,from}", limit: 10 },
+    { fields: "id,updated_time,participants", limit: 5 },
+    { fields: "id,updated_time", limit: 3 },
+  ];
+  let res!: Response;
+  let err!: LeidoError;
+  for (const intento of intentos) {
+    try {
+      res = await fetch(
+        `https://graph.facebook.com/${graphVersion(env)}/me/conversations?platform=instagram&fields=${encodeURIComponent(intento.fields)}&limit=${intento.limit}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    } catch (e: any) {
+      return { id: "conversaciones", label, status: "fail", detail: `No se pudo hablar con Meta: ${e?.message ?? e}` };
+    }
+    if (res.ok) break;
+    err = await graphError(res);
+    // Solo tiene sentido reintentar si la queja fue el TAMAÑO de la consulta.
+    if (!/reduce the amount of data/i.test(err.text)) break;
   }
   if (!res.ok) {
-    const err = await graphError(res);
+    // Que Meta pida "menos datos" ya dice algo bueno: la consulta ESTABA
+    // autorizada. No es lo mismo que un permiso denegado ni que un límite.
+    if (/reduce the amount of data/i.test(err.text)) {
+      return {
+        id: "conversaciones",
+        label,
+        status: "warn",
+        detail: "Meta pidió una consulta más pequeña y se quejó hasta con la mínima.",
+        fix: "Importante: eso NO es un permiso denegado — la consulta está autorizada, solo pesa demasiado. Suele pasar con cuentas con muchas conversaciones. Vuelve a probar en unos minutos.",
+      };
+    }
     if (err.transient) {
       return {
         id: "conversaciones",
@@ -274,8 +335,8 @@ async function checkConversaciones(env: Env, token: string, propios: Set<string>
       status: "fail",
       detail: `Meta rechazó la consulta: ${err.text}`,
       fix: esPermiso(err.code)
-        ? "Al token le falta instagram_manage_messages. Regenera el token de la Página otorgando instagram_basic, instagram_manage_messages, pages_messaging y pages_manage_metadata."
-        : "Comprueba que la cuenta de Instagram esté vinculada a esta Página y que el token sea de esta app.",
+        ? "Al token le falta instagram_manage_messages. Hay que hacer el otorgamiento con un inicio de sesión que lo pida; regenerar el token no lo arregla."
+        : fixDeError(err),
     };
   }
   const json = (await res.json().catch(() => ({}))) as { data?: Conversacion[] };
@@ -336,9 +397,13 @@ export async function diagnoseInstagramRead(env: Env): Promise<InstagramReadDiag
   // Las cuatro preguntas se hacen SIEMPRE, aunque una falle: cada una dice algo
   // distinto, y la más valiosa —qué permisos lleva el token— no depende de que
   // las otras funcionen. Frenarse en la primera fue esconder el diagnóstico.
-  const { check: tokenCheck, propios } = await checkTokenBasico(env, token);
-  checks.push(tokenCheck);
-  checks.push(await checkPermisos(env, token));
+  //
+  // Las dos primeras salen de una sola consulta a debug_token, que es la única
+  // que no necesita permisos sobre la Página.
+  const propios = new Set<string>();
+  const datos = await leerToken(env, token);
+  checks.push(checkDeQuien(datos, propios));
+  checks.push(checkPermisos(datos));
   checks.push(await checkInstagramVinculado(env, token, propios));
   checks.push(await checkConversaciones(env, token, propios));
   const verdict: DiagStatus = checks.some((c) => c.status === "fail")
