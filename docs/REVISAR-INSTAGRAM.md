@@ -1,136 +1,166 @@
-# Instagram en el CRM: estado real y qué falta
+# Instagram en el CRM: estado y plan
 
-## Lo que ya está bien (revisado el 22 oct 2026)
+## Estado confirmado (22 oct 2026)
 
-La app **Baby Cale CRM** (`2099638607582456`) ya está conectada al bot:
+Lo que ya está bien en la app **Baby Cale CRM** (`2099638607582456`), que es la
+que alimenta al bot:
 
-- Objeto **Page**: Callback URL del bot, verify token guardado, campos
-  `messages` y `messaging_postbacks` suscritos.
-- Objeto **Instagram**: la misma URL del bot, `messages` y
+- La app está **publicada** (requisito para recibir webhooks, independiente de
+  la revisión).
+- Objeto **Page**: Callback URL del bot, verify token guardado, `messages` y
   `messaging_postbacks` suscritos.
-- De las 12 Páginas conectadas a la app, **Baby Caleb** es la única suscrita.
-  Por eso Messenger sí llega.
+- Objeto **Instagram**: la misma URL del bot, `messages` y `messaging_postbacks`
+  suscritos.
+- La Página **Baby Caleb** está suscrita (2 campos). Por eso Messenger llega.
+- La cuenta **@babycalebpanama** (`17841471553036144`) **sí está vinculada** a la
+  Página Baby Caleb. Camino "IG vía Página" confirmado como viable.
 
-Así que el webhook, el verify token y el `META_APP_SECRET` están correctos: si
-no lo estuvieran, Messenger tampoco llegaría.
-
-La app del Calendario (`2501027797085987`) apunta a su propio worker y recibe
-los DMs de Instagram en su Bandeja. **No se toca.** Que ahí lleguen los DMs
-prueba que el permiso de *Herramientas conectadas* de la cuenta de Instagram
-está activo — eso es por cuenta, no por app, así que ya no hay que revisarlo.
+La app del Calendario (`2501027797085987`) apunta a su propio worker. No se
+toca.
 
 ## Las dos cosas que faltan
 
-### 1. La cuenta de Instagram no está conectada a esta app
+### 1. El Page Access Token, con el permiso de mensajes de Instagram
 
-En *Casos de uso → Instagram → Configuración de la API con inicio de sesión de
-Instagram*, el paso 2 solo muestra "Añadir cuenta": no hay ninguna cuenta
-conectada. Sin cuenta conectada, Meta no tiene a quién asociarle los DMs,
-aunque la suscripción exista.
+En *Messenger → Configuración de Instagram*, las 12 Páginas muestran "Generar
+identificador" y **ninguna lo tiene generado ("—")**.
 
-Hay **dos caminos** y conviene elegir a conciencia:
+Esto importa más de lo que parece: Meta exige que el **permiso
+`instagram_manage_messages` viaje dentro del Page Access Token**, además de
+tener los webhooks de Instagram suscritos. Un token emitido antes de vincular
+Instagram, o sin ese permiso, no sirve para los DMs — ni para recibirlos ni
+para contestarlos.
 
-| | **IG vía Página** (recomendado) | **IG Login standalone** |
-|---|---|---|
-| Qué se hace | Vincular la cuenta de IG Business a la Página de Facebook "Baby Caleb" | Conectar la cuenta en el producto Instagram Login |
-| Secrets nuevos en el bot | **Ninguno** — usa los que ya funcionan | `INSTAGRAM_APP_SECRET` y `INSTAGRAM_ACCESS_TOKEN` |
-| App Secret que firma | El de la app principal (ya guardado) | El de la app de Instagram (`1037214789354494`), distinto |
-| Cuándo usarlo | La cuenta de IG es del negocio y hay Página | No hay Página de Facebook |
+> Corrección de lo que dije antes: sí hay que generar el token. Si el bot está
+> funcionando con un token de System User creado en Business Manager, esa
+> pantalla no lo mostraría; pero igual hay que confirmar que ese token lleve
+> `instagram_manage_messages`. Lo más simple y seguro es generar el de la Página
+> Baby Caleb desde esa pantalla y guardarlo en el bot como
+> `META_PAGE_ACCESS_TOKEN`.
 
-Como la Página **Baby Caleb** existe y ya está suscrita, el camino de la Página
-es el que menos piezas mueve: no hay que guardar ni un secret nuevo y la
-sección 3 de Instagram Login se queda vacía a propósito.
+Permisos que debe otorgar: `instagram_basic`, `instagram_manage_messages`,
+`pages_messaging`, `pages_manage_metadata`. Meta además lista
+`business_management` como **dependencia** de `instagram_manage_messages`.
 
-### 2. Los permisos están en "Listo para prueba" (acceso estándar)
+### 2. El nivel de acceso
 
-`instagram_basic`, `instagram_manage_messages`, `pages_messaging` y
-`pages_manage_metadata` están en acceso estándar. Con acceso estándar, Meta
-entrega los DMs **solo de cuentas que tengan rol en la app** (administrador,
-desarrollador o tester). Los de clientes reales no llegan.
+Los permisos están en "Listo para prueba" = **acceso estándar**. La
+documentación de Meta es explícita:
 
-Para producción hay que pedir **acceso avanzado** a `instagram_manage_messages`
-en la revisión de la app. Mientras eso se tramita, se puede probar todo
-agregando tu propia cuenta como tester.
+> *Standard Access — Webhooks will only be sent if the person using your app has
+> a role on the app.*
+> *Advanced Access — Webhooks will be sent when any person uses your app.*
 
-> Ojo: esto también significa que, si alguna vez probaste con tu cuenta
-> personal y no llegó nada, el acceso estándar pudo ser la causa, no la
-> configuración.
+Es decir: con acceso estándar, un DM de un cliente cualquiera **no genera
+webhook**. Solo los de cuentas con rol en la app.
 
-## La prueba del botón "Test"
+La otra cara, también de la documentación de Meta: *"If your app only serves
+your Instagram professional account or an account you manage, Standard Access is
+all your app needs."* El acceso avanzado se exige cuando la app atiende cuentas
+que **no** son tuyas, y pide **App Review + verificación del negocio**.
 
-Meta dijo "test realizado correctamente", pero no muestra qué respondió el
-servidor. Esa respuesta ahora se puede ver desde el panel del bot: la tarjeta
-**Instagram DMs (Meta)** de `/admin/conexiones` dice qué pasó con el último
-evento recibido:
+@babycalebpanama es del mismo negocio (Baby Kaleb) que la app, así que hay una
+posibilidad real de que el acceso estándar alcance. **La prueba lo resuelve**, y
+es gratis hacerla: mandar un DM desde una cuenta con rol en la app.
 
-- **"Nunca ha llegado un evento por este canal"** → Meta no entregó nada.
-- **"RECHAZADO por firma inválida"** → el `META_APP_SECRET` guardado no es el de
-  la app que firma (pasaría si se conecta por IG Login sin guardar
-  `INSTAGRAM_APP_SECRET`).
-- **"IGNORADO por configuración"** → hay una bandera apagando Instagram
-  (`IG_OFFICIAL` o `IG_DM_SOURCE` en `wrangler.toml`).
-- **"procesado"** → entró. Si el cliente no recibe respuesta, el problema es de
-  envío y no de recepción.
+## El plan, en orden
 
-Hay que desplegar esta versión antes de que el panel lo muestre.
+1. **Generar el Page Access Token** de la Página Baby Caleb en esa pantalla,
+   otorgando los cuatro permisos de arriba, y guardarlo en el bot como
+   `META_PAGE_ACCESS_TOKEN`.
+2. **Desplegar** esta versión del bot (trae el diagnóstico por canal y el
+   arreglo de `messaging_type`).
+3. **Probar con una cuenta que tenga rol**: Juan Arrieta ya es Administrador.
+   Manda un DM a @babycalebpanama desde el Instagram ligado a esa cuenta de
+   Facebook, espera ~30 s y abre `/admin/conexiones`.
+4. **Leer la tarjeta Instagram DMs (Meta)**:
+   - **"procesado"** → funciona. Entonces la pregunta es solo si hace falta
+     acceso avanzado para clientes reales: prueba con una cuenta SIN rol. Si
+     esa también entra, no hay nada más que hacer.
+   - **"Nunca ha llegado un evento"** → Meta no entregó. Faltaba el permiso en
+     el token (paso 1) o hace falta acceso avanzado.
+   - **"RECHAZADO por firma inválida"** → el `META_APP_SECRET` del bot no es el
+     de esta app.
+   - **"IGNORADO por configuración"** → una bandera (`IG_OFFICIAL` /
+     `IG_DM_SOURCE`) en `wrangler.toml`.
+5. **Si hace falta acceso avanzado**: en la app, el permiso
+   `instagram_manage_messages` → "Añadir a la revisión de la aplicación".
+   Requiere verificación del negocio Baby Kaleb y explicar el caso de uso (lo
+   habitual es un video del flujo). Hay que mencionar `business_management` como
+   dependencia en la solicitud.
+
+## Tres trampas documentadas, para no perseguir fantasmas
+
+- **GIFs y stickers no generan webhook.** Prueba siempre con texto.
+- **Si @babycalebpanama es cuenta de Creador** (no Business), Meta exige que la
+  cuenta haga primero una llamada a la Conversations API antes de poder recibir
+  webhooks.
+- **Carpeta de Solicitudes**: los mensajes de desconocidos pueden caer ahí, y
+  los que llevan más de 30 días inactivos no se devuelven por API.
+
+## Sobre los roles
+
+- Rol de **Evaluador de Instagram**: no sirve para esto — la propia app aclara
+  que es de la Instagram Basic Display API, no de mensajes. Bien visto.
+- Los roles se asignan a **cuentas de Facebook**, no de Instagram. Para probar
+  con una cuenta ajena, se le da rol de Evaluador al usuario de Facebook dueño
+  de ese Instagram. Según Meta, un tester necesita: rol en la app, otorgar los
+  permisos, y rol en la cuenta profesional de Instagram.
 
 ---
 
 ## Instrucciones para Claude en Chrome
 
-Camino de la Página (el recomendado). Copia y pega:
-
 ```
 Seguimos con la app de Meta "Baby Cale CRM" (ID 2099638607582456). Ya verifiqué
-que sus webhooks apuntan bien a mi bot en los objetos Page e Instagram, así que
-NO toques los webhooks ni la Callback URL ni el verify token. Tampoco toques la
-app "Juancito Ads - Calendario" (2501027797085987).
+que los webhooks apuntan bien a mi bot en los objetos Page e Instagram, y que la
+cuenta @babycalebpanama está vinculada a la Página Baby Caleb. NO toques los
+webhooks, ni la Callback URL, ni el verify token, ni la app "Juancito Ads -
+Calendario" (2501027797085987).
 
-Vamos por el camino de vincular Instagram a la Página de Facebook, no por
-Instagram Login. Por lo tanto NO conectes nada en "Configuración de la API con
-inicio de sesión de Instagram" y deja su sección 3 de webhooks vacía.
+Vamos por el camino de IG vía Página. No conectes nada en "Configuración de la
+API con el inicio de sesión de Instagram".
 
-1. Abre la configuración de la Página de Facebook "Baby Caleb" (en
-   business.facebook.com o en la propia Página → Configuración → Cuentas
-   vinculadas → Instagram). Dime si hay una cuenta de Instagram vinculada a
-   esa Página y, si la hay, cuál es su usuario (@).
+1. Entra a Casos de uso → Messenger → "Configuración de Instagram" (la pantalla
+   que lista las 12 Páginas con el botón "Generar identificador").
 
-2. Si NO hay cuenta vinculada: dime exactamente qué botón aparece y detente.
-   Vincularla pide iniciar sesión en Instagram, así que eso lo hago yo.
+2. Genera el identificador de acceso SOLO para la Página "Baby Caleb". Cuando
+   Meta muestre el diálogo de permisos, asegúrate de otorgar: instagram_basic,
+   instagram_manage_messages, pages_messaging y pages_manage_metadata. Si el
+   diálogo deja elegir, dime cuáles ofrece antes de aceptar.
 
-3. Vuelve a la app Baby Cale CRM → Casos de uso → Messenger (o Instagram) →
-   la sección de Páginas/cuentas conectadas. Dime si ahora aparece la cuenta de
-   Instagram asociada a la Página Baby Caleb y si está suscrita.
+3. Cuando el token esté generado: NO lo pegues en el chat ni me lo leas. Dime
+   solo que ya está, y déjame la pestaña abierta para copiarlo yo.
 
-4. Ve a la revisión de permisos de esta app y dime, para
-   instagram_manage_messages, qué pide Meta exactamente para darme acceso
-   avanzado: qué pasos lista, si exige verificación del negocio y si hay un
-   botón para solicitarlo. No lo solicites todavía: solo dime qué pide.
+4. Dime si en esa misma pantalla, después de generar el token, aparece la cuenta
+   de Instagram @babycalebpanama asociada a la Página y si queda suscrita.
 
-5. Dime si en esta app hay una sección de Roles / Funciones donde se agreguen
-   testers, y qué pide para agregar una cuenta de Instagram como tester.
+5. Dime si @babycalebpanama es cuenta de tipo "Empresa/Business" o "Creador":
+   lo ves en la ficha de la cuenta en Meta Business Suite. Es importante porque
+   las de Creador necesitan un paso extra para recibir webhooks.
 
-Reglas: no pegues tokens, App Secrets ni verify tokens en el chat; no cambies
-el modo de la app; no envíes solicitudes de revisión a Meta sin preguntarme; y
-si algo pide una contraseña o un inicio de sesión, detente y dímelo.
+Reglas: no pegues tokens, App Secrets ni verify tokens en el chat; no envíes
+solicitudes de revisión a Meta; no cambies el modo de la app; y si algo pide
+contraseña o inicio de sesión, detente y dímelo.
 ```
 
-## Sobre las 4 cosas que pidió Claude en Chrome
+## Dónde se guarda el token
 
-1. **Verify token para Instagram Login** → no hace falta: por el camino de la
-   Página, esa sección se queda vacía.
-2. **Añadir la cuenta en Instagram Login** → tampoco; lo que toca es vincular
-   la cuenta de Instagram a la Página de Facebook.
-3. **La clave secreta de la app de Instagram** → no se necesita por este
-   camino. El bot sigue con el `META_APP_SECRET` que ya le funciona a Messenger.
-4. **La Página para el token** → sí, **Baby Caleb**. Es la única suscrita de las
-   12 y es el nombre del negocio en la configuración del bot. Tampoco hay que
-   generar un token nuevo: si Messenger ya responde, el
-   `META_PAGE_ACCESS_TOKEN` guardado sirve igual para los DMs de Instagram por
-   este camino.
+Dos opciones, las dos sin pasar por el chat:
+
+- **Panel de Cloudflare** (sin terminal): Workers & Pages → `juancitoads-bot` →
+  Settings → Variables and Secrets → editar `META_PAGE_ACCESS_TOKEN` → pegar →
+  Deploy.
+- **Terminal**: `wrangler secret put META_PAGE_ACCESS_TOKEN`.
 
 ## Cómo desplegar esta versión
 
-El deploy sale de GitHub: haz merge de la rama a `main`, o en la pestaña
-**Actions** del repositorio corre el workflow **Deploy** eligiendo la rama
-`claude/brave-dirac-weyiy4`.
+Haz merge de la rama a `main`, o en la pestaña **Actions** del repositorio corre
+el workflow **Deploy** eligiendo la rama `claude/brave-dirac-weyiy4`.
+
+## Fuentes
+
+- [Instagram Platform — Overview (niveles de acceso)](https://developers.facebook.com/docs/instagram-platform/overview/)
+- [Webhooks for Instagram Messaging](https://developers.facebook.com/docs/instagram-messaging/webhooks)
+- [Instagram Messaging with the Messenger Platform](https://developers.facebook.com/docs/messenger-platform/instagram)
+- [Overview of Instagram Messaging API](https://developers.facebook.com/docs/instagram-messaging/overview)
