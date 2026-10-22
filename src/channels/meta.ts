@@ -153,7 +153,11 @@ export const metaAdapter: ChannelAdapter = {
         recipient: { id: reply.channelUserId },
         message: { text: reply.chunks[i] },
       };
-      if (!useIG) payload.messaging_type = "RESPONSE"; // requerido en Messenger, no en IG Login
+      // `messaging_type` es de Messenger. La Send API de Instagram no lo acepta
+      // en NINGUNO de sus dos caminos — ni IG Login, ni IG ligado a una Página
+      // (que sale por graph.facebook.com con el Page Access Token, igual que
+      // Messenger). Atarlo a `!useIG` lo colaba en ese segundo caso.
+      if (reply.channel === "messenger") payload.messaging_type = "RESPONSE";
       const res = await fetch(url, {
         method: "POST",
         headers: {
