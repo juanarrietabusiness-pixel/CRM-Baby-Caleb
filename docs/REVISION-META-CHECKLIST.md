@@ -26,6 +26,29 @@ forma.** Es, palabra por palabra, la regla que Meta documenta:
 
 No queda nada por configurar. Falta el permiso.
 
+## Meta lo dijo con todas las letras (23-oct-2026)
+
+Al pedir las conversaciones de Instagram de Baby Caleb —desde la **app del
+calendario**, que es otra app, de otro portafolio— Meta respondió:
+
+> *"Tu consulta ha caducado porque tienes demasiadas conversaciones con
+> usuarios que no tienen un rol en la aplicación. **Solicita acceso avanzado al
+> permiso `instagram_manage_messages`** o reduce el número de hilos existentes
+> en tu negocio de IG con usuarios sin rol en la aplicación."*
+
+Eso cierra el caso y corrige dos cosas que este documento daba por otra vía:
+
+1. **El `Timeout (-2/2534084)` era el límite de acceso disfrazado.** No era un
+   buzón grande ni un servidor lento: Meta intenta filtrar los hilos de gente
+   sin rol y, cuando hay muchos, la consulta muere. Por eso ninguna
+   configuración lo movía.
+2. **El calendario no es ninguna excepción: está en acceso estándar y choca
+   con la misma pared.** Funciona con otros clientes porque esas cuentas tienen
+   pocos hilos con gente sin rol; Baby Caleb tiene muchos.
+
+La segunda salida que ofrece Meta —"reduce el número de hilos"— significa
+borrar conversaciones de clientas. No es una opción para un negocio que vende.
+
 ## Paso 1 — Verificar el negocio Baby Kaleb (lo lento: empezar ya)
 
 Meta exige verificación del negocio para dar acceso avanzado. El portfolio
