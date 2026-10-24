@@ -54,6 +54,7 @@ import { renderMejoras } from "./views/mejoras";
 import { runFlywheel, getLessons, saveLessons } from "../flywheel/detect";
 import { applySuggestion, dismissSuggestion } from "../flywheel/apply";
 import { renderLeads, exportLeadsCsv } from "./views/leads";
+import { contactosParaMeta, contactosACsv, type Publico } from "../db/publicos";
 import { renderTickets } from "./views/tickets";
 import { renderCatalogo } from "./views/catalogo";
 import { renderCatalogoEditor } from "./views/catalogoEditor";
@@ -993,6 +994,21 @@ adminApp.post("/config/override", async (c) => {
 });
 
 // --- CSV export -------------------------------------------------------------
+
+// Públicos para Meta: la misma lista que ves, con teléfono y correo en
+// columnas separadas, el número en formato internacional, sin repetidos y
+// segmentada. Es lo que se sube al cargador de públicos personalizados.
+adminApp.get("/leads/publico.csv", async (c) => {
+  const q = c.req.query("tipo");
+  const tipo: Publico = q === "compradoras" || q === "interesadas" ? q : "todas";
+  const csv = contactosACsv(await contactosParaMeta(c.env, tipo));
+  return new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="publico-${tipo}-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+});
 
 adminApp.get("/leads/export.csv", async (c) => {
   const csv = await exportLeadsCsv(c.env);
