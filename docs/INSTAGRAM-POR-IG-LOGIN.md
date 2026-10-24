@@ -1,5 +1,19 @@
 # Instagram por la ruta de Instagram Login
 
+## ✅ FUNCIONÓ (23-10-2026)
+
+Con los dos secrets de IG Login guardados, el bot **recibe y responde DMs de
+personas sin rol en la app**, casi al instante. La comprobación del panel pasó
+a verde en las cinco líneas, incluida la que nunca había pasado:
+
+> *"Meta devolvió 10 conversación(es) de 10 persona(s); 5 con actividad en las
+> últimas 24 h."*
+
+Con la ruta por Página, esa misma consulta devolvía `Timeout` una y otra vez.
+
+**No hizo falta:** revisión de Meta, verificación del negocio, acceso avanzado,
+ni pagar un puente (PostPeer/ManyChat).
+
 ## Por qué esta ruta
 
 El bot venía conectado por la **Página de Facebook** (token `EAA…`). Por ahí,
