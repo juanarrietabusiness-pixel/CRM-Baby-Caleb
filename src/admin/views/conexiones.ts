@@ -5,6 +5,7 @@
 // ponerse verdes.
 import type { Env } from "../../env";
 import type { WebhookDiag } from "../../channels/webhookDiag";
+import { instagramToken, instagramAppSecret } from "../../channels/meta";
 import { layout } from "./layout";
 import type { WhatsAppDiagnosis, DiagStatus } from "../../channels/whatsappDiag";
 import { renderWhatsappQrCard } from "./whatsappQr";
@@ -70,11 +71,13 @@ function channelStatuses(env: Env): ChannelStatus[] {
   // (Page Access Token + App Secret de la app de Facebook) o IG Login
   // standalone (INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_APP_SECRET). Antes compartía
   // tarjeta con Messenger y se veía verde aunque IG estuviera muerto.
-  const igLogin = has(env.INSTAGRAM_ACCESS_TOKEN);
+  // Por los helpers, no por la var: los secrets de IG Login se aceptan con dos
+  // nombres y la tarjeta tiene que reflejar lo que el bot ve de verdad.
+  const igLogin = has(instagramToken(env));
   const instagramMissing = [
     !igLogin && !has(env.META_PAGE_ACCESS_TOKEN) && "META_PAGE_ACCESS_TOKEN (o INSTAGRAM_ACCESS_TOKEN)",
     !has(env.META_VERIFY_TOKEN) && "META_VERIFY_TOKEN",
-    igLogin && !has(env.INSTAGRAM_APP_SECRET) && "INSTAGRAM_APP_SECRET",
+    igLogin && !has(instagramAppSecret(env)) && "INSTAGRAM_APP_SECRET",
     !igLogin && !has(env.META_APP_SECRET) && "META_APP_SECRET",
   ].filter(Boolean) as string[];
   // Banderas que apagan Instagram sin apagar Messenger: la causa #1 de

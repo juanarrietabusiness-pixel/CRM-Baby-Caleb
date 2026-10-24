@@ -64,6 +64,10 @@ export interface Env {
   // Meta oficial (Facebook Messenger + Instagram DMs, sin ManyChat).
   META_PAGE_ACCESS_TOKEN?: string;  // Messenger / IG ligado a Página (graph.facebook.com)
   INSTAGRAM_ACCESS_TOKEN?: string;  // Instagram API con Instagram Login, token IGAA… (graph.instagram.com)
+  // Mismo valor que el de arriba, con el nombre que usa el panel de Cloudflare
+  // en algunas instalaciones. Se acepta cualquiera de los dos (ver
+  // `instagramToken` en channels/meta.ts) para no obligar a repegar secrets.
+  META_IG_ACCESS_TOKEN?: string;
   META_VERIFY_TOKEN?: string;       // string que tú eliges; valida el handshake GET del webhook
   META_APP_SECRET?: string;
   // "manychat" = los DMs de Instagram entran SOLO por ManyChat (el webhook
@@ -73,6 +77,7 @@ export interface Env {
   // solo en ManyChat.
   IG_OFFICIAL?: string;         // App Secret de Facebook; firma los webhooks de Messenger
   INSTAGRAM_APP_SECRET?: string;    // App Secret del producto Instagram (IG Login); firma los webhooks de IG
+  META_IG_APP_SECRET?: string;      // alias del anterior; se acepta cualquiera de los dos nombres
   // WhatsApp OFICIAL (Cloud API de Meta, sin BSP/Twilio). Mismo ecosistema Graph
   // que Meta; el número corre en la cuenta del miembro con SU token. El envío es
   // a graph.facebook.com/<phone_number_id>/messages; el media entrante se sirve

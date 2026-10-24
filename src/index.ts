@@ -6,7 +6,14 @@ import { atenderAlDueno } from "./owner/consola";
 import { webhookConfiable } from "./owner/telegram";
 import { manychatAdapter } from "./channels/manychat";
 import { twilioAdapter } from "./channels/twilio";
-import { parseMetaEvents, verifyMetaSignature, resumirMetaEventos, describirResumen } from "./channels/meta";
+import {
+  parseMetaEvents,
+  verifyMetaSignature,
+  resumirMetaEventos,
+  describirResumen,
+  instagramAppSecret,
+} from "./channels/meta";
+import { yaProcesado, recordarRuta, purgarVistos, type RutaMeta } from "./channels/metaRuta";
 import { recordWebhookEvent } from "./channels/webhookDiag";
 import { parseWhatsAppEvents, serveWhatsAppMedia } from "./channels/whatsapp";
 import { whatsappQrAdapter, parseRespuestaPropia, esChatDeUnaPersona } from "./channels/whatsappQr";
@@ -215,13 +222,20 @@ app.post("/webhooks/meta", async (c) => {
   // Secrets DISTINTOS aunque sea la misma app de Meta. Aceptamos la firma si
   // cuadra con cualquiera de los dos secretos configurados (fail-closed si con
   // ninguno). Así un solo webhook /webhooks/meta sirve para ambos canales.
-  const valid =
-    (!!c.env.META_APP_SECRET && (await verifyMetaSignature(raw, sig, c.env.META_APP_SECRET))) ||
-    (!!c.env.INSTAGRAM_APP_SECRET && (await verifyMetaSignature(raw, sig, c.env.INSTAGRAM_APP_SECRET)));
+  //
+  // Y de paso dice POR CUÁL RUTA vino el evento, que es el dato que hace falta
+  // para contestarle por donde entró: si validó con el App Secret de
+  // Instagram, es Instagram Login; si no, es la Página.
+  const secretIg = instagramAppSecret(c.env);
+  const okPage =
+    !!c.env.META_APP_SECRET && (await verifyMetaSignature(raw, sig, c.env.META_APP_SECRET));
+  const okIg = !okPage && !!secretIg && (await verifyMetaSignature(raw, sig, secretIg));
+  const valid = okPage || okIg;
+  const ruta: RutaMeta = okIg ? "ig" : "page";
   if (!valid) {
     // El motivo más común en Instagram: el producto "Instagram con IG Login"
     // firma con SU App Secret y no se guardó INSTAGRAM_APP_SECRET.
-    const detail = `firma no cuadró (secrets configurados: META_APP_SECRET=${!!c.env.META_APP_SECRET}, INSTAGRAM_APP_SECRET=${!!c.env.INSTAGRAM_APP_SECRET}, firma presente=${!!sig})`;
+    const detail = `firma no cuadró (secrets configurados: META_APP_SECRET=${!!c.env.META_APP_SECRET}, INSTAGRAM_APP_SECRET=${!!secretIg}, firma presente=${!!sig})`;
     console.warn(`meta webhook rechazado [${source}]: ${detail}`);
     await note("firma_rechazada", detail);
     return c.text("bad signature", 403);
@@ -246,7 +260,16 @@ app.post("/webhooks/meta", async (c) => {
   const events = parseMetaEvents(body as any);
   let ingested = 0;
   let skipped = 0;
+  let repetidos = 0;
   for (const msg of events) {
+    // La misma cuenta puede estar suscrita por las dos rutas a la vez, así que
+    // el mismo DM puede llegar dos veces. Sin esto, el bot contestaría dos
+    // veces: dos llamadas al modelo y dos mensajes a la clienta.
+    const mid = (msg.rawPayload as { message?: { mid?: string } } | undefined)?.message?.mid;
+    if (await yaProcesado(c.env, mid)) {
+      repetidos++;
+      continue;
+    }
     // Anti-duplicado: cuando IG_DM_SOURCE="manychat", los DMs de Instagram
     // entran SOLO por el webhook de ManyChat — el canal oficial los ignora
     // (si no, cada DM se procesa DOBLE: 2x LLM, 2x respuestas al lead y
@@ -255,12 +278,17 @@ app.post("/webhooks/meta", async (c) => {
       skipped++;
       continue;
     }
+    // Por dónde contestarle: lo sabemos con certeza por la firma.
+    if (msg.channel === "instagram") await recordarRuta(c.env, msg.channelUserId, ruta);
     const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
     await c.env.AGENT.get(doId).ingest(msg);
     ingested++;
   }
   if (ingested > 0) {
-    await note("ok", `${ingested} mensaje(s) encolado(s) al agente`);
+    await note("ok", `${ingested} mensaje(s) encolado(s) al agente · ruta ${ruta}`);
+  } else if (repetidos > 0) {
+    // Llegó de verdad, pero ya lo habíamos atendido por la otra ruta.
+    await note("ignorado", `${repetidos} mensaje(s) repetido(s): ya procesados por la otra ruta`);
   } else if (skipped > 0) {
     console.warn("meta webhook: DM de Instagram descartado por IG_DM_SOURCE=manychat");
     await note("ignorado", 'IG_DM_SOURCE="manychat" desvía los DMs de Instagram a ManyChat');
@@ -459,6 +487,9 @@ export default {
 
     // Daily cron (wrangler.toml: "0 3 * * *") — purge messages older than 90 days.
     await purgeOldMessages(env);
+    // Los ids de mensaje que guardamos para no contestar dos veces caducan:
+    // un DM de hace una semana ya no va a volver a llegar por la otra ruta.
+    await purgarVistos(env).catch((e) => console.error("purga meta_seen:", e));
     // Los botones y avisos de la consola del dueño de hace más de 30 días ya
     // no los toca nadie: se podan para que las tablas no crezcan sin fin.
     try {

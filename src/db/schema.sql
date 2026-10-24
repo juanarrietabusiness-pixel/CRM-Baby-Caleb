@@ -365,3 +365,22 @@ CREATE TABLE IF NOT EXISTS owner_fotos (
   enviada_en      INTEGER NOT NULL,
   PRIMARY KEY (conversation_id, url)
 );
+
+-- Instagram por sus DOS rutas (Página de Facebook e Instagram Login). La misma
+-- cuenta puede estar suscrita por las dos a la vez, así que el mismo DM puede
+-- llegar dos veces: `meta_seen` guarda el id de mensaje ya procesado para no
+-- contestar doble (lo purga el cron diario a los 7 días).
+CREATE TABLE IF NOT EXISTS meta_seen (
+  mid TEXT PRIMARY KEY,
+  at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_meta_seen_at ON meta_seen(at);
+
+-- Y por cuál de las dos rutas llegó el último mensaje de cada persona: el id de
+-- quien escribe NO es el mismo en las dos, así que hay que responder por donde
+-- entró. Ver src/channels/metaRuta.ts.
+CREATE TABLE IF NOT EXISTS meta_ruta (
+  channel_user_id TEXT PRIMARY KEY,
+  ruta            TEXT NOT NULL,
+  at              INTEGER NOT NULL
+);

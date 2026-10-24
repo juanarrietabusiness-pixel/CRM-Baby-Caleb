@@ -11,6 +11,16 @@
 import type { ChannelAdapter, IncomingMessage, OutgoingReply, ChannelId } from "./shared";
 import type { Env } from "../env";
 import { graphVersion, GRAPH_API_VERSION } from "./graph";
+import { rutaDe } from "./metaRuta";
+
+// Los secrets de la ruta de Instagram Login se aceptan con DOS nombres. El
+// panel de Cloudflare los llama `META_IG_*` en algunas instalaciones y así
+// nadie tiene que volver a pegar un token para que el bot lo vea.
+export const instagramToken = (env: Env): string | undefined =>
+  env.INSTAGRAM_ACCESS_TOKEN?.trim() || env.META_IG_ACCESS_TOKEN?.trim() || undefined;
+
+export const instagramAppSecret = (env: Env): string | undefined =>
+  env.INSTAGRAM_APP_SECRET?.trim() || env.META_IG_APP_SECRET?.trim() || undefined;
 
 
 interface MetaMessaging {
@@ -233,9 +243,20 @@ export const metaAdapter: ChannelAdapter = {
     //    + INSTAGRAM_ACCESS_TOKEN.
     //  • Messenger / IG ligado a una Página de Facebook → graph.facebook.com
     //    + META_PAGE_ACCESS_TOKEN.
-    const useIG = reply.channel === "instagram" && !!env.INSTAGRAM_ACCESS_TOKEN;
+    // Se responde POR DONDE ENTRÓ el mensaje. El id de quien escribe no tiene
+    // por qué ser el mismo en las dos rutas, así que contestar por la otra
+    // puede acabar en "destinatario desconocido". La ruta la anotó el webhook
+    // según cuál App Secret validó la firma; si no hay anotación (mensajes de
+    // antes de esto, o sin D1), se cae al criterio de siempre: Instagram Login
+    // si hay token suyo.
+    const igToken = instagramToken(env);
+    const ruta = reply.channel === "instagram" ? await rutaDe(env, reply.channelUserId) : "page";
+    const useIG =
+      reply.channel === "instagram" &&
+      !!igToken &&
+      (ruta !== "page" || !env.META_PAGE_ACCESS_TOKEN);
     const base = useIG ? "https://graph.instagram.com" : "https://graph.facebook.com";
-    const token = useIG ? env.INSTAGRAM_ACCESS_TOKEN : env.META_PAGE_ACCESS_TOKEN;
+    const token = useIG ? igToken : env.META_PAGE_ACCESS_TOKEN;
     if (!token) {
       throw new Error("Meta: falta INSTAGRAM_ACCESS_TOKEN (IG Login) o META_PAGE_ACCESS_TOKEN (Messenger).");
     }
