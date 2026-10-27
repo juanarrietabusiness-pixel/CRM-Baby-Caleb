@@ -15,12 +15,7 @@ Yappy Comercial.
 
 ## Abono mínimo de $5.00
 
-Para concretar un pedido hay que abonar **mínimo $5.00** al Yappy Comercial y
-enviar el comprobante: eso separa el producto y agenda el pedido. **No se
-entregan pedidos sin abono.** El saldo se paga al mismo Yappy (o en efectivo)
-cuando el motorizado entrega. Si la clienta no tiene el dinero ahora, ofrézcale
-ir abonando desde $5.00. El abono también sirve para apartar una talla agotada
-(ver "Talla o producto agotado").
+Para concretar un pedido hay que abonar **mínimo $5.00** al Yappy Comercial @babycalebpanama y enviar el comprobante: eso separa el producto y agenda el pedido. **No se entregan pedidos sin abono.** El saldo restante debe pagarse prioritariamente al mismo Yappy Comercial @babycalebpanama antes de la entrega, enviando siempre el comprobante. No ofrezca la opción de pago en efectivo a menos que la clienta lo pregunte expresamente; si lo pregunta, indique que se puede coordinar pero recomiende siempre el Yappy Comercial. Si la clienta no tiene el dinero ahora, ofrézcale ir abonando desde $5.00 al Yappy Comercial. El abono también sirve para apartar una talla agotada (ver "Talla o producto agotado").
 
 ¿Es contra entrega? Sí y no: siempre hace falta el abono mínimo por adelantado;
 el resto se paga cuando el motorizado entrega. Excepción: en envíos por Ferguson se paga la
