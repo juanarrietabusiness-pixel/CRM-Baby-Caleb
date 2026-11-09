@@ -1,8 +1,8 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { Env } from "../env";
-import { Db } from "../db/client";
-import { CatalogRepo, disponibilidadDe, type CatalogProduct } from "../db/catalog";
+import { disponibilidadDe, type CatalogProduct } from "../db/catalog";
+import { fuenteDeCatalogo } from "../catalog/fuente";
 import { fmtUSD } from "../catalog/validation";
 
 /**
@@ -64,26 +64,29 @@ export function catalogQueryTool(env: Env) {
         ),
     }),
     execute: async ({ query, cantidad }) => {
-      const repo = new CatalogRepo(new Db(env.DB));
+      // De dónde sale el catálogo lo decide `CATALOGO_FUENTE`: la D1 de este
+      // repositorio (por omisión) o el sistema de Baby Caleb. La tool no
+      // necesita saber cuál: las dos hablan igual.
+      const fuente = fuenteDeCatalogo(env);
       const q = (query ?? "").trim();
 
       // Pregunta general ("¿qué tienen?"): sin término de búsqueda se devuelve
       // el catálogo activo. Este es el hueco por el que el bot se inventó
       // "cremas y lociones" — no tenía forma de listar, así que improvisó.
       if (!q) {
-        const todos = await repo.listActive(20);
+        const todos = await fuente.listActive(20, cantidad);
         return todos.length > 0
           ? { catalogoCompleto: todos.map((p) => publico(p, cantidad)) }
           : { catalogoCompleto: [], mensaje: CATALOGO_VACIO };
       }
 
-      const matches = await repo.search(q, 8);
+      const matches = await fuente.search(q, 8, cantidad);
 
       if (matches.length === 0) {
         // Se ofrece el catálogo completo como plan B: la clienta que escribe
         // "hola, precios?" no busca nada en particular, y devolver una lista
         // vacía haría que el bot se disculpe en vez de vender.
-        const todos = await repo.listActive(20);
+        const todos = await fuente.listActive(20, cantidad);
         return {
           matches: [],
           mensaje:
@@ -120,6 +123,13 @@ function publico(p: CatalogProduct, cantidad?: number) {
  * no, de 25 sí") no existe.
  */
 function cobertura(p: CatalogProduct, cantidad: number) {
+  // Si la fuente ya trae la respuesta, es la buena. Pasa cuando el catálogo
+  // viene del SISTEMA: allá `stockTotal` no es una cantidad —el sistema no
+  // manda la cifra exacta— sino el mínimo que garantiza la etiqueta, y
+  // calcular de ahí si alcanza para 30 haría que el bot prometiera mercancía
+  // que no hay.
+  if (p.pedido !== undefined) return p.pedido;
+
   return p.stockTotal >= cantidad
     ? { cantidadPedida: cantidad, alcanza: true as const }
     : { cantidadPedida: cantidad, alcanza: false as const, maximoDisponible: p.stockTotal };

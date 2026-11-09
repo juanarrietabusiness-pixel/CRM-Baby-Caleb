@@ -33,6 +33,16 @@ export interface CatalogProduct {
   stock: Array<{ branch: string; stockQty: number }>;
   stockTotal: number;
   updatedAt: number;
+  /**
+   * La respuesta a «¿alcanza para N?», cuando la trae la fuente.
+   *
+   * La fuente D1 no la pone: `cobertura()` la calcula de `stockTotal`, que
+   * ahí es una cantidad de verdad. La fuente del SISTEMA sí la pone, porque
+   * allá `stockTotal` no es una cantidad —el sistema no manda la cifra
+   * exacta— sino el mínimo que la etiqueta garantiza. Calcularla de ahí haría
+   * que el bot prometiera mercancía que no hay.
+   */
+  pedido?: { cantidadPedida: number; alcanza: boolean; maximoDisponible?: number };
 }
 
 const PUBLIC_COLS = "code, name, sale_price, stock_qty, branch, active, updated_at";

@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { Env } from "../env";
+import type { SistemaBinding } from "../catalog/fuente";
 import { fmtUSD } from "../catalog/validation";
 import {
   ZONAS_CIUDAD_PANAMA,
@@ -41,7 +42,63 @@ function mencionada(texto: string, zona: ZonaEnvio): boolean {
   return candidatos.some((c) => new RegExp(`(?:^|\\s)${c}(?:\\s|$)`).test(t));
 }
 
-export function cotizarEnvioTool(_env: Env) {
+/**
+ * Pregunta la tarifa al SISTEMA, conservando la forma de siempre.
+ *
+ * Los `mensaje` de esta tool son instrucciones al modelo y son lo que impide
+ * que invente una tarifa, así que se conservan palabra por palabra: lo único
+ * que cambia es de dónde sale el número.
+ *
+ * El rango de Panamá Oeste ($3–$6) sigue saliendo de `member/zonas-envio.ts`:
+ * el sistema guarda esa zona con tarifa NULL —«se cotiza con una persona»— y
+ * no lleva el rango. Es dato del documento de la dueña y vive donde viven los
+ * datos del negocio.
+ */
+async function porElSistema(sistema: SistemaBinding, zona: string) {
+  const r = await sistema.cotizarEnvio(zona);
+  if (!r.ok) throw new Error(`el sistema no contestó: ${r.codigo} — ${r.mensaje}`);
+
+  const d = r.datos;
+
+  if (d.zona !== null && d.tarifaCents !== null) {
+    return {
+      encontrada: true as const,
+      zonas: [{ zona: d.zona, tarifa: fmtUSD(d.tarifaCents) }],
+      nota: "El delivery va aparte del precio del producto.",
+    };
+  }
+
+  // Zona reconocida pero sin tarifa fija: hoy es Panamá Oeste y el interior.
+  if (d.zona !== null) {
+    return {
+      encontrada: false as const,
+      zonaReconocida: d.zona,
+      rango: `${fmtUSD(PANAMA_OESTE.minCents)} a ${fmtUSD(PANAMA_OESTE.maxCents)}`,
+      mensaje:
+        "Panamá Oeste (Arraiján y La Chorrera) no tiene tarifa fija: va de $3.00 a $6.00 según la " +
+        "distancia. NO des un número: pregunta el punto exacto y pasa la conversación a una persona.",
+    };
+  }
+
+  return {
+    encontrada: false as const,
+    // Las sugerencias son nuevas y ayudan al bot a preguntar «¿se refiere
+    // a...?» en vez de rendirse. No son una tarifa: no hay número.
+    ...(d.sugerencias.length > 0 ? { quizaQuisoDecir: d.sugerencias } : {}),
+    mensaje:
+      "Esa zona no está en el tarifario. NO la calcules por parecido con otra ni des un rango. " +
+      "LLAMA A handoffHuman AHORA: dile que confirma el costo del envío con el equipo y que la " +
+      "están pasando con una persona. NO le des el WhatsApp, el Instagram ni el correo para que " +
+      "escriba por su cuenta — eso deja el pedido sin registrar y nadie del equipo se entera.",
+    cargoFergusonSiEsInterior: fmtUSD(CARGO_FERGUSON_CENTS),
+    notaInterior:
+      "Si la zona es de otra provincia (Colón, Los Santos, Veraguas, Changuinola…), el envío va por " +
+      "Ferguson: el motorizado cobra ese cargo por llevarlo, la tarifa de Ferguson la paga la " +
+      "clienta al retirar, y hay que pagar la totalidad del producto por adelantado.",
+  };
+}
+
+export function cotizarEnvioTool(env: Env) {
   return tool({
     description:
       "La ÚNICA fuente de la tarifa de delivery. ÚSALA SIEMPRE que pregunten cuánto cuesta el envío, " +
@@ -56,6 +113,12 @@ export function cotizarEnvioTool(_env: Env) {
         .describe("El lugar que dijo la clienta, tal cual: 'Tocumen', 'costa del este', 'La Chorrera'."),
     }),
     execute: async ({ zona }) => {
+      // El mismo interruptor que el catálogo: mientras `CATALOGO_FUENTE` no
+      // diga "sistema", esto se comporta exactamente como hoy.
+      if ((env.CATALOGO_FUENTE ?? "d1") === "sistema" && env.SISTEMA !== undefined) {
+        return await porElSistema(env.SISTEMA, zona);
+      }
+
       const exacta = ZONAS_CIUDAD_PANAMA.filter((z) => mencionada(zona, z));
       if (exacta.length > 0) {
         // Si el texto nombra dos zonas ("San Francisco o Paitilla"), se

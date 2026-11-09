@@ -48,7 +48,27 @@ index_name = "juancitoads-bot-kb"
 # binding = "CATALOG"
 # bucket_name = "juancitoads-bot-catalog"
 
+# ---------------------------------------------------------------------------
+# El sistema de Baby Caleb
+# ---------------------------------------------------------------------------
+# De aquí salen el catálogo, las existencias y las zonas cuando
+# CATALOGO_FUENTE = "sistema". Va comentado porque este repositorio es la
+# plantilla de Juancito Ads y la mayoría de los bots que salen de él no tienen
+# un sistema detrás; en el bot de Baby Caleb se descomenta.
+#
+# No sale a internet: es una llamada entre Workers de la misma cuenta.
+#
+# [[services]]
+# binding = "SISTEMA"
+# service = "babycaleb-sistema"
+# entrypoint = "SistemaCRM"
+
 [vars]
+# De dónde sale el catálogo: "d1" (esta base, lo de siempre) o "sistema".
+# Es el interruptor del traspaso de F3: mientras diga "d1", el bot se comporta
+# exactamente como hoy, y volver atrás es cambiar esta línea y desplegar —no
+# tocar código. Ver src/catalog/fuente.ts.
+CATALOGO_FUENTE = "d1"
 BOT_NAME = "Baby Caleb"
 BUSINESS_NAME = "Baby Caleb"
 BOT_LANGUAGE = "es-419"
