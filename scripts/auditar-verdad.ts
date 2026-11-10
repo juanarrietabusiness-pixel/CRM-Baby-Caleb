@@ -228,8 +228,9 @@ try {
   avisos++;
 }
 
-// ── 2. catalog_items contra el documento de la dueña ──────────────────────
+// ── 2. El catálogo que el bot lee DE VERDAD, contra el documento de la dueña ──
 console.log("\n2 · El catálogo en vivo contra el documento de la dueña");
+
 interface FilaCat {
   code: string;
   name: string;
@@ -237,50 +238,82 @@ interface FilaCat {
   activos: number;
   stock: number;
 }
-const enVivo = consultar<FilaCat>(
-  db,
-  "SELECT code, MIN(name) AS name, MIN(sale_price) AS sale_price, MAX(active) AS activos," +
-    " SUM(stock_qty) AS stock FROM catalog_items GROUP BY code ORDER BY code",
-);
 
-if (enVivo.length === 0) {
-  mal("El catálogo está VACÍO. Aplique src/db/verdad-2026-09.sql y cargue el stock.");
+/**
+ * Qué fuente de catálogo lee el bot hoy, según `wrangler.toml`.
+ *
+ * No es un detalle de configuración: es QUÉ TABLA tiene sentido auditar. Con
+ * `CATALOGO_FUENTE = "sistema"` el bot deja de leer `catalog_items` y pregunta
+ * por el service binding, así que auditar `catalog_items` daría un verde sobre
+ * datos que ya nadie consulta. Un verde sobre la tabla equivocada es peor que
+ * no auditar: se parece exactamente a estar bien.
+ */
+function fuenteConfigurada(): string {
+  const toml = readFileSync(resolve(ROOT, "wrangler.toml"), "utf8");
+  const m = toml.match(/^\s*CATALOGO_FUENTE\s*=\s*["']([^"']+)["']/m);
+  return (m?.[1] ?? "d1").trim().toLowerCase();
+}
+
+function auditarCatalogoD1(): void {
+  const enVivo = consultar<FilaCat>(
+    db,
+    "SELECT code, MIN(name) AS name, MIN(sale_price) AS sale_price, MAX(active) AS activos," +
+      " SUM(stock_qty) AS stock FROM catalog_items GROUP BY code ORDER BY code",
+  );
+
+  if (enVivo.length === 0) {
+    mal("El catálogo está VACÍO. Aplique src/db/verdad-2026-09.sql y cargue el stock.");
+    problemas++;
+  }
+
+  const porCodigo = new Map(enVivo.map((f) => [f.code, f]));
+  for (const p of PRODUCTOS) {
+    const fila = porCodigo.get(p.code);
+    if (!fila) {
+      mal(`${p.code}: no existe en la base. Falta aplicar src/db/verdad-2026-09.sql.`);
+      problemas++;
+      continue;
+    }
+    if (fila.sale_price !== p.precioCents) {
+      mal(
+        `${p.code}: la base dice $${(fila.sale_price / 100).toFixed(2)} y el documento dice ` +
+          `$${(p.precioCents / 100).toFixed(2)}.`,
+      );
+      problemas++;
+    } else if (fila.activos !== 1) {
+      ojo(`${p.code}: precio correcto, pero está INACTIVO — el bot no lo ve ni lo ofrece.`);
+      avisos++;
+    } else if (fila.stock === 0) {
+      ojo(`${p.code}: activo con stock en cero — el bot lo ofrece como agotado.`);
+      avisos++;
+    } else ok(`${p.code}: $${(fila.sale_price / 100).toFixed(2)}, activo, con existencias.`);
+  }
+
+  for (const code of DESCATALOGADOS) {
+    if (porCodigo.has(code)) {
+      mal(`${code} sigue en la base y el documento lo sacó de circulación.`);
+      problemas++;
+    }
+  }
+  const intrusos = enVivo.filter((f) => !PRODUCTOS.some((p) => p.code === f.code));
+  for (const f of intrusos) {
+    ojo(`${f.code} ("${f.name}") está en la base y no en el documento. ¿Producto nuevo sin registrar?`);
+    avisos++;
+  }
+}
+
+const fuente = fuenteConfigurada();
+if (fuente === "d1") {
+  auditarCatalogoD1();
+} else {
+  mal(
+    `CATALOGO_FUENTE = "${fuente}": el bot ya NO lee catalog_items, así que revisar esa\n` +
+      "    tabla no dice nada de lo que el bot contesta. El catálogo, las existencias y\n" +
+      "    las zonas viven en la D1 del sistema (repositorio Baby-caleb, carpeta\n" +
+      "    sistema/) y se auditan allá, con su propia auditoría.\n" +
+      "    Esta auditoría NO puede dar el catálogo por bueno y no lo va a hacer.",
+  );
   problemas++;
-}
-
-const porCodigo = new Map(enVivo.map((f) => [f.code, f]));
-for (const p of PRODUCTOS) {
-  const fila = porCodigo.get(p.code);
-  if (!fila) {
-    mal(`${p.code}: no existe en la base. Falta aplicar src/db/verdad-2026-09.sql.`);
-    problemas++;
-    continue;
-  }
-  if (fila.sale_price !== p.precioCents) {
-    mal(
-      `${p.code}: la base dice $${(fila.sale_price / 100).toFixed(2)} y el documento dice ` +
-        `$${(p.precioCents / 100).toFixed(2)}.`,
-    );
-    problemas++;
-  } else if (fila.activos !== 1) {
-    ojo(`${p.code}: precio correcto, pero está INACTIVO — el bot no lo ve ni lo ofrece.`);
-    avisos++;
-  } else if (fila.stock === 0) {
-    ojo(`${p.code}: activo con stock en cero — el bot lo ofrece como agotado.`);
-    avisos++;
-  } else ok(`${p.code}: $${(fila.sale_price / 100).toFixed(2)}, activo, con existencias.`);
-}
-
-for (const code of DESCATALOGADOS) {
-  if (porCodigo.has(code)) {
-    mal(`${code} sigue en la base y el documento lo sacó de circulación.`);
-    problemas++;
-  }
-}
-const intrusos = enVivo.filter((f) => !PRODUCTOS.some((p) => p.code === f.code));
-for (const f of intrusos) {
-  ojo(`${f.code} ("${f.name}") está en la base y no en el documento. ¿Producto nuevo sin registrar?`);
-  avisos++;
 }
 
 // ── 2b. Borradores del flywheel esperando aprobación ──────────────────────
