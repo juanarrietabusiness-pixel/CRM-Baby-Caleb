@@ -241,14 +241,23 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
    * Called by the agents SDK scheduler when the msg-buffer task fires.
    * Processes accumulated messages as one input, runs the LLM loop, and
    * sends the chunked reply over the channel adapter.
+   *
+   * DEVUELVE los trozos de la respuesta (F3.6). El planificador los ignora —
+   * sigue siendo el mismo método de siempre para WhatsApp y Telegram—, pero el
+   * canal web los necesita: ahí la respuesta vuelve por donde entró la
+   * pregunta, en vez de salir por un adaptador.
+   *
+   * Devuelve `[]` cuando no hubo nada que contestar: buffer vacío, bot en
+   * pausa, o un mensaje que los guardarraíles descartaron. Para la web eso NO
+   * es un error, es «ahora no contesto», y la pantalla lo dice.
    */
-  async processBuffer(): Promise<void> {
+  async processBuffer(): Promise<string[]> {
     const buffered = [...this.state.pendingMessages];
     this.setState({ ...this.state, pendingMessages: [] });
-    if (buffered.length === 0) return;
+    if (buffered.length === 0) return [];
 
     const combined = buffered.map((m) => m.text).join("\n").trim();
-    if (!combined) return;
+    if (!combined) return [];
 
     const db = new Db(this.env.DB);
     const msgs = new MessagesRepo(db);
@@ -256,7 +265,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     const convId = this.state.conversationId;
     if (!convId) {
       console.warn("[SupportAgent.processBuffer] no conversation_id in state");
-      return;
+      return [];
     }
 
     // Persist user message
@@ -542,6 +551,23 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     // Chunk + send via the channel adapter
     const chunks = chunkReply(assistantText, cfg.maxChunks);
     const channel = this.state.channel as ChannelId;
+
+    // El canal web no tiene a dónde ENVIAR: la clienta está esperando la
+    // respuesta de la misma petición con la que preguntó, y se la lleva quien
+    // llamó a `responderWeb`. WhatsApp y Telegram son al revés —se recibe
+    // ahora y se contesta cuando se termina de pensar—, y por eso ellos sí
+    // necesitan un adaptador que empuje el mensaje.
+    //
+    // Es un `if` explícito y no un adaptador que no haga nada a propósito:
+    // un "enviador" silencioso es exactamente la clase de cosa que oculta un
+    // mensaje perdido durante semanas.
+    if (channel === "web") {
+      console.log(
+        `[SupportAgent.processBuffer] web: ${chunks.length} trozos de vuelta, model=${usedModelId}`,
+      );
+      return chunks;
+    }
+
     const adapter = pickAdapter(channel);
     await adapter.sendReply(
       {
@@ -559,5 +585,30 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         { input: inputTokens, cached: cachedTokens, output: outputTokens },
       ).toFixed(5)}`,
     );
+
+    return chunks;
+  }
+
+  /**
+   * Un mensaje del chat de la web, contestado en el acto (F3.6).
+   *
+   * La diferencia con `ingest` no es de canal, es de FORMA: en WhatsApp la
+   * clienta escribe y se va, y el bot contesta cuando termina de pensar. En la
+   * web está mirando la pantalla, esperando. Así que aquí no se junta en un
+   * buffer para contestar dentro de ocho segundos: se procesa ya, y la
+   * respuesta vuelve por donde entró la pregunta.
+   *
+   * Pasa por `ingest` a propósito, aunque después fuerce el procesado: ahí
+   * viven la creación de la conversación, la pausa que pone la dueña desde el
+   * panel, el descanso por mensaje repetido y los demás guardarraíles. Un
+   * segundo camino que los saltara sería un bot que en la web se comporta
+   * distinto — y cada uno de esos guardarraíles existe por algo que ya pasó.
+   *
+   * `ingest` deja programada su alarma. Da igual: cuando salte, el buffer ya
+   * estará vacío y `processBuffer` se devuelve sin hacer nada.
+   */
+  async responderWeb(payload: AgentIncomingPayload): Promise<{ trozos: string[] }> {
+    await this.ingest(payload);
+    return { trozos: await this.processBuffer() };
   }
 }

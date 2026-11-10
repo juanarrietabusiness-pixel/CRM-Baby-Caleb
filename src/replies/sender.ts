@@ -41,5 +41,16 @@ export function pickAdapter(channel: ChannelId): ChannelAdapter {
   if (channel === "twilio") return twilioAdapter;
   if (channel === "whatsapp") return whatsappAdapter;
   if (channel === "messenger" || channel === "instagram") return metaAdapter;
+
+  // `web` SÍ es un canal conocido: lo que no tiene es a dónde empujar. La
+  // clienta está esperando la respuesta en la misma petición y se la lleva
+  // `SupportAgent.responderWeb`. Decir «canal desconocido» mandaría a quien
+  // lea el registro a buscar un adaptador que falta, y no falta ninguno.
+  if (channel === "web") {
+    throw new Error(
+      "el canal web no se envía: su respuesta vuelve por la misma petición (ver responderWeb)",
+    );
+  }
+
   throw new Error(`unknown channel: ${channel}`);
 }

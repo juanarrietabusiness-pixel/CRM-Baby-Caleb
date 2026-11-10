@@ -20,6 +20,11 @@ import { renderPrivacyPolicy, renderTerms, renderDataDeletion } from "./legal";
 
 export { SupportAgent } from "./agent";
 
+// El entrypoint que llama el sitio web por service binding (F3.6). Se exporta
+// aquí porque Cloudflare solo ve los exports del módulo principal del Worker:
+// una clase exportada únicamente desde su archivo no existe para el binding.
+export { CanalWeb } from "./channels/web";
+
 const app = new Hono<{ Bindings: Env }>();
 
 app.get("/health", (c) => c.text("ok", 200));
