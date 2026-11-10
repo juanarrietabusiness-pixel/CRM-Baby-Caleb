@@ -13,6 +13,7 @@ import { Db } from "../../src/db/client";
 import { CatalogRepo } from "../../src/db/catalog";
 import { SUCURSALES } from "../../src/catalog/validation";
 import { aProducto, fuenteDeCatalogo, type SistemaBinding, type VariantePublica } from "../../src/catalog/fuente";
+import { cotizarEnvioTool } from "../../src/tools/cotizarEnvio";
 import type { Env } from "../../src/env";
 import { PRODUCTOS } from "./verdad-del-cliente";
 
@@ -213,5 +214,85 @@ describe("si el sistema contesta mal", () => {
     });
     const f = fuenteDeCatalogo(env({ CATALOGO_FUENTE: "sistema", SISTEMA: roto }));
     await expect(f.search("NAT-M")).rejects.toThrow(/el sistema no contestó/);
+  });
+});
+
+describe("cotizarEnvio dice lo MISMO por las dos rutas", () => {
+  /**
+   * Los `mensaje` de esta tool no son prosa: son las instrucciones que impiden
+   * que el modelo invente una tarifa. Estuvieron escritos dos veces —una por
+   * ruta— y dos copias es que alguien edite una, el bot se comporte distinto
+   * según de dónde salga el número, y nadie lo note hasta que una clienta
+   * reciba un precio que nadie autorizó.
+   *
+   * Ahora los construye una sola función. Esta prueba es lo que impide que
+   * vuelvan a separarse: compara las dos rutas respuesta contra respuesta.
+   */
+  const correr = (e: Env, zona: string) =>
+    (cotizarEnvioTool(e) as never as { execute: Function }).execute({ zona }) as Promise<
+      Record<string, unknown>
+    >;
+
+  const porD1 = (zona: string) => correr(env(), zona);
+  const porSistema = (zona: string, sistema: SistemaBinding) =>
+    correr(env({ CATALOGO_FUENTE: "sistema", SISTEMA: sistema }), zona);
+
+  it("una zona con tarifa fija: misma forma y misma nota", async () => {
+    const d1r = await porD1("Tocumen");
+    const sis = await porSistema("Tocumen", sistemaFalso());
+    expect(sis).toEqual(d1r);
+  });
+
+  it("Panamá Oeste: mismo rango y misma instrucción de NO dar número", async () => {
+    const d1r = await porD1("La Chorrera");
+    const sis = await porSistema("La Chorrera", sistemaFalso({
+      // El sistema reconoce la zona pero no le pone tarifa: eso es Oeste.
+      async cotizarEnvio() {
+        return { ok: true, datos: { zona: "Panamá Oeste", tarifaCents: null, requierePagoTotal: false } };
+      },
+    }));
+
+    expect(d1r.encontrada).toBe(false);
+    expect(sis.rango).toBe(d1r.rango);
+    expect(sis.mensaje).toBe(d1r.mensaje);
+    expect(String(d1r.mensaje)).toContain("NO des un número");
+  });
+
+  it("una zona desconocida: misma instrucción de pasar a una persona", async () => {
+    const d1r = await porD1("Tokio");
+    const sis = await porSistema("Tokio", sistemaFalso({
+      async cotizarEnvio() {
+        return { ok: true, datos: { zona: null, tarifaCents: null, sugerencias: [] } };
+      },
+    }));
+
+    expect(sis.mensaje).toBe(d1r.mensaje);
+    expect(sis.notaInterior).toBe(d1r.notaInterior);
+    expect(sis.cargoFergusonSiEsInterior).toBe(d1r.cargoFergusonSiEsInterior);
+    // Lo que de verdad importa: que mande a handoffHuman y no dé un número.
+    expect(String(d1r.mensaje)).toContain("handoffHuman");
+    expect(String(d1r.mensaje)).toContain("NO la calcules por parecido");
+  });
+
+  it("y las sugerencias del sistema NO traen ninguna tarifa", async () => {
+    const sis = await porSistema("Tocumn", sistemaFalso({
+      async cotizarEnvio() {
+        return { ok: true, datos: { zona: null, tarifaCents: null, sugerencias: ["Tocumen"] } };
+      },
+    }));
+
+    expect(sis.quizaQuisoDecir).toEqual(["Tocumen"]);
+    // Una sugerencia es «¿se refiere a...?», no un precio: no viene `zonas` ni
+    // ninguna `tarifa`.
+    //
+    // Aquí NO vale mirar si el JSON entero trae un «$»: esta respuesta SÍ
+    // lleva una cifra legítima, el cargo de Ferguson, que es dato del
+    // documento de la dueña y tiene que estar. Un patrón a ciegas no
+    // distingue una cifra que debe estar de una que no, y lo que caza es la
+    // primera que encuentra.
+    expect(sis).not.toHaveProperty("zonas");
+    expect(sis).not.toHaveProperty("tarifa");
+    expect(sis.encontrada).toBe(false);
+    expect(sis.cargoFergusonSiEsInterior).toBe("$2.50");
   });
 });
