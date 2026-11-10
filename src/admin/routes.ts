@@ -51,6 +51,7 @@ import { renderTickets } from "./views/tickets";
 import { renderCatalogo } from "./views/catalogo";
 import { renderCatalogoEditor } from "./views/catalogoEditor";
 import { CatalogRepo } from "../db/catalog";
+import { fuenteDeCatalogo } from "../catalog/fuente";
 import {
   validateProduct,
   normalizeCode,
@@ -434,6 +435,78 @@ adminApp.get("/tickets", async (c) => c.html(await renderTickets(c.env)));
 // ── Catálogo ───────────────────────────────────────────────────────────────
 // El motor de precios del bot. Lo edita la dueña; el bot solo lee (y nunca el
 // costo — ver src/db/catalog.ts).
+//
+// …MIENTRAS el catálogo viva en esta D1. Cuando `CATALOGO_FUENTE` dice
+// "sistema", el dueño del catálogo es el sistema de Baby Caleb y esta pestaña
+// pasa a SOLO LECTURA: es lo que el plan pide para el traspaso («interruptor
+// del CRM en solo lectura», docs/plan/08-operacion.md §Traspaso del catálogo).
+//
+// El motivo no es ceremonia. Si las lecturas vienen del sistema y las
+// escrituras se quedaran aquí, la dueña cambiaría un precio en esta pantalla,
+// vería el cambio guardado, y el bot seguiría cotizando el del sistema. Un
+// guardado que parece funcionar y no llega a ninguna parte es peor que un «no
+// se puede»: nadie va a buscar el error, porque la pantalla dijo que sí.
+
+/**
+ * ¿Está el catálogo de esta D1 en solo lectura?
+ *
+ * Misma decisión que `fuenteDeCatalogo`, para que no haya dos criterios: si la
+ * fuente del bot es el sistema, aquí no se escribe.
+ */
+const catalogoEsDeOtro = (env: Env) => fuenteDeCatalogo(env).nombre !== "d1";
+
+/**
+ * Falla CERRADO: con el sistema como dueño, lo ÚNICO que pasa es ver el
+ * listado. Cualquier otra ruta de /catalogo —las de ahora y las que alguien
+ * añada mañana— queda bloqueada sin tener que acordarse de ponerle un guardia.
+ * Un guardia por ruta se olvida; este no.
+ */
+adminApp.use("/catalogo/*", async (c, next) => {
+  if (!catalogoEsDeOtro(c.env)) return await next();
+
+  // En Hono el comodín de `/catalogo/*` casa TAMBIÉN `/catalogo` —admite la
+  // parte vacía—, así que sin esto el guardia bloqueaba el propio listado.
+  // Y el listado sí se puede ver: es la pantalla que enseña lo que ve el bot.
+  //
+  // La condición es «GET y nada después de /catalogo». Un POST a /catalogo no
+  // pasa, aunque hoy no exista ninguno: el guardia falla cerrado y eso incluye
+  // esta puerta.
+  const ruta = new URL(c.req.url).pathname.replace(/\/+$/, "");
+  if (c.req.method === "GET" && ruta.endsWith("/catalogo")) return await next();
+
+  return c.html(
+    layout({
+      title: "Catálogo · solo lectura",
+      activeTab: "catalogo",
+      env: c.env,
+      body: `
+        <div class="bg-panel border border-line card" style="padding:20px;max-width:640px;display:flex;flex-direction:column;gap:14px">
+          <h2 class="font-display font-bold text-cream" style="margin:0;font-size:17px">
+            El catálogo se edita en el sistema
+          </h2>
+          <p class="text-[14px]" style="margin:0;line-height:1.6">
+            Este bot ya no lee el catálogo de aquí: se lo pregunta al sistema de
+            Baby Caleb, que es donde viven el precio, las existencias y el costo.
+            Por eso esta pantalla quedó en <strong>solo lectura</strong>.
+          </p>
+          <p class="text-[14px]" style="margin:0;line-height:1.6">
+            Si guardara un cambio aquí, lo vería guardado y el bot seguiría
+            contestando con el precio del sistema. Vale más decirlo antes que
+            dejarle creer que sirvió.
+          </p>
+          <p class="text-[14px]" style="margin:0;line-height:1.6">
+            <strong>Para cambiar un precio o el stock, entre al panel del sistema.</strong>
+          </p>
+          <a href="/admin/catalogo"
+             class="bigbtn font-display font-bold text-[14px]"
+             style="background:var(--accent);border:1px solid var(--accent);color:var(--on-accent);padding:11px 18px;align-self:flex-start;text-decoration:none;display:inline-flex;align-items:center">
+            Volver al listado
+          </a>
+        </div>`,
+    }),
+    409,
+  );
+});
 
 adminApp.get("/catalogo", async (c) =>
   c.html(

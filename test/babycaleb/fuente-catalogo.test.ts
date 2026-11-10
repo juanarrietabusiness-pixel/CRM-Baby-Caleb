@@ -86,6 +86,32 @@ function sistemaFalso(sobre: Partial<SistemaBinding> = {}): SistemaBinding {
 const env = (extra: Partial<Env> = {}): Env => ({ DB: d1, ...extra }) as unknown as Env;
 
 describe("el interruptor falla hacia lo conocido", () => {
+  it("«local» —la vuelta atrás que documenta el plan— es la D1, y SIN avisos", () => {
+    // docs/plan/08-operacion.md documenta la vuelta atrás del traspaso como
+    // CATALOGO_FUENTE=local. Antes caía en la rama de «valor desconocido»:
+    // funcionaba por el repliegue, pero dejaba en el registro un aviso de que
+    // no entendía el valor. En una vuelta atrás, ese aviso es exactamente lo
+    // que hace dudar de si el cambio surtió efecto.
+    const avisos = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(fuenteDeCatalogo(env({ CATALOGO_FUENTE: "local" as never })).nombre).toBe("d1");
+      expect(avisos).not.toHaveBeenCalled();
+    } finally {
+      avisos.mockRestore();
+    }
+  });
+
+  it("un valor que de verdad no existe SÍ avisa, y cae en la D1", () => {
+    const avisos = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(fuenteDeCatalogo(env({ CATALOGO_FUENTE: "postgres" as never })).nombre).toBe("d1");
+      expect(avisos).toHaveBeenCalledTimes(1);
+      expect(String(avisos.mock.calls[0]?.[0])).toContain("catalogo_fuente_desconocida");
+    } finally {
+      avisos.mockRestore();
+    }
+  });
+
   it("sin variable, la fuente es la D1 de siempre", () => {
     // Es lo que hace que desplegar este cambio no cambie nada.
     expect(fuenteDeCatalogo(env()).nombre).toBe("d1");
@@ -108,14 +134,6 @@ describe("el interruptor falla hacia lo conocido", () => {
     expect(f.nombre).toBe("d1");
     expect(aviso).toHaveBeenCalled();
     expect(String(aviso.mock.calls[0]?.[0])).toContain("sin_binding");
-    aviso.mockRestore();
-  });
-
-  it("con un valor que nadie entiende, la D1 y avisa", () => {
-    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const f = fuenteDeCatalogo(env({ CATALOGO_FUENTE: "postgres" as never }));
-    expect(f.nombre).toBe("d1");
-    expect(aviso).toHaveBeenCalled();
     aviso.mockRestore();
   });
 });

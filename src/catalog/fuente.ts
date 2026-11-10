@@ -162,6 +162,20 @@ class FuenteSistema implements FuenteCatalogo {
  * es peor que un bot que sigue contestando con el catálogo de ayer — y el
  * aviso hace que se note.
  */
+/**
+ * Los nombres que valen para la D1 del CRM.
+ *
+ * `local` no es un sinónimo de adorno: es el valor que el plan documenta como
+ * la VUELTA ATRÁS del traspaso («Vuelta atrás: CATALOGO_FUENTE=local», en
+ * docs/plan/08-operacion.md §Traspaso del catálogo). Sin tenerlo aquí, el
+ * interruptor de emergencia caía en la rama de «valor desconocido»: funcionaba
+ * por el repliegue, avisando en el registro que no lo entendía.
+ *
+ * Y la vuelta atrás es justo el momento en que nadie quiere una sorpresa ni un
+ * aviso que haga dudar de si el cambio surtió efecto.
+ */
+const NOMBRES_DE_LA_D1 = new Set(["d1", "local"]);
+
 export function fuenteDeCatalogo(env: Env): FuenteCatalogo {
   const quiere = (env.CATALOGO_FUENTE ?? "d1").trim().toLowerCase();
 
@@ -173,7 +187,7 @@ export function fuenteDeCatalogo(env: Env): FuenteCatalogo {
         detalle: "CATALOGO_FUENTE=sistema pero falta el service binding SISTEMA; se usa la D1",
       }),
     );
-  } else if (quiere !== "d1") {
+  } else if (!NOMBRES_DE_LA_D1.has(quiere)) {
     console.warn(
       JSON.stringify({ evento: "catalogo_fuente_desconocida", valor: quiere, usando: "d1" }),
     );
