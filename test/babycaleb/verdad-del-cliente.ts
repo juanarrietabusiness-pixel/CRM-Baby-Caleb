@@ -52,8 +52,19 @@ export const PRODUCTOS: ProductoVerdad[] = [
  * Productos que el documento saca de circulación. El bot no los puede nombrar.
  * "Por el momento únicamente nos mantendremos con las toallitas húmedas de Dany
  * Baby" · "Por el momento solo le podemos ofrecer los pañales Nateen".
+ *
+ * DOS códigos para el mismo producto, y no es por si acaso. En la base en vivo
+ * del bot los wipes Nateen tienen el código `WIPESNAT`; el repositorio llevaba
+ * escrito `NAT-WIP`, que no existe en ninguna parte. Resultado: el `DELETE` de
+ * `verdad-2026-09.sql` no borraba nada, esta lista no vigilaba nada, y el bot
+ * siguió ofreciendo a $45 un producto retirado en septiembre — durante dos
+ * meses, con la prueba en verde.
+ *
+ * Se dejan los dos porque hay bases con uno y bases con el otro, y porque una
+ * lista de códigos retirados que sobra no cuesta nada; una que falta, ya se vio
+ * lo que cuesta.
  */
-export const DESCATALOGADOS = ["NAT-WIP"];
+export const DESCATALOGADOS = ["WIPESNAT", "NAT-WIP"];
 
 /** Rangos de peso por talla, en libras y kilos, como los dice el documento. */
 export const TALLAS: Array<{ talla: string; lbs: string; kg: string }> = [

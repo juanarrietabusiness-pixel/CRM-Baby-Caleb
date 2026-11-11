@@ -122,10 +122,31 @@ describe("verdad-2026-09.sql — corregir sin borrar el stock cargado", () => {
     expect(MIGRACION).toContain("INSERT OR IGNORE INTO catalog_items");
   });
 
-  it("da de baja lo descatalogado", () => {
+  it("da de baja lo descatalogado, cada código por su nombre", () => {
+    // Antes esta prueba exigía un `DELETE` con el código escrito dentro, y
+    // pasaba en verde con el código EQUIVOCADO ('NAT-WIP' en vez de
+    // 'WIPESNAT'): comprobaba que el archivo y la lista dijeran lo mismo, no
+    // que lo que dicen exista. El bot siguió ofreciendo los wipes a $45
+    // durante dos meses con esta prueba pasando.
+    //
+    // Ahora se vigila lo que de verdad importa: que cada código retirado
+    // aparezca en una orden que lo DESACTIVA.
+    const desactiva = MIGRACION.match(
+      /UPDATE\s+catalog_items\s+SET\s+active\s*=\s*0[^;]*;/i,
+    );
+    expect(desactiva, "no hay ninguna orden que desactive productos").not.toBeNull();
     for (const code of DESCATALOGADOS) {
-      expect(MIGRACION).toContain(`DELETE FROM catalog_items WHERE code = '${code}'`);
+      expect(desactiva![0], `${code} no se desactiva`).toContain(`'${code}'`);
     }
+  });
+
+  it("no borra ninguna fila del catálogo", () => {
+    // El archivo entero existe para corregir SIN perder existencias (lo dice
+    // su cabecera). Un `DELETE` aquí se lleva por delante el inventario de un
+    // producto que sigue físicamente en la bodega — hoy, 15 cajas de wipes —
+    // y no hay forma de deshacerlo. Desactivar logra lo mismo de cara al bot
+    // y conserva el dato.
+    expect(MIGRACION).not.toMatch(/^\s*DELETE\s+FROM/im);
   });
 
   it("deja los mismos precios que el seed, producto por producto", () => {

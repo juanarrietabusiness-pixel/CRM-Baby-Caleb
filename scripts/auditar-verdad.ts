@@ -290,9 +290,21 @@ function auditarCatalogoD1(): void {
   }
 
   for (const code of DESCATALOGADOS) {
-    if (porCodigo.has(code)) {
-      mal(`${code} sigue en la base y el documento lo sacó de circulación.`);
+    const fila = porCodigo.get(code);
+    if (fila === undefined) continue;
+    // Lo que importa es si el bot lo PUEDE OFRECER, no si la fila existe.
+    // Desde que el retiro desactiva en vez de borrar (para no perder las
+    // existencias de lo que sigue en la bodega), una fila inactiva es el
+    // resultado correcto y no un problema. Activa sí lo es: significa que el
+    // bot lo está vendiendo.
+    if (fila.activos > 0) {
+      mal(
+        `${code} sigue ACTIVO en la base y el documento lo sacó de circulación: ` +
+          "el bot lo está ofreciendo. Desactívelo en /admin/catalogo.",
+      );
       problemas++;
+    } else {
+      ok(`${code}: retirado e inactivo, como pide el documento.`);
     }
   }
   const intrusos = enVivo.filter((f) => !PRODUCTOS.some((p) => p.code === f.code));

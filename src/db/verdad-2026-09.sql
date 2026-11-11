@@ -16,7 +16,23 @@
 
 -- 1. Wipes Nateen fuera. El documento: "Por el momento únicamente nos
 --    mantendremos con las toallitas húmedas de Dany Baby".
-DELETE FROM catalog_items WHERE code = 'NAT-WIP';
+--
+--    DOS correcciones sobre la versión anterior de esta línea:
+--
+--    a) El código. Decía 'NAT-WIP', que no existe en ninguna base. El código
+--       real del bot es 'WIPESNAT'. Por eso este borrado no borró nada y el
+--       bot siguió ofreciendo los wipes a $45 dos meses después de retirarlos.
+--       Se cubren los dos códigos: hay bases con uno y bases con el otro.
+--
+--    b) Desactivar, no borrar. La fila guarda las existencias de un producto
+--       que FÍSICAMENTE está en la bodega (hoy, 15 cajas). Borrarla hace que
+--       el bot deje de ofrecerlo —que es lo que pide el documento— pero
+--       también borra el rastro de esas cajas y no hay forma de deshacerlo.
+--       Inactivo el bot no lo ve igual, el inventario se conserva, y el día
+--       que la dueña quiera liquidarlas se reactiva desde /admin/catalogo.
+UPDATE catalog_items
+   SET active = 0, updated_at = strftime('%s','now') * 1000
+ WHERE code IN ('WIPESNAT', 'NAT-WIP');
 
 -- 2. El combo de 1,200 toallitas pasa de DANY-AW2 a DANY-AW1200: el código
 --    viejo decía "2 cajas" y ahora convive con la caja de 600, así que el
