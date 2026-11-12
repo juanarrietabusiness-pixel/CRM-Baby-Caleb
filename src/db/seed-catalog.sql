@@ -23,6 +23,12 @@
 --   · Costos de los pants ($36/$38/$38), de la caja de 600 ($14) y del fular ($32.20)
 --   · Rangos de peso de los pants: L 19–31 lbs, XL 26–37.5 lbs, XXL +33 lbs
 --
+-- Y del 12-nov-2026 (la dueña):
+--   · Caja de 600 wipes Dany Baby: $25.00 → $20.00, y viene en 6 paquetes de 100
+--   · La promoción de 2 cajas (1,200 wipes por $35.00) no es otro código: se
+--     escribe en el NOMBRE de DANY-AW600 desde el panel mientras dure, así cada
+--     promo descuenta 2 cajas del mismo inventario. Aquí no va: es temporal.
+--
 -- Los nombres llevan la cantidad por caja y el rango de peso a propósito: así
 -- catalogQuery contesta "cuánto trae y cuánto vale" con una sola llamada y esos
 -- datos no tienen que vivir además en la base de conocimiento, donde podrían
@@ -73,9 +79,9 @@ INSERT INTO catalog_items (code, name, cost_price, sale_price, stock_qty, branch
   ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
   ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
   ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', 1400, 2500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', 1400, 2500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (12 paquetes de 50)', 1400, 2500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1400, 2000, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1400, 2000, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1400, 2000, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
   ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
   ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
   ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
