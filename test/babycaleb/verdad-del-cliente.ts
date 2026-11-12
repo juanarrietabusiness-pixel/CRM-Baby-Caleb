@@ -115,7 +115,8 @@ export const TARIFAS_DELIVERY: Array<[string, string]> = [
 /** Datos operativos que el bot repite a diario y no pueden salir mal. */
 export const OPERACION = {
   yappy: "@babycalebpanama",
-  abonoMinimo: "$5",
+  /** Desde nov-2026 los pedidos se pagan completos; el abono queda solo para apartar una talla agotada. */
+  abonoApartarAgotado: "$5",
   cargoFerguson: "$2.50",
   corteEnvioMismoDia: "1:00 p.m.",
   ultimaEntrega: "5:00 p.m.",

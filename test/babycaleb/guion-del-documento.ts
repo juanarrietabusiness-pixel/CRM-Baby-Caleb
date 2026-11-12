@@ -185,16 +185,22 @@ export const GUION: CasoDelGuion[] = [
     debeContener: ["tienda online", "únicamente por internet", "avisarRetiroEnPersona"],
   },
   {
-    id: "abono-minimo",
-    pregunta: "¿cuánto tengo que abonar para apartar?",
+    id: "pago-completo",
+    pregunta: "¿cuánto tengo que pagar para que me agenden el pedido?",
     fuente: "kb",
-    debeContener: ["$5.00", "@babycalebpanama", "No se entregan pedidos sin abono"],
+    debeContener: ["el total", "@babycalebpanama", "No se agendan ni se entregan pedidos sin el pago completo"],
   },
   {
     id: "contra-entrega",
     pregunta: "¿es contra entrega?",
     fuente: "kb",
-    debeContener: ["Sí y no", "el resto se paga cuando el motorizado entrega"],
+    debeContener: ["¿Es contra entrega? No", "el pedido se paga completo antes de agendarse"],
+  },
+  {
+    id: "apartar-agotado",
+    pregunta: "¿puedo apartar una talla que no tienen?",
+    fuente: "kb",
+    debeContener: ["abono de mínimo $5.00", "Talla o producto agotado"],
   },
   {
     id: "factura",

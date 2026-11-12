@@ -182,14 +182,20 @@ describe("pagos", () => {
     expect(KB).toContain(OPERACION.yappy);
   });
 
-  it("el abono mínimo y su razón de ser están dichos", () => {
-    expect(KB).toContain(OPERACION.abonoMinimo);
-    expect(KB).toMatch(/no se entregan pedidos sin abono/i);
+  it("el pedido se paga completo por adelantado (nov-2026)", () => {
+    expect(KB).toMatch(/no se agendan ni se entregan pedidos sin el pago completo/i);
+    expect(KB).toMatch(/ya no se piden abonos/i);
+    expect(KB).not.toMatch(/no se entregan pedidos sin abono/i);
+    expect(KB).not.toMatch(/ir abonando/i);
   });
 
-  it("explica el 'sí y no' del contra entrega", () => {
-    expect(KB).toMatch(/sí y no/i);
-    expect(KB).toMatch(/el resto se paga cuando el motorizado entrega/i);
+  it("no es contra entrega", () => {
+    expect(KB).toMatch(/¿Es contra entrega\? No/);
+    expect(KB).not.toMatch(/el resto se paga cuando el motorizado entrega/i);
+  });
+
+  it("el abono queda solo para apartar una talla agotada", () => {
+    expect(KB).toContain(`abono de mínimo ${OPERACION.abonoApartarAgotado}`);
   });
 
   it("el número de cuenta NO lo da el bot", () => {
