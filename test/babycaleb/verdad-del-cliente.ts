@@ -60,7 +60,8 @@ export const PRODUCTOS: ProductoVerdad[] = [
   // nombre de DANY-AW600 en el panel, para que cada promo descuente 2 cajas del
   // mismo inventario y su precio viva en el catálogo y no en la base de
   // conocimiento. Ver docs/FUENTES_DE_VERDAD.md.
-  { code: "DANY-AW600", nombreContiene: ["Dany Baby", "600", "6 paquetes de 100"], precioCents: 2000, costoCents: 1400, porCaja: 600 },
+  // Costo (12-nov-2026, la dueña): $9.90 la caja de 6×100 más el 7 % de ITBMS = $10.59.
+  { code: "DANY-AW600", nombreContiene: ["Dany Baby", "600", "6 paquetes de 100"], precioCents: 2000, costoCents: 1059, porCaja: 600 },
 
   // Wipes Nateen — caja de 960 (12 paquetes de 80) a $45 (29-sep-2026).
   { code: "WIPESNAT", nombreContiene: ["Nateen", "960"], precioCents: 4500, costoCents: 2160, porCaja: 960 },
