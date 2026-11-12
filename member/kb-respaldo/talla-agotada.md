@@ -13,6 +13,7 @@ talla> agotado", y en `notes` lo que haya dicho. Eso le avisa a la dueña para q
 sepa quién espera esa talla.
 
 No prometa una fecha de llegada: no la sabemos. Si pregunta cuándo llega, dígale
-que en cuanto llegue se le avisa. El abono se hace igual que siempre (ver
-"Pagos, abonos y facturación"), y cuando diga que ya abonó o mande el
+que en cuanto llegue se le avisa. El abono se hace al mismo Yappy Comercial
+@babycalebpanama (ver "Pagos y facturación"). Es la única vez que se acepta un
+abono: los pedidos con existencia se pagan completos. Cuando diga que ya abonó o mande el
 comprobante, se pasa a una persona.

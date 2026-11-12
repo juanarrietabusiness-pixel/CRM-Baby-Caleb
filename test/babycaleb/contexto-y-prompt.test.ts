@@ -76,9 +76,12 @@ describe("el contexto sí trae lo que no está en ninguna otra parte", () => {
     expect(contexto).toMatch(/nunca tutee/i);
   });
 
-  it("el Yappy y el abono mínimo", () => {
+  it("el Yappy y el pago completo (nov-2026: ya no se piden abonos)", () => {
     expect(contexto).toContain(OPERACION.yappy);
-    expect(contexto).toContain(OPERACION.abonoMinimo);
+    expect(contexto).toMatch(/pago COMPLETO/);
+    expect(contexto).not.toMatch(/el resto se paga cuando el motorizado entrega/i);
+    // El abono sobrevive solo para apartar una talla agotada.
+    expect(contexto).toMatch(new RegExp(`agotado[^"]*${OPERACION.abonoApartarAgotado.replace("$", "\\$")}`));
   });
 
   it("qué no se maneja, para que el bot no lo ofrezca", () => {
