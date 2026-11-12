@@ -40,6 +40,7 @@ import { anotar, historial, olvidar } from "./memoria";
 import { entenderAlDueno, type Entrada } from "./cerebro";
 import { pendientes } from "./pendientes";
 import { EXTENSIONES } from "./extensiones";
+import { INICIO_DE_DIFUSION } from "./difusion";
 import { devolverAlBot, pausarPorHumano } from "../takeover";
 import type { Contexto, Respuesta } from "./tipos";
 import { Db } from "../db/client";
@@ -169,6 +170,11 @@ const EDITAN_SU_MENSAJE = new Set([
   "regla",
   "ajusteSeguimiento",
   "descompro",
+  "difusionEmpezar",
+  "difusionDescartar",
+  "difusionPausar",
+  "difusionSeguir",
+  "difusionTerminar",
 ]);
 
 const ACCIONES: Record<string, (ctx: Contexto, p: Record<string, unknown>) => Promise<Respuesta>> = {
@@ -477,7 +483,7 @@ export const INICIO_DE_PROPUESTA = "✉️ ¿Le mando esto a ";
 async function ultimoDeLaConsolaEsPropuesta(env: Env, chatId: string): Promise<boolean> {
   const h = await historial(env, chatId);
   const ultimo = [...h].reverse().find((m) => m.rol === "consola" && !m.contenido.startsWith("🎤 «"));
-  return !!ultimo?.contenido.startsWith(INICIO_DE_PROPUESTA);
+  return !!ultimo && [INICIO_DE_PROPUESTA, INICIO_DE_DIFUSION].some((p) => ultimo.contenido.startsWith(p));
 }
 
 /** Cuánto puede durar una nota de voz del dueño. Whisper cobra por minuto. */

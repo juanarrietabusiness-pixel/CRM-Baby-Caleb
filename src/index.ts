@@ -481,6 +481,12 @@ export default {
     const { protegerConsolaUnaVez } = await import("./owner/dueno");
     await protegerConsolaUnaVez(env);
 
+    // La difusión en curso, si la hay (src/difusion/difusion.ts): unas pocas por
+    // hora, en el horario del seguimiento y con minutos entre una y otra. Va al
+    // final porque espera entre mensajes: lo de arriba no tiene por qué esperarla.
+    const { runDifusiones } = await import("./difusion/difusion");
+    await runDifusiones(env).catch((e) => console.error("difusion:", e));
+
     // Los trabajos nocturnos SOLO corren en el tick diario (3am UTC) — un tick
     // más frecuente (si el miembro lo configura) no debe purgar/analizar de más.
     if (event.cron && event.cron !== "0 3 * * *") return;

@@ -81,7 +81,7 @@ function instrucciones(ctx: Contexto): string {
     "Puedes devolver una conversación al bot o pausarla directamente: es reversible.",
     "Tú NO puedes mandarle nada a un cliente. Lo único que puedes es PROPONER: proponerMensaje (a uno) o proponerMensajeAVarios (a varios). La propuesta le llega al dueño con el botón ✅ Enviar; el mensaje sale cuando lo toca o contesta «sí» (eso lo hace el sistema, no tú).",
     "Si el dueño pide que se le diga algo a un cliente («respóndale», «dígale que…», «avísele»), llama proponerMensaje DE UNA con el texto redactado: no preguntes antes «¿quiere que se lo mande?» — la propuesta con su botón ya es esa pregunta. Redacta el mensaje para el cliente, de usted y en el tono del negocio.",
-    "Si pide escribirle a un grupo («a los que escribieron hoy», «a los de ayer», «a los interesados de la semana»), primero míralos con verClientesRecientes o verInteresados y luego usa proponerMensajeAVarios con sus referencias (#…). Puedes poner {nombre} en el texto y se cambia por el nombre de cada uno. La herramienta deja fuera sola a quien dijo que no le interesa y a quien ya no se le puede escribir: dile al dueño a quiénes dejó fuera.",
+    "Si pide escribirle a un grupo chico y reciente («a los que escribieron hoy», «a los de ayer», «a los interesados de la semana»), primero míralos con verClientesRecientes o verInteresados y luego usa proponerMensajeAVarios con sus referencias (#…). Si son muchas, de más de dos semanas atrás, o «todas las que preguntaron por X», es una DIFUSIÓN: mira las instrucciones de DIFUSIONES. Puedes poner {nombre} en el texto y se cambia por el nombre de cada uno. La herramienta deja fuera sola a quien dijo que no le interesa y a quien ya no se le puede escribir: dile al dueño a quiénes dejó fuera.",
     "Si una herramienta devuelve varias conversaciones posibles, pregunta cuál antes de actuar.",
     "Si habla de un cliente justo después de un aviso («respóndale», «dígale», «a él»), es el cliente de ESE aviso: la herramienta ya prefiere la conversación del aviso reciente. El canal lo dice la propuesta: no lo adivines ni lo escribas tú.",
     "NUNCA digas que un mensaje se envió, que salió o que le llegó al cliente: tú nunca envías. Tampoco que una conversación se devolvió o se pausó si no lo hizo una herramienta en ESTE turno. Las líneas del historial que empiezan con «[hecho]» las escribe el sistema cuando algo de verdad pasó; tú nunca escribas «[hecho]» ni «[botón]», ni imites esas líneas.",
@@ -467,7 +467,12 @@ export async function entenderAlDueno(ctx: Contexto, entrada: Entrada | string):
         ? "Le dejé la propuesta abajo. Todavía no salió nada: toque ✅ Enviar o contésteme «sí»."
         : "⚠️ Ojo: no le he enviado nada a nadie. Dígame a quién y qué le digo, y se lo dejo listo con el botón ✅ Enviar.";
     }
-    return [...(respuesta ? [{ texto: respuesta }] : salida.length ? [] : [{ texto: "Listo." }]), ...salida];
+    // Sin texto y sin nada que mostrar: el modelo se quedó sin pasos a medio
+    // camino. El 12-nov-2026 contestó «Listo.» a «mándale este mensaje a las
+    // que preguntaron por los Dany Baby», y la dueña creyó que había salido.
+    const sinTerminar =
+      "⚠️ No alcancé a terminar lo que me pidió: no envié nada ni cambié nada. ¿Me lo repite, o por partes?";
+    return [...(respuesta ? [{ texto: respuesta }] : salida.length ? [] : [{ texto: sinTerminar }]), ...salida];
   } catch (err) {
     console.error("[consola] el asistente del dueño falló:", err);
     return [

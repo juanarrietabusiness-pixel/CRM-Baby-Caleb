@@ -939,3 +939,74 @@ describe("el conocimiento base (GitHub) no se cambia desde Telegram", () => {
     expect(await db.first("SELECT 1 FROM kb_docs")).toBeNull();
   });
 });
+
+// ── La difusión desde Telegram (12-nov-2026) ────────────────────────────────
+// La dueña preguntó cuántas habían preguntado por los wipes Dany Baby en dos
+// meses y la consola le dijo «una»: sus herramientas no leían lo que escribían
+// las clientas. Eran 233. Y a «mándales este mensaje» le contestó «Listo.» sin
+// hacer nada.
+describe("difusión desde Telegram", () => {
+  beforeEach(vincular);
+
+  async function preguntaron() {
+    const repo = new ConversationsRepo(db);
+    const msgs = new MessagesRepo(db);
+    const ana = await repo.getOrCreate("whatsapp-qr", "1@lid", "Ana María");
+    const bea = await repo.getOrCreate("whatsapp-qr", "2@lid", "Bea");
+    const nora = await repo.getOrCreate("whatsapp-qr", "3@lid", "Nora");
+    await msgs.append(ana.id, "user", "Hola, precio de los wipes Dany Baby?");
+    await msgs.append(bea.id, "user", "tienen los danny?");
+    await msgs.append(nora.id, "user", "dany baby");
+    await msgs.append(nora.id, "user", "no me interesa, gracias");
+  }
+
+  it("cuenta por lo que ellas escribieron, propone con ▶️ sin mandar nada, y el botón la pone en marcha", async () => {
+    await preguntaron();
+    llm.activo = true;
+    let conteoVisto = "";
+    llm.pensar = async (args) => {
+      conteoVisto = await args.tools.contarPorTema.execute({ palabras: ["dany", "danny"], dias: 60 }, {});
+      return await args.tools.proponerDifusion.execute(
+        { palabras: ["dany", "danny"], dias: 60, texto: "Hola {nombre}, ¡bajaron los Dany Baby!" },
+        {},
+      );
+    };
+    await atenderAlDueno(env, mensaje("mándale esto a las que preguntaron por los Dany Baby"), OK);
+    expect(conteoVisto).toMatch(/: 3 personas[\s\S]*Se les puede escribir: 2[\s\S]*no le interesa \(1\)/);
+    const propuesta = textos().find((t) => t.includes("Difusión lista"))!;
+    expect(propuesta).toMatch(/todavía NO sale nada/);
+    expect(propuesta).toMatch(/Saldría a 2/);
+    expect(propuesta).toMatch(/«Hola (Ana|Bea), ¡bajaron los Dany Baby!»/);
+    expect(alPuente).toEqual([]);
+
+    await atenderAlDueno(env, boton(datoDe("Empezar")), OK);
+    expect(enviados.filter((e) => e.metodo === "editMessageText").at(-1)?.cuerpo.text).toMatch(/Difusión en marcha/);
+    expect((await db.first<{ estado: string }>("SELECT estado FROM difusiones"))?.estado).toBe("activa");
+    // El botón no manda nada: lo manda el cron, de a poco.
+    expect(alPuente).toEqual([]);
+
+    await atenderAlDueno(env, mensaje("/difusion"), OK);
+    expect(textos().at(-1)).toMatch(/en marcha[\s\S]*Faltan: 2/);
+    await atenderAlDueno(env, boton(datoDe("Pausar")), OK);
+    expect((await db.first<{ estado: string }>("SELECT estado FROM difusiones"))?.estado).toBe("pausada");
+  });
+
+  it("un «sí» con palabras también la empieza", async () => {
+    await preguntaron();
+    llm.activo = true;
+    llm.pensar = async (args) =>
+      args.tools.proponerDifusion.execute({ palabras: ["dany"], dias: 60, texto: "Hola {nombre}" }, {});
+    await atenderAlDueno(env, mensaje("mándales esto a las de los dany"), OK);
+    llm.pensar = null;
+    await atenderAlDueno(env, mensaje("sí"), OK);
+    expect((await db.first<{ estado: string }>("SELECT estado FROM difusiones"))?.estado).toBe("activa");
+  });
+
+  it("si el asistente se queda sin terminar, no dice «Listo.»", async () => {
+    llm.activo = true;
+    llm.respuesta = "";
+    await atenderAlDueno(env, mensaje("mándale esto a todas las que preguntaron"), OK);
+    expect(textos().at(-1)).not.toBe("Listo.");
+    expect(textos().at(-1)).toMatch(/No alcancé a terminar[\s\S]*no envié nada/);
+  });
+});

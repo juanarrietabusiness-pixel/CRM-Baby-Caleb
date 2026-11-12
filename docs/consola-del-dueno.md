@@ -83,6 +83,7 @@ en esa conversación mientras usted la atiende.
 | `/ajuste NAT-M +3` · `-1` · `=10` | Corrige el stock. |
 | `/movimientos [código]` | Lo último que se movió en el inventario. |
 | `/seguimiento` | A quién le escribe el bot cuando dejan de contestar, cuándo, y qué pasa con quien ya compró. `/seguimiento apagar` · `prender`. |
+| `/difusion` | Cómo va el mensaje a muchas clientas: a cuántas les llegó y cuántas faltan, con **⏸ Pausar**, **▶️ Seguir** y **🛑 Terminar**. |
 | `/compro #ref` | Esa clienta ya compró: no le llega seguimiento comercial hasta el de recompra (a los 15 días). No toca el stock. Trae **↩️ No compró**. |
 | `/nocompro #ref` | Quita esa marca. |
 | `/cliente` | Probar el bot como si fuera una clienta. `/dueno` para volver. |
@@ -158,6 +159,26 @@ catálogo, como siempre.
   interesa, a los grupos y a quien por WhatsApp oficial ya pasó las 24 h.
 - Un mensaje a **uno** calla al bot en esa conversación una hora. Uno a
   **varios**, no: si alguno contesta, el bot lo atiende.
+
+### Un mensaje a muchas: la difusión (desde el 12-nov-2026)
+
+- *"¿Cuántas preguntaron por los Dany Baby en los últimos dos meses?"* → la
+  consola **lee lo que escribieron las clientas** (hasta 90 días) y le dice
+  cuántas son, por qué canal, a cuántas se les puede escribir y cuántas ya
+  compraron. Antes contestaba con los leads anotados y le dijo «una»: eran 233.
+- *"Mándales este mensaje"* → le llega **📣 Difusión lista** con ese conteo, el
+  ritmo y cómo le llega a una clienta, con el botón **▶️ Empezar** (o «sí»).
+  Hasta entonces no sale nada.
+- **Sale de a poco**: unas 40 al día (máximo 60), en el horario del seguimiento
+  (`/seguimiento`), unas pocas por hora y con 1 a 2 minutos entre cada mensaje.
+  Es así a propósito: por el WhatsApp de código QR, cientos de mensajes iguales
+  de golpe es como WhatsApp bloquea el número.
+- Sale como mensaje del **equipo**: si alguna contesta, el bot la atiende, y el
+  seguimiento automático no le manda «¿Desea algún pedido?» por esto.
+- Quedan fuera solas: quien dijo que no le interesa (también si lo dice durante
+  la difusión), los grupos, quien por Instagram o WhatsApp oficial pasó las
+  24 h, y quien en ese momento atiende una persona. Una a la vez; al terminar,
+  le llega el resumen. Ver `src/difusion/difusion.ts`.
 
 (24-sep-2026, en PanaClaw: el asistente dijo "✅ Mensaje enviado" dos veces sin
 haber enviado nada. Por eso el «sí» ya no pasa por la IA y lo que la IA contesta

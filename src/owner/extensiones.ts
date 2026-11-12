@@ -7,5 +7,6 @@
 import type { ExtensionDeConsola } from "./tipos";
 import { inventario } from "./inventario";
 import { seguimiento } from "./seguimiento";
+import { difusion } from "./difusion";
 
-export const EXTENSIONES: ExtensionDeConsola[] = [inventario, seguimiento];
+export const EXTENSIONES: ExtensionDeConsola[] = [inventario, seguimiento, difusion];
