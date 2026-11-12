@@ -247,8 +247,8 @@ export async function responderACliente(
 /** Cuánto vale una propuesta de envío para confirmarla con un «sí». */
 export const VIGENCIA_PROPUESTA_MS = 30 * 60_000;
 
-/** Los botones que mandan algo hacia un cliente. */
-export const ACCIONES_DE_ENVIO = ["enviar", "enviarVarios"] as const;
+/** Los botones que mandan algo hacia un cliente (un «sí» dicho con palabras los aprieta). */
+export const ACCIONES_DE_ENVIO = ["enviar", "enviarVarios", "difusionEmpezar"] as const;
 
 /**
  * La propuesta de envío más reciente que sigue esperando el botón. Es lo que
@@ -330,8 +330,29 @@ export function noQuiereQueLeEscriban(texto: string): boolean {
  * él, mirando); a un grupo, no: ahí nadie mira caso por caso.
  */
 export async function motivoParaNoEscribir(env: Env, conv: Conversation, ahora = Date.now()): Promise<string | null> {
-  const db = new Db(env.DB);
-  if (conv.channel === "whatsapp-qr" && /@(broadcast|g\.us|newsletter)$/.test(conv.channel_user_id)) return "no es el chat de una persona";
+  if (noEsPersona(conv)) return "no es el chat de una persona";
+  const suyos = await new Db(env.DB).all<{ content: string; created_at: number }>(
+    "SELECT content, created_at FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 200",
+    [conv.id],
+  );
+  return motivoConSusMensajes(conv, suyos, ahora);
+}
+
+const noEsPersona = (conv: Pick<Conversation, "channel" | "channel_user_id">) =>
+  conv.channel === "whatsapp-qr" && /@(broadcast|g\.us|newsletter)$/.test(conv.channel_user_id);
+
+/**
+ * La misma regla que `motivoParaNoEscribir`, con los mensajes de la clienta ya
+ * leídos (`suyos`, del más nuevo al más viejo). Existe para la difusión, que
+ * revisa a cientos de una vez: una consulta por clienta no cabe en una sola
+ * corrida del Worker.
+ */
+export function motivoConSusMensajes(
+  conv: Conversation,
+  suyos: { content: string; created_at: number }[],
+  ahora = Date.now(),
+): string | null {
+  if (noEsPersona(conv)) return "no es el chat de una persona";
   let meta: Record<string, unknown> = {};
   try {
     meta = JSON.parse(conv.metadata ?? "{}") ?? {};
@@ -339,10 +360,6 @@ export async function motivoParaNoEscribir(env: Env, conv: Conversation, ahora =
     /* metadata vieja */
   }
   if (meta.sin_seguimiento) return "dijo que no le interesa";
-  const suyos = await db.all<{ content: string; created_at: number }>(
-    "SELECT content, created_at FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 200",
-    [conv.id],
-  );
   if (suyos.some((m) => noQuiereQueLeEscriban(m.content))) return "dijo que no le interesa";
   if (CON_VENTANA_24H.has(conv.channel) && (!suyos[0] || ahora - suyos[0].created_at > VENTANA_24H_MS)) {
     return `por ${channelLabel(conv.channel)} pasaron más de 24 h`;

@@ -384,3 +384,31 @@ CREATE TABLE IF NOT EXISTS meta_ruta (
   ruta            TEXT NOT NULL,
   at              INTEGER NOT NULL
 );
+
+-- Difusiones: UN mensaje de la dueña a muchas clientas (las que escribieron
+-- sobre un tema), mandado de a poco por el cron de cada hora para que el
+-- WhatsApp por QR no lo tome por spam. Ver src/difusion/difusion.ts.
+-- estado: borrador (armada, sin ▶️) · activa · pausada · terminada · descartada.
+CREATE TABLE IF NOT EXISTS difusiones (
+  id           TEXT PRIMARY KEY,
+  texto        TEXT NOT NULL,
+  tema         TEXT NOT NULL,
+  por_dia      INTEGER NOT NULL,
+  estado       TEXT NOT NULL,
+  creada_en    INTEGER NOT NULL,
+  empezada_en  INTEGER,
+  terminada_en INTEGER
+);
+
+-- A quién le toca. estado: pendiente · enviando (el claim, antes de salir) ·
+-- enviado · saltado (motivo: dijo que no le interesa, la atendía una persona…)
+-- · error (el canal falló: no se reintenta, mejor una de menos que repetida).
+CREATE TABLE IF NOT EXISTS difusion_envios (
+  difusion_id     TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  estado          TEXT NOT NULL,
+  motivo          TEXT,
+  enviado_en      INTEGER,
+  PRIMARY KEY (difusion_id, conversation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_difusion_envios_estado ON difusion_envios(difusion_id, estado);

@@ -68,6 +68,11 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
   descansa 15 días y recibe el de recompra. Todo eso son **ajustes** (`ajustes.ts`) que la
   dueña cambia por Telegram (`/seguimiento`, `/compro`); **no** va en la base de
   conocimiento, porque el cron no la lee. Ver `docs/AUDITORIA_CONOCIMIENTO.md`.
+- `src/difusion/` — **la difusión**: un mensaje de la dueña a todas las que escribieron
+  sobre un tema (lee lo que ELLAS escribieron, hasta 90 días), mandado de a poco por el
+  cron de cada hora — unas 40 al día, en el horario del seguimiento — porque por el
+  WhatsApp QR cientos de golpe hacen que bloqueen el número. Sale como mensaje del
+  equipo (no dispara el seguimiento). Se arma y se para desde Telegram (`/difusion`).
 - `src/niches/` — el "niche pack" genérico (Starter). Personaliza tono/columnas del panel.
 - `puente-wa/` — el canal **WhatsApp por código QR**: un Worker aparte
   (`juancitoads-bot-wa`) con un contenedor que sostiene el WebSocket de Baileys.
