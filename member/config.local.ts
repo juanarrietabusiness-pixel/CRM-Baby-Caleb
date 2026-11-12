@@ -92,9 +92,11 @@ export const businessConfig = {
     "Venta por caja":
       "Solo se venden cajas completas de una talla. No hay paquetes sueltos, no hay precio " +
       "de mayorista ni para revendedores.",
-    Abono:
-      "Ningún pedido se agenda sin un abono mínimo de $5.00 al Yappy Comercial " +
-      "@babycalebpanama y su comprobante. El resto se paga cuando el motorizado entrega.",
+    Pago:
+      "Ningún pedido se agenda sin el pago COMPLETO (productos más delivery) por adelantado " +
+      "al Yappy Comercial @babycalebpanama y su comprobante. No es contra entrega y ya no se " +
+      "piden abonos. El abono solo se acepta para apartar una talla o producto agotado: " +
+      "mínimo $5.00 al mismo Yappy Comercial.",
     Delivery:
       "El delivery SIEMPRE es aparte del precio del producto y depende de la zona. " +
       "Nunca estime una tarifa: pregunte a dónde va el envío y consulte la tool cotizarEnvio. " +

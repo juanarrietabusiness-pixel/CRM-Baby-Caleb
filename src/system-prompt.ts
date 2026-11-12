@@ -141,7 +141,7 @@ function truthBlock(toolList: string[]): string {
       ? "- Antes de nombrar un producto, decir su PRECIO o afirmar que hay (o no hay)\n  existencias, LLAMA a catalogQuery. Siempre, sin excepción."
       : "",
     catalogo && kb
-      ? "- Cuidado con confundir las dos fuentes cuando hay plata de por medio. El\n  precio de lo que se VENDE sale de catalogQuery. Las tarifas y montos que NO\n  son producto —envío, delivery, abono mínimo, cargos de transporte— salen de\n  searchKb, porque no están en el catálogo. Ni catalogQuery te va a dar una\n  tarifa de envío ni searchKb un precio de producto: usa la que corresponde y\n  nunca estimes la otra."
+      ? "- Cuidado con confundir las dos fuentes cuando hay plata de por medio. El\n  precio de lo que se VENDE sale de catalogQuery. Las tarifas y montos que NO\n  son producto —envío, delivery, abono para apartar un agotado, cargos de\n  transporte— salen de searchKb, porque no están en el catálogo. Ni catalogQuery te va a dar una\n  tarifa de envío ni searchKb un precio de producto: usa la que corresponde y\n  nunca estimes la otra."
       : "",
     catalogo
       ? '- Pregunta general ("¿qué tienen?", "¿qué hay disponible?", "mándame la lista"):\n  también llamas a catalogQuery, sin `query`, y respondes SOLO con lo que devuelva.'

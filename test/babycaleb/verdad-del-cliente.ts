@@ -55,9 +55,12 @@ export const PRODUCTOS: ProductoVerdad[] = [
   { code: "NAT-P-XL", nombreContiene: ["XL", "pants", "160"], precioCents: 5500, costoCents: 3800, porCaja: 160 },
   { code: "NAT-P-XXL", nombreContiene: ["XXL", "pants", "160"], precioCents: 5500, costoCents: 3800, porCaja: 160 },
 
-  // Water wipes Dany Baby — caja de 600 (12 paquetes de 50) a $25. Ya no hay
-  // combo de 2 cajas (29-sep-2026).
-  { code: "DANY-AW600", nombreContiene: ["Dany Baby", "600"], precioCents: 2500, costoCents: 1400, porCaja: 600 },
+  // Water wipes Dany Baby — caja de 600 (6 paquetes de 100) a $20 (12-nov-2026).
+  // La promoción de 2 cajas (1,200 wipes por $35) NO es otro código: va en el
+  // nombre de DANY-AW600 en el panel, para que cada promo descuente 2 cajas del
+  // mismo inventario y su precio viva en el catálogo y no en la base de
+  // conocimiento. Ver docs/FUENTES_DE_VERDAD.md.
+  { code: "DANY-AW600", nombreContiene: ["Dany Baby", "600", "6 paquetes de 100"], precioCents: 2000, costoCents: 1400, porCaja: 600 },
 
   // Wipes Nateen — caja de 960 (12 paquetes de 80) a $45 (29-sep-2026).
   { code: "WIPESNAT", nombreContiene: ["Nateen", "960"], precioCents: 4500, costoCents: 2160, porCaja: 960 },
@@ -115,7 +118,8 @@ export const TARIFAS_DELIVERY: Array<[string, string]> = [
 /** Datos operativos que el bot repite a diario y no pueden salir mal. */
 export const OPERACION = {
   yappy: "@babycalebpanama",
-  abonoMinimo: "$5",
+  /** Desde nov-2026 los pedidos se pagan completos; el abono queda solo para apartar una talla agotada. */
+  abonoApartarAgotado: "$5",
   cargoFerguson: "$2.50",
   corteEnvioMismoDia: "1:00 p.m.",
   ultimaEntrega: "5:00 p.m.",

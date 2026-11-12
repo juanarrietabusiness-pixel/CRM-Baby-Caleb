@@ -63,7 +63,7 @@ vez de *"prompt automático"*.
 | Costo interno | `catalog_items.cost_price` | **nunca** — no sale de la base | ningún lado |
 | Rangos de peso por talla | GitHub · `member/conocimiento/tallas-y-productos.md` | `searchKb` | catálogo, panel |
 | Tarifas de delivery por zona | tool `cotizarEnvio` (reglas en KB «Envíos y delivery») | `cotizarEnvio` | catálogo |
-| Formas de pago, abono mínimo | panel · KB «Pagos, abonos y facturación» | `searchKb` | catálogo |
+| Formas de pago (pago completo; el abono de $5 solo aparta un agotado) | panel · KB «Pagos y facturación» | `searchKb` | catálogo |
 | Qué es cada producto, quiénes somos, uso del producto | GitHub · `member/conocimiento/` | `searchKb` | panel |
 | Cambios, retiro, agotados, pagos, envíos | panel · KB (un documento por tema) | `searchKb` | GitHub |
 | A quién se le hace seguimiento, cuándo, y qué pasa con quien compró | D1 · `settings.seguimiento_*` (Telegram: `/seguimiento`) | nadie: lo lee el cron | KB, contexto, prompt |
@@ -86,6 +86,17 @@ cierre — caja de 144 (8–19 lbs / 4–9 kg)`) justamente para que no tenga qu
 vivir además en el KB. Una sola llamada a `catalogQuery` contesta "cuánto trae
 y cuánto vale", y esos dos datos no se pueden desfasar porque son la misma fila.
 
+**Una promoción con precio también va en el nombre.** Si la promo es "más
+cajas del mismo producto" (2 cajas de wipes Dany Baby por $35), se escribe en el
+nombre de ese producto desde el panel —`… (6 paquetes de 100) · Promoción: 2
+cajas (1,200 toallitas, 12 paquetes de 100) por $35.00`— y no como otro código:
+así cada promo descuenta 2 cajas del mismo inventario, `catalogQuery` le entrega
+el precio al bot y el revisor lo reconoce como un monto con respaldo. El
+documento «Promociones vigentes» del panel dice **cuándo** ofrecerla, nunca a
+cuánto. Pasó el 7-nov-2026: ese documento traía $25 y $40, el catálogo decía
+$20, y la copia diaria dejó las pruebas en rojo —y los despliegues frenados—
+hasta el 12-nov.
+
 ---
 
 ## 3. El precio del producto y la tarifa del envío no son lo mismo
@@ -99,8 +110,8 @@ a darla.
 Ahora el prompt lo dice explícito:
 
 - **Precio de lo que se vende** → `catalogQuery`.
-- **Tarifas y montos que no son producto** (envío, delivery, abono mínimo,
-  cargo de Ferguson) → `searchKb`.
+- **Tarifas y montos que no son producto** (envío, delivery, abono para
+  apartar un agotado, cargo de Ferguson) → `searchKb`.
 - Y una zona que no está en la lista **no cuesta lo que la de al lado**: se
   pasa con una persona.
 

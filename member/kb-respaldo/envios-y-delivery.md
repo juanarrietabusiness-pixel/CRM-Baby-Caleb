@@ -30,7 +30,7 @@ Por el viaje hacia Ferguson el motorizado cobra **$2.50**.
 
 ## Tiempos de entrega
 
-Con abono o pago total **antes de la 1:00 p.m.**, el envío sale ese mismo día.
+Con el pago completo **antes de la 1:00 p.m.**, el envío sale ese mismo día.
 Las entregas con motorizado son hasta las **5:00 p.m.**; no se dan horas
 exactas. Sábados con agenda previa. Domingos no hay entregas.
 
