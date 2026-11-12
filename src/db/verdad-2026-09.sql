@@ -35,7 +35,7 @@ UPDATE catalog_items SET name = 'Pañal Nateen Talla XXL de cierre — caja de 1
 UPDATE catalog_items SET cost_price = 3600, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-P-L';
 UPDATE catalog_items SET cost_price = 3800, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-P-XL';
 UPDATE catalog_items SET cost_price = 3800, updated_at = strftime('%s','now') * 1000 WHERE code = 'NAT-P-XXL';
-UPDATE catalog_items SET cost_price = 1400, updated_at = strftime('%s','now') * 1000 WHERE code = 'DANY-AW600';
+UPDATE catalog_items SET cost_price = 1059, updated_at = strftime('%s','now') * 1000 WHERE code = 'DANY-AW600';
 UPDATE catalog_items SET cost_price = 3220, updated_at = strftime('%s','now') * 1000 WHERE code = 'MOON-FUL';
 
 -- 4. Productos que no estaban. Entran inactivos y en cero: INSERT OR IGNORE
@@ -50,9 +50,9 @@ INSERT OR IGNORE INTO catalog_items (code, name, cost_price, sale_price, stock_q
   ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
   ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
   ('NAT-P-XXL', 'Pañal Nateen Talla XXL de pants — caja de 160 (+33 lbs / +15 kg)', 3800, 5500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1400, 2000, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1400, 2000, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
-  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1400, 2000, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1059, 2000, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1059, 2000, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
+  ('DANY-AW600', 'Water wipes hipoalergénicas Dany Baby — caja de 600 toallitas (6 paquetes de 100)', 1059, 2000, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
   ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Ciudad de Panamá', 0, strftime('%s','now') * 1000),
   ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Panamá Oeste', 0, strftime('%s','now') * 1000),
   ('WIPESNAT', 'Water wipes hipoalergénicas Nateen — caja de 960 toallitas (12 paquetes de 80)', 2160, 4500, 0, 'Bodega Ciudad de Panamá Este Línea 2', 0, strftime('%s','now') * 1000),
