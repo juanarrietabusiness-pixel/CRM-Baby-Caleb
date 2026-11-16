@@ -25,3 +25,6 @@ pnpm-workspace.yaml
 
 # snapshots de /admin (generadas con pnpm snapshot)
 .snapshots/
+
+# Lo arma scripts/config-de-despliegue.mjs en cada despliegue. Es derivado.
+wrangler.generado.toml

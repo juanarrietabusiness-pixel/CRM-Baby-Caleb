@@ -15,6 +15,7 @@
 //   node scripts/ci-deploy.mjs
 import { readFileSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { configDeDespliegue } from "./config-de-despliegue.mjs";
 
 const TOML = "wrangler.toml";
 const DIMENSIONS = "1024"; // BGE-m3 — debe coincidir con el modelo de src/kb/reindex.ts
@@ -67,8 +68,27 @@ if (vec.status !== 0) {
 }
 
 // 2 · Deploy. `wrangler deploy` directo: sin el hook predeploy que exige secrets.
+//
+// La configuración se arma antes: si este negocio declaró un sistema en
+// `member/sistema.json`, se despliega con la conexión puesta; si no —el caso
+// de casi todos los bots de la plantilla—, se usa el wrangler.toml de siempre.
+// Ver scripts/config-de-despliegue.mjs.
+let config;
+try {
+  config = configDeDespliegue();
+} catch (e) {
+  console.error(`\n✗ ${e instanceof Error ? e.message : e}`);
+  process.exit(1);
+}
+if (config.conSistema) {
+  console.log(`\n✓ Este bot se conecta al sistema «${config.worker}».`);
+  console.log("  (Eso deja el cable puesto. De dónde sale el catálogo lo sigue");
+  console.log("   decidiendo CATALOGO_FUENTE en wrangler.toml.)");
+}
+
 console.log("\n── Desplegando el Worker");
-const dep = spawnSync("npx", ["wrangler", "deploy"], {
+const argsDeploy = config.config === "wrangler.toml" ? ["deploy"] : ["deploy", "--config", config.config];
+const dep = spawnSync("npx", ["wrangler", ...argsDeploy], {
   stdio: "inherit",
   shell: process.platform === "win32",
 });
