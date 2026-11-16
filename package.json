@@ -22,7 +22,8 @@
     "css:build": "node scripts/build-admin-css.mjs",
     "css:check": "node scripts/build-admin-css.mjs --check",
     "icons:build": "node scripts/build-icons.mjs",
-    "icons:check": "node scripts/build-icons.mjs --check"
+    "icons:check": "node scripts/build-icons.mjs --check",
+    "ensayo": "tsx scripts/ensayo-del-cambio.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",
