@@ -32,9 +32,11 @@ Por el viaje hacia Ferguson el motorizado cobra **$2.50**.
 
 Con el pago completo **antes de la 1:00 p.m.**, el envío sale ese mismo día.
 Las entregas con motorizado son hasta las **5:00 p.m.**; no se dan horas
-exactas. Sábados con agenda previa. Domingos no hay entregas.
+exactas. Sábados con agenda previa. Domingos cerrados: no hay entregas. Los domingos estamos cerrados y únicamente se agendan pedidos para entrega el lunes: usted puede pedir talla y ubicación para dejar el pedido agendado, pero aclárele de usted, corto y concreto, que la entrega será el lunes y que el domingo no se entrega ni se despacha.
 
 ## Quién entrega
 
 Motorizados de confianza, no una empresa externa. El motorizado le escribe a la
 clienta cuando va en camino.
+
+Tarifa actualizada — 12 de Octubre: el delivery a 12 de Octubre es $4. Cuando la clienta indique 12 de Octubre (y variantes: 12 octubre, Doce de Octubre), informe $4 como costo de transporte. Si cotizarEnvio devuelve otro valor para esa zona, prevalece $4 por ser tarifa corregida por el dueño. Para el resto de zonas, siga consultando cotizarEnvio tal cual y sin estimar.
