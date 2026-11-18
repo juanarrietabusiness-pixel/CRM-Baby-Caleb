@@ -1,3 +1,12 @@
+/**
+ * Los canales por los que puede llegar un mensaje.
+ *
+ * `web` es distinto a todos los demás y conviene saberlo antes de tocar nada:
+ * los otros EMPUJAN la respuesta —la clienta escribe, se va, y el bot le
+ * manda el mensaje cuando termina de pensar—, mientras que el chat de la web
+ * la ESPERA en la misma petición. Por eso `web` no tiene adaptador de envío:
+ * no hay a dónde enviar, la respuesta vuelve por donde entró la pregunta.
+ */
 export type ChannelId =
   | "manychat"
   | "telegram"
@@ -8,7 +17,15 @@ export type ChannelId =
   /** WhatsApp vinculado por QR, vía el puente `juancitoads-bot-wa`. Canal ALTERNO:
    *  Baileys no es oficial y el número puede ser baneado, así que la Cloud API
    *  ("whatsapp") se queda conectada como respaldo. */
-  | "whatsapp-qr";
+  | "whatsapp-qr"
+  | "web";
+
+/**
+ * Archivo que el bot no puede leer y que igual tiene que llegar a una persona.
+ * Sin esto, un PDF o un video caían en el `continue` de cada adaptador y el
+ * mensaje desaparecía entero: ni guardado, ni ticket, ni respuesta.
+ */
+export type ArchivoNoLegible = "audio" | "documento" | "video";
 
 export interface IncomingMessage {
   channel: ChannelId;
@@ -17,6 +34,7 @@ export interface IncomingMessage {
   text?: string;
   audioUrl?: string;
   imageUrl?: string;
+  fileKind?: ArchivoNoLegible;
   isOwnerMessage?: boolean;
   receivedAt: number;
   rawPayload: unknown;

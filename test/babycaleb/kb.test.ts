@@ -153,7 +153,13 @@ describe("envíos y delivery", () => {
     expect(KB).toContain(OPERACION.corteEnvioMismoDia);
     expect(KB).toContain(OPERACION.ultimaEntrega);
     expect(KB).toMatch(/sábados.*agenda previa/i);
-    expect(KB).toMatch(/domingos no hay entregas/i);
+    // El conector queda libre a propósito: la dueña reescribe este documento
+    // desde el panel y desde Telegram, y el 17-nov-2026 pasó de "Domingos no
+    // hay entregas" a "Domingos cerrados: no hay entregas" — el mismo dato con
+    // otras palabras. Lo que se vigila es el HECHO, dentro de la misma frase
+    // ([^.] no deja que "domingos" y "no hay entregas" vengan de dos párrafos
+    // distintos), no la redacción exacta.
+    expect(KB).toMatch(/domingos[^.]*no hay entregas/i);
   });
 
   it("solo delivery: no hay retiro, no se transfiere y se avisa a la dueña (7-oct-2026)", () => {

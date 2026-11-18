@@ -136,7 +136,14 @@ describe("SupportAgent.ingest — media (Task 6.3)", () => {
     vi.restoreAllMocks();
   });
 
-  it("transcribes audio and buffers it as text", async () => {
+  /**
+   * La transcripción se conserva —el equipo la lee en la Bandeja y en el
+   * ticket— pero el mensaje queda MARCADO como archivo. Antes no lo estaba, y
+   * por eso una nota de voz entraba al modelo como si la clienta la hubiera
+   * escrito: sin ticket y sin aviso a la dueña, mientras la base de
+   * conocimiento le prometía a la clienta que un archivo lo revisa una persona.
+   */
+  it("transcribes audio and buffers it as text, marcado como archivo", async () => {
     const { agent } = makeAgent({ aiText: "hola desde un audio" });
     stubConversations();
 
@@ -148,7 +155,9 @@ describe("SupportAgent.ingest — media (Task 6.3)", () => {
 
     expect(agent.env.AI.run).toHaveBeenCalled();
     expect(agent.state.pendingMessages).toHaveLength(1);
-    expect(agent.state.pendingMessages[0].text).toBe("hola desde un audio");
+    expect(agent.state.pendingMessages[0].text).toBe(
+      "hola desde un audio\n[ARCHIVO: audio]",
+    );
   });
 
   it("falls back to a friendly message when transcription throws", async () => {
@@ -163,8 +172,10 @@ describe("SupportAgent.ingest — media (Task 6.3)", () => {
       audioUrl: "https://example.com/voice.ogg",
     });
 
+    // Marcado igual: que la transcripción falle no lo vuelve un mensaje de
+    // texto normal. Sigue siendo un archivo que una persona tiene que revisar.
     expect(agent.state.pendingMessages[0].text).toBe(
-      "(no pude entender el audio)",
+      "(no pude entender el audio)\n[ARCHIVO: audio]",
     );
   });
 

@@ -1,4 +1,4 @@
-import type { ChannelAdapter, IncomingMessage, OutgoingReply } from "./shared";
+import type { ArchivoNoLegible, ChannelAdapter, IncomingMessage, OutgoingReply } from "./shared";
 import type { Env } from "../env";
 
 const TG_API = "https://api.telegram.org/bot";
@@ -14,6 +14,10 @@ export interface TgUpdate {
     caption?: string;
     voice?: { file_id: string; duration: number };
     photo?: { file_id: string; width: number; height: number }[];
+    document?: { file_id: string; file_name?: string; mime_type?: string };
+    video?: { file_id: string; duration?: number };
+    audio?: { file_id: string; duration?: number };
+    sticker?: { file_id: string };
   };
 }
 
@@ -74,6 +78,7 @@ export async function mensajeDeTelegram(update: TgUpdate, env: Env): Promise<Inc
   let text = msg.text;
   let audioUrl: string | undefined;
   let imageUrl: string | undefined;
+  let fileKind: ArchivoNoLegible | undefined;
   const token = env.TELEGRAM_BOT_TOKEN ?? "";
   if (msg.voice) {
     // Resolve to a real, fetchable HTTPS URL via getFile (see docs above).
@@ -81,6 +86,17 @@ export async function mensajeDeTelegram(update: TgUpdate, env: Env): Promise<Inc
   } else if (msg.photo) {
     const largest = msg.photo[msg.photo.length - 1];
     imageUrl = (await resolveTelegramFileUrl(largest.file_id, token)) ?? undefined;
+    text = msg.caption;
+  } else if (msg.document || msg.video || msg.audio || msg.sticker) {
+    /**
+     * No se descargan: el bot no puede leerlos. Lo que importa es que el
+     * mensaje exista para que se abra el ticket y una persona conteste.
+     *
+     * Antes un PDF o un video llegaban con todo en `undefined` y el turno
+     * moría en `if (!combined) return` de agent.ts: la clienta quedaba en
+     * visto. Y el comprobante de una transferencia llega en PDF muy seguido.
+     */
+    fileKind = msg.video ? "video" : msg.audio ? "audio" : "documento";
     text = msg.caption;
   }
   return {
@@ -90,6 +106,7 @@ export async function mensajeDeTelegram(update: TgUpdate, env: Env): Promise<Inc
     text,
     audioUrl,
     imageUrl,
+    fileKind,
     isOwnerMessage: false,
     receivedAt: Date.now(),
     rawPayload: update,

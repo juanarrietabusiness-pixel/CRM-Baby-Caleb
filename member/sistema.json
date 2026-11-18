@@ -1,0 +1,26 @@
+{
+  "_comentario": [
+    "El sistema de este negocio, si lo tiene. Este archivo es OPCIONAL.",
+    "",
+    "Qué hace: añade al despliegue la conexión directa entre este bot y el",
+    "Worker del sistema (el que está detrás del panel administrativo), para que",
+    "el bot pueda preguntarle el catálogo, las existencias y las zonas en vez de",
+    "leer su propia copia.",
+    "",
+    "Por qué vive aquí y no en wrangler.toml: wrangler.toml es la plantilla de",
+    "Juancito Ads y la mayoría de los bots que salen de ella NO tienen un sistema",
+    "detrás. Una conexión a un Worker que no existe hace que el despliegue FALLE",
+    "—lo dice la documentación de Cloudflare—, así que ponerla ahí rompería el",
+    "despliegue de todos los demás. Aquí, en member/, es «lo de este negocio» y",
+    "se respeta en cada actualización.",
+    "",
+    "Tenerlo NO cambia lo que el bot contesta. Lo que decide de dónde sale el",
+    "catálogo es CATALOGO_FUENTE en wrangler.toml. Esto solo deja el cable",
+    "puesto; el interruptor es el otro.",
+    "",
+    "Para quitarlo: borre este archivo y vuelva a desplegar."
+  ],
+  "worker": "babycaleb-sistema",
+  "entrypoint": "SistemaCRM",
+  "binding": "SISTEMA"
+}

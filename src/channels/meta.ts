@@ -42,6 +42,27 @@ interface MetaWebhookBody {
 }
 
 /**
+ * Un adjunto que la clienta mandó a propósito y el bot NO puede leer.
+ *
+ * `file` y `video` antes caían en el `continue` de `parseMetaEvents` y el
+ * mensaje desaparecía entero: ni guardado, ni ticket, ni respuesta — y el
+ * comprobante de una transferencia llega en PDF muy seguido.
+ *
+ * `story_mention`, `share` y compañía se quedan FUERA a propósito: no son un
+ * archivo que haya que revisar (a esta cuenta la etiquetan en historias todos
+ * los días) y abrir un ticket por cada una sería avisarle a la dueña de nada.
+ * Esos los cuenta `resumirMetaEventos` aparte, para que el panel pueda decir
+ * que se están descartando.
+ */
+const ADJUNTO_ILEGIBLE = new Set(["file", "video"]);
+
+/** ¿Este adjunto es un mensaje de la clienta? Una sola definición para las dos
+ *  funciones de abajo: si se separan, el resumen del panel miente. */
+function adjuntoEsContenido(tipo?: string): boolean {
+  return tipo === "audio" || tipo === "image" || (tipo !== undefined && ADJUNTO_ILEGIBLE.has(tipo));
+}
+
+/**
  * Convierte un webhook de Meta en 0..N mensajes entrantes. Un solo POST puede
  * traer varias entradas y varios eventos; también trae echoes (mensajes que la
  * propia página envió) y recibos de entrega/lectura, que se ignoran.
@@ -66,13 +87,20 @@ export function parseMetaEvents(body: MetaWebhookBody): IncomingMessage[] {
       if (!sender) continue;
       const audio = m.attachments?.find((a) => a.type === "audio");
       const image = m.attachments?.find((a) => a.type === "image");
-      if (!m.text && !audio && !image) continue; // ignora recibos/postbacks sin contenido
+      // Un PDF o un video no se pueden leer, pero tampoco se pueden tirar:
+      // antes caían en el `continue` de abajo y la clienta quedaba en visto.
+      // Generan mensaje para que se abra el ticket (ver ADJUNTO_ILEGIBLE).
+      const otro = m.attachments?.find((a) => ADJUNTO_ILEGIBLE.has(a.type));
+      if (!m.text && !audio && !image && !otro) continue; // recibos/postbacks sin contenido
       out.push({
         channel,
         channelUserId: String(sender),
         text: m.text || undefined,
         audioUrl: audio?.payload?.url,
         imageUrl: image?.payload?.url,
+        fileKind: !audio && !image && otro
+          ? otro.type === "video" ? "video" : "documento"
+          : undefined,
         isOwnerMessage: false,
         receivedAt: Date.now(),
         rawPayload: ev,
@@ -141,7 +169,7 @@ export function resumirMetaEventos(body: MetaWebhookBody): ResumenMeta {
       if (m.is_echo) { r.echo++; continue; }
       if (m.quick_reply) { r.quickReply++; continue; }
       if (!ev.sender?.id) { r.sinRemitente++; continue; }
-      const tieneMedio = m.attachments?.some((a) => a.type === "audio" || a.type === "image");
+      const tieneMedio = m.attachments?.some((a) => adjuntoEsContenido(a.type));
       if (!m.text && !tieneMedio) {
         r.sinContenido++;
         for (const a of m.attachments ?? []) if (a?.type) tipos.add(a.type);

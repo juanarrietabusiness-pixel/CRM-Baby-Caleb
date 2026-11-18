@@ -11,7 +11,7 @@
 // (Bearer) → url, y GET url (Bearer) → bytes. Para reusar transcribe/vision sin
 // tocarlas, lo servimos por un proxy FIRMADO (/webhooks/whatsapp/media/:id): la
 // URL es pública pero con HMAC + expiración, y el token queda del lado del server.
-import type { ChannelAdapter, IncomingMessage, OutgoingReply } from "./shared";
+import type { ArchivoNoLegible, ChannelAdapter, IncomingMessage, OutgoingReply } from "./shared";
 import type { Env } from "../env";
 import { graphVersion } from "./graph";
 
@@ -25,6 +25,9 @@ interface WaMessage {
   text?: { body?: string };
   image?: { id?: string; caption?: string; mime_type?: string };
   audio?: { id?: string; voice?: boolean; mime_type?: string };
+  document?: { id?: string; caption?: string; filename?: string; mime_type?: string };
+  video?: { id?: string; caption?: string; mime_type?: string };
+  sticker?: { id?: string; mime_type?: string };
 }
 
 interface WaChange {
@@ -79,9 +82,10 @@ async function signedMediaUrl(mediaId: string, env: Env, origin: string): Promis
 
 /**
  * Convierte un webhook de WhatsApp Cloud en 0..N mensajes entrantes. Un POST
- * puede traer varias entradas y varios mensajes; los `statuses` (recibos) y los
- * tipos no soportados (ubicación, sticker, etc.) se ignoran. `origin` es la base
- * pública del worker (para firmar las URLs de media entrante).
+ * puede traer varias entradas y varios mensajes; los `statuses` (recibos) se
+ * ignoran. Documento, video y sticker no se descargan —el bot no puede leerlos—
+ * pero SÍ generan mensaje, para que se abra el ticket y una persona conteste.
+ * `origin` es la base pública del worker (para firmar las URLs de media entrante).
  */
 export async function parseWhatsAppEvents(
   body: WaWebhookBody,
@@ -104,6 +108,7 @@ export async function parseWhatsAppEvents(
         let text: string | undefined;
         let audioUrl: string | undefined;
         let imageUrl: string | undefined;
+        let fileKind: ArchivoNoLegible | undefined;
         if (m.type === "text") {
           text = m.text?.body || undefined;
         } else if (m.type === "image" && m.image?.id) {
@@ -112,12 +117,24 @@ export async function parseWhatsAppEvents(
         } else if (m.type === "audio" && m.audio?.id) {
           // Las notas de voz llegan como type "audio" con voice:true.
           audioUrl = (await signedMediaUrl(m.audio.id, env, origin)) ?? undefined;
+        } else if (m.type === "document" || m.type === "video" || m.type === "sticker") {
+          /**
+           * No se descarga: el bot no puede leerlos igual. Lo que importa es que
+           * el mensaje EXISTA, para que se abra el ticket y una persona conteste.
+           *
+           * Antes caían en el `continue` de abajo y desaparecían sin dejar
+           * rastro: ni mensaje guardado, ni ticket, ni respuesta. El comprobante
+           * de una transferencia bancaria llega en PDF muy seguido, así que el
+           * caso que más importa era justo el que se perdía en silencio.
+           */
+          fileKind = m.type === "video" ? "video" : "documento";
+          text = (m as any)[m.type]?.caption || undefined;
         }
         console.log(
           "whatsapp in:",
-          JSON.stringify({ from, type: m.type, hasText: !!text, hasAudio: !!audioUrl, hasImage: !!imageUrl }),
+          JSON.stringify({ from, type: m.type, hasText: !!text, hasAudio: !!audioUrl, hasImage: !!imageUrl, fileKind }),
         );
-        if (!text && !audioUrl && !imageUrl) continue; // tipo no soportado / vacío
+        if (!text && !audioUrl && !imageUrl && !fileKind) continue; // tipo no soportado / vacío
         out.push({
           channel: "whatsapp",
           channelUserId: String(from),
@@ -125,6 +142,7 @@ export async function parseWhatsAppEvents(
           text,
           audioUrl,
           imageUrl,
+          fileKind,
           isOwnerMessage: false,
           receivedAt: Date.now(),
           rawPayload: m,

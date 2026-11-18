@@ -24,7 +24,8 @@
     "icons:build": "node scripts/build-icons.mjs",
     "icons:check": "node scripts/build-icons.mjs --check",
     "conocimiento": "node scripts/build-conocimiento.mjs",
-    "conocimiento:check": "node scripts/build-conocimiento.mjs --check"
+    "conocimiento:check": "node scripts/build-conocimiento.mjs --check",
+    "ensayo": "tsx scripts/ensayo-del-cambio.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",

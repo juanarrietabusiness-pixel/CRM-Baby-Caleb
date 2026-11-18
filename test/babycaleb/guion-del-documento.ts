@@ -174,7 +174,10 @@ export const GUION: CasoDelGuion[] = [
     id: "fin-de-semana",
     pregunta: "¿entregan sábado o domingo?",
     fuente: "kb",
-    debeContener: ["sábados", "domingos no hay entregas"],
+    // Dos trozos y no la frase entera: la dueña reescribe este documento desde
+    // el panel y el 17-nov-2026 cambió "Domingos no hay entregas" por
+    // "Domingos cerrados: no hay entregas". El dato es el mismo.
+    debeContener: ["sábados", "domingos", "no hay entregas"],
   },
   {
     id: "retiro",

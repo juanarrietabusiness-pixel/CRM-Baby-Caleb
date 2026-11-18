@@ -12,7 +12,26 @@ export interface Env {
   CATALOG?: R2Bucket;
   AI: Ai;
 
+  /**
+   * El sistema de Baby Caleb (`babycaleb-sistema`), por service binding.
+   *
+   * Opcional a propósito: este repositorio es la plantilla de Juancito Ads y
+   * la mayoría de los bots que salen de él no tienen un sistema detrás. Sin el
+   * binding, `CATALOGO_FUENTE` no puede valer "sistema" y todo sigue igual.
+   */
+  SISTEMA?: import("./catalog/fuente").SistemaBinding;
+
   // Vars (member-set)
+
+  /**
+   * De dónde sale el catálogo: "d1" (lo de siempre, por omisión) o "sistema".
+   *
+   * Es el interruptor del traspaso. Mientras no esté puesta, el bot se comporta
+   * exactamente como hoy, y volver atrás es cambiar una variable y no
+   * desplegar. Ver `src/catalog/fuente.ts`.
+   */
+  CATALOGO_FUENTE?: "d1" | "sistema";
+
   BOT_NAME: string;
   PEER_BOTS?: string; // JSON [{name,url}] — otras instancias para el selector de proyectos
   WA_DAILY_TEMPLATE_CAP?: string; // tope diario de plantillas HSM (default 250 — tier 1 de Meta)

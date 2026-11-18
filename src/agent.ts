@@ -20,7 +20,7 @@ import { notifyOwner } from "./tools/handoffHuman";
 import { createModel, OPCIONES_POR_PROVEEDOR } from "./llm/provider";
 import { anotarFalloLlm, describirError, secretosDelEntorno } from "./llm/ultimoFallo";
 import { costOfUsage } from "./pricing";
-import type { ChannelId } from "./channels/shared";
+import type { ArchivoNoLegible, ChannelId } from "./channels/shared";
 import { pausarPorHumano, viaDeAtencion } from "./takeover";
 import { revisarRespuesta, hayQueBloquear, notaDeRevision, respuestaSegura } from "./replies/revisor";
 import type { Problema } from "./replies/revisor";
@@ -60,7 +60,34 @@ export interface AgentIncomingPayload {
   text?: string;
   audioUrl?: string;
   imageUrl?: string;
+  /**
+   * Un archivo que el bot no puede leer y que igual tiene que llegar a una
+   * persona: un PDF con el comprobante de una transferencia, un video, un
+   * sticker. Antes los canales los descartaban en silencio —ni mensaje
+   * guardado, ni ticket, ni respuesta— y desde afuera parecía que el negocio
+   * había dejado a la clienta en visto.
+   */
+  fileKind?: ArchivoNoLegible;
   isOwnerMessage?: boolean;
+}
+
+/**
+ * Marca interna: "en este turno llegó un archivo que el bot NO puede revisar".
+ *
+ * Existe porque la escalada de archivos miraba solo `[IMAGE_URL: …]`, así que
+ * una nota de voz se transcribía con Whisper y entraba al modelo como si la
+ * clienta la hubiera escrito: sin ticket, sin aviso a la dueña. Y la base de
+ * conocimiento le promete a la clienta justo lo contrario ("el archivo no le
+ * llega al bot: el sistema lo retiene y crea el ticket solo").
+ *
+ * Nunca debe llegar al modelo: se quita del texto antes de armar el turno.
+ */
+export const RE_ARCHIVO = /\n?\[ARCHIVO: (audio|documento|video)\]/;
+const RE_IMAGEN = /\n?\[IMAGE_URL: .+?\]/;
+
+/** Quita las marcas internas de un mensaje guardado. */
+export function limpiarMarcas(texto: string): string {
+  return texto.replace(RE_IMAGEN, "").replace(RE_ARCHIVO, "").trim();
 }
 
 export class SupportAgent extends Agent<Env, SupportAgentState> {
@@ -170,6 +197,29 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         console.error("[ingest] transcription failed:", e);
         processedText = "(no pude entender el audio)";
       }
+      // Se sigue transcribiendo —el equipo lo lee en la Bandeja y en el
+      // ticket—, pero queda marcado: con `escalar_media` encendido, la
+      // transcripción NO se le pasa al modelo. El contenido de una nota de voz
+      // es el archivo, y el negocio prometió que un archivo lo revisa una
+      // persona. Un "ya le hice el Yappy" por voz no lo confirma un bot.
+      processedText += "\n[ARCHIVO: audio]";
+    }
+
+    // Documento, video, sticker o un audio que no es nota de voz (Telegram
+    // manda los archivos de música como `audio`, sin URL que transcribir): no
+    // hay nada que leer, pero tiene que existir el mensaje para que se abra el
+    // ticket y alguien conteste. La condición mira `audioUrl`, no el tipo: si
+    // ya se transcribió arriba, la marca ya está puesta.
+    if (payload.fileKind && !payload.audioUrl) {
+      const comoSeLlama =
+        payload.fileKind === "video"
+          ? "un video"
+          : payload.fileKind === "audio"
+            ? "un audio"
+            : "un documento";
+      processedText =
+        (processedText || `(La clienta envió ${comoSeLlama})`) +
+        `\n[ARCHIVO: ${payload.fileKind}]`;
     }
 
     if (payload.imageUrl) {
@@ -297,11 +347,20 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
    * Called by the agents SDK scheduler when the msg-buffer task fires.
    * Processes accumulated messages as one input, runs the LLM loop, and
    * sends the chunked reply over the channel adapter.
+   *
+   * DEVUELVE los trozos de la respuesta (F3.6). El planificador los ignora —
+   * sigue siendo el mismo método de siempre para WhatsApp y Telegram—, pero el
+   * canal web los necesita: ahí la respuesta vuelve por donde entró la
+   * pregunta, en vez de salir por un adaptador.
+   *
+   * Devuelve `[]` cuando no hubo nada que contestar: buffer vacío, bot en
+   * pausa, o un mensaje que los guardarraíles descartaron. Para la web eso NO
+   * es un error, es «ahora no contesto», y la pantalla lo dice.
    */
-  async processBuffer(): Promise<void> {
+  async processBuffer(): Promise<string[]> {
     const pendientes = [...this.state.pendingMessages];
     this.setState({ ...this.state, pendingMessages: [] });
-    if (pendientes.length === 0) return;
+    if (pendientes.length === 0) return [];
 
     const db = new Db(this.env.DB);
     const msgs = new MessagesRepo(db);
@@ -309,7 +368,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     const convId = this.state.conversationId;
     if (!convId) {
       console.warn("[SupportAgent.processBuffer] no conversation_id in state");
-      return;
+      return [];
     }
 
     // Lo vencido se anota pero no se contesta. Son restos de antes de este
@@ -322,7 +381,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       if (m.text.trim()) await msgs.append(convId, "user", m.text.trim(), { createdAt: m.receivedAt });
     }
     const buffered = pendientes.filter((m) => ahora - m.receivedAt <= BUFFER_VENCIDO_MS);
-    if (buffered.length === 0) return;
+    if (buffered.length === 0) return [];
 
     // Entre que llegó el mensaje y que venció la espera del buffer, una
     // persona pudo haber tomado la conversación (contestó desde el teléfono,
@@ -331,11 +390,11 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       for (const m of buffered) {
         if (m.text.trim()) await msgs.append(convId, "user", m.text.trim(), { createdAt: m.receivedAt });
       }
-      return;
+      return [];
     }
 
     const combined = buffered.map((m) => m.text).join("\n").trim();
-    if (!combined) return;
+    if (!combined) return [];
 
     // Persist user message
     await msgs.append(convId, "user", combined);
@@ -359,7 +418,10 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         : m.role === "owner"
           ? "assistant"
           : m.role) as "user" | "assistant",
-      content: m.content,
+      // Sin esto, las marcas internas viajan al modelo como texto crudo en cada
+      // turno siguiente — incluida la URL firmada del proxy de media, que el
+      // modelo podría llegar a escribirle a la clienta.
+      content: limpiarMarcas(m.content),
     }));
 
     /**
@@ -378,31 +440,48 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
      */
     const lastUserMsg = history[history.length - 1];
     let mediaEscalada = false;
+    let tipoArchivo = "un archivo";
     let fotoEscalada: string | undefined;
     // La imagen va en BYTES, leída por el CRM (ver imagenParaElModelo). Si no
     // se pudo abrir, el modelo lo sabe y atiende a la clienta igual.
     let textoSinImagen: string | null = null;
     if (lastUserMsg) {
       const imgMatch = lastUserMsg.content.match(/\[IMAGE_URL: (.+?)\]/);
-      const cleanText = lastUserMsg.content.replace(/\n?\[IMAGE_URL: .+?\]/, "").trim();
+      const fileMatch = lastUserMsg.content.match(RE_ARCHIVO);
+      const cleanText = limpiarMarcas(lastUserMsg.content);
       if (imgMatch && isPro(this.env) && !cfg.escalarMedia) {
         textoSinImagen = `${cleanText || "(sin texto)"}\n\n${NOTA_IMAGEN_ILEGIBLE}`;
         const img = await imagenParaElModelo(this.env, imgMatch[1]);
         aiMessages.push(img ? mensajeConImagen(cleanText, img) : { role: "user", content: textoSinImagen });
         if (!img) textoSinImagen = null; // ya va sin imagen: no hay a qué caer
-      } else if (imgMatch && cfg.escalarMedia) {
+      } else if ((imgMatch || fileMatch) && cfg.escalarMedia) {
         mediaEscalada = true;
-        fotoEscalada = imgMatch[1];
+        // Solo la imagen se le puede reenviar a la dueña por Telegram; un PDF
+        // o un video quedan en el panel y en su teléfono.
+        if (imgMatch) fotoEscalada = imgMatch[1];
+        tipoArchivo = imgMatch ? "una imagen" : fileMatch![1] === "audio"
+          ? "una nota de voz"
+          : fileMatch![1] === "video"
+            ? "un video"
+            : "un documento";
+        /**
+         * En un audio, el texto ES el archivo: pasarle la transcripción sería
+         * exactamente lo que la base de conocimiento jura que no ocurre. En una
+         * imagen o un documento, en cambio, el texto es el pie que la clienta
+         * escribió y sí es suyo — ese se conserva.
+         */
+        const visible =
+          fileMatch?.[1] === "audio" ? "(nota de voz)" : cleanText || "(sin texto)";
         aiMessages.push({
           role: "user",
           content:
-            `${cleanText || "(sin texto)"}\n\n[La clienta adjuntó un archivo. NO puedes verlo: ` +
+            `${visible}\n\n[La clienta adjuntó un archivo. NO puedes verlo ni oírlo: ` +
             "ya se creó un ticket y una persona del equipo lo va a revisar. Dígale con calidez " +
             "que lo está pasando con alguien del equipo para revisarlo. NUNCA des por confirmado " +
             "un pago ni describas el archivo: no lo tienes.]",
         });
       } else {
-        aiMessages.push({ role: "user", content: lastUserMsg.content });
+        aiMessages.push({ role: "user", content: cleanText || lastUserMsg.content });
       }
     }
 
@@ -418,13 +497,19 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         const ticketId = await new TicketsRepo(db).create({
           conversationId: convId,
           category: "other",
-          summary: "La clienta envió un archivo (imagen, audio o documento). Requiere revisión humana.",
-          transcript: "",
+          summary: `La clienta envió ${tipoArchivo}. Requiere revisión humana.`,
+          // En una nota de voz, la transcripción es justo lo que la persona
+          // necesita leer para atender el caso sin volver a pedir el audio.
+          transcript: lastUserMsg ? limpiarMarcas(lastUserMsg.content) : "",
         });
         await convs.setOpenTicket(convId, ticketId);
         await notifyOwner(this.env, {
           reason: "archivo recibido",
-          summary: "La clienta envió un archivo que el bot no puede revisar (¿un comprobante de pago?). Aquí arriba se lo mando; también está en el teléfono y en el panel.",
+          summary:
+            `La clienta envió ${tipoArchivo} que el bot no puede revisar (¿un comprobante de pago?). ` +
+            (fotoEscalada
+              ? "Aquí arriba se lo mando; también está en el teléfono y en el panel."
+              : "No se lo puedo reenviar por aquí, pero está en el teléfono y en el panel."),
           ticketId,
           conversationId: convId,
           foto: fotoEscalada,
@@ -706,7 +791,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     // sale — mandarla sería justo el choque que esto existe para evitar.
     if (await this.hayQueCallarse(convId)) {
       console.log(`[SupportAgent] conv ${convId}: una persona tomó la conversación mientras el bot pensaba — no se envía`);
-      return;
+      return [];
     }
 
     // Persist assistant message (with usage + model_used + tool calls)
@@ -727,6 +812,23 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     // Chunk + send via the channel adapter
     const chunks = chunkReply(assistantText, cfg.maxChunks);
     const channel = this.state.channel as ChannelId;
+
+    // El canal web no tiene a dónde ENVIAR: la clienta está esperando la
+    // respuesta de la misma petición con la que preguntó, y se la lleva quien
+    // llamó a `responderWeb`. WhatsApp y Telegram son al revés —se recibe
+    // ahora y se contesta cuando se termina de pensar—, y por eso ellos sí
+    // necesitan un adaptador que empuje el mensaje.
+    //
+    // Es un `if` explícito y no un adaptador que no haga nada a propósito:
+    // un "enviador" silencioso es exactamente la clase de cosa que oculta un
+    // mensaje perdido durante semanas.
+    if (channel === "web") {
+      console.log(
+        `[SupportAgent.processBuffer] web: ${chunks.length} trozos de vuelta, model=${usedModelId}`,
+      );
+      return chunks;
+    }
+
     const adapter = pickAdapter(channel);
     await adapter.sendReply(
       {
@@ -744,5 +846,30 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         { input: inputTokens, cached: cachedTokens, output: outputTokens },
       ).toFixed(5)}`,
     );
+
+    return chunks;
+  }
+
+  /**
+   * Un mensaje del chat de la web, contestado en el acto (F3.6).
+   *
+   * La diferencia con `ingest` no es de canal, es de FORMA: en WhatsApp la
+   * clienta escribe y se va, y el bot contesta cuando termina de pensar. En la
+   * web está mirando la pantalla, esperando. Así que aquí no se junta en un
+   * buffer para contestar dentro de ocho segundos: se procesa ya, y la
+   * respuesta vuelve por donde entró la pregunta.
+   *
+   * Pasa por `ingest` a propósito, aunque después fuerce el procesado: ahí
+   * viven la creación de la conversación, la pausa que pone la dueña desde el
+   * panel, el descanso por mensaje repetido y los demás guardarraíles. Un
+   * segundo camino que los saltara sería un bot que en la web se comporta
+   * distinto — y cada uno de esos guardarraíles existe por algo que ya pasó.
+   *
+   * `ingest` deja programada su alarma. Da igual: cuando salte, el buffer ya
+   * estará vacío y `processBuffer` se devuelve sin hacer nada.
+   */
+  async responderWeb(payload: AgentIncomingPayload): Promise<{ trozos: string[] }> {
+    await this.ingest(payload);
+    return { trozos: await this.processBuffer() };
   }
 }
