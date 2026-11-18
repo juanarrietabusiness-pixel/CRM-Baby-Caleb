@@ -32,7 +32,10 @@ export interface ZonaEnvio {
 }
 
 export const ZONAS_CIUDAD_PANAMA: ZonaEnvio[] = [
-  { nombre: "12 de Octubre", tarifaCents: 300, alias: ["doce de octubre"] },
+  // Corregida por la dueña (nov-2026): de $3.00 a $4.00. El documento de
+  // septiembre decía $3 y ella lo subió después; el precio vive AQUÍ y en
+  // ningún otro sitio.
+  { nombre: "12 de Octubre", tarifaCents: 400, alias: ["doce de octubre"] },
   { nombre: "Betania", tarifaCents: 400 },
   { nombre: "Bella Vista", tarifaCents: 400 },
   { nombre: "Calle 50", tarifaCents: 400, alias: ["calle cincuenta"] },

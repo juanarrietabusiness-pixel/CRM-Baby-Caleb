@@ -39,4 +39,4 @@ exactas. Sábados con agenda previa. Domingos cerrados: no hay entregas. Los dom
 Motorizados de confianza, no una empresa externa. El motorizado le escribe a la
 clienta cuando va en camino.
 
-Tarifa actualizada — 12 de Octubre: el delivery a 12 de Octubre es $4. Cuando la clienta indique 12 de Octubre (y variantes: 12 octubre, Doce de Octubre), informe $4 como costo de transporte. Si cotizarEnvio devuelve otro valor para esa zona, prevalece $4 por ser tarifa corregida por el dueño. Para el resto de zonas, siga consultando cotizarEnvio tal cual y sin estimar.
+Las tarifas de delivery por zona salen SIEMPRE de cotizarEnvio, incluida 12 de Octubre (y sus variantes: 12 octubre, Doce de Octubre). No las estime ni las repita de memoria: consulte la herramienta y diga lo que devuelva.
