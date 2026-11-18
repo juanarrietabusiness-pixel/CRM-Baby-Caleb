@@ -207,6 +207,66 @@ describe("inbox — pause / resume", () => {
   });
 });
 
+describe("inbox — devolver al bot es un solo toque", () => {
+  it("desde htmx devuelve el hilo ya actualizado, sin nota obligatoria", async () => {
+    const conv = await convs.getOrCreate("whatsapp-qr", "9@lid", "Ana");
+    await convs.setPausedUntil(conv.id, Date.now() + 60_000);
+
+    const res = await adminApp.request(
+      `/conversations/${encodeURIComponent(conv.id)}/resume`,
+      { method: "POST", headers: { ...AUTH, "HX-Request": "true" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("bot activo");
+    expect(html).not.toContain("bot pausado");
+    expect(await convs.isPaused(conv.id)).toBe(false);
+  });
+
+  it("cierra los tickets abiertos de esa conversación (y solo de esa)", async () => {
+    const { TicketsRepo } = await import("../../src/db/tickets");
+    const tickets = new TicketsRepo(db);
+    const conv = await convs.getOrCreate("whatsapp-qr", "10@lid");
+    const otra = await convs.getOrCreate("whatsapp-qr", "11@lid");
+    const t1 = await tickets.create({ conversationId: conv.id, category: "other", summary: "pago", transcript: "" });
+    const t2 = await tickets.create({ conversationId: otra.id, category: "other", summary: "otro", transcript: "" });
+    await convs.setOpenTicket(conv.id, t1);
+    await convs.setPausedUntil(conv.id, Date.now() + 60_000);
+
+    await adminApp.request(
+      `/conversations/${encodeURIComponent(conv.id)}/resume`,
+      { method: "POST", headers: { ...AUTH, "HX-Request": "true" } },
+      env,
+    );
+
+    expect((await tickets.getById(t1))?.status).toBe("resolved");
+    expect((await tickets.getById(t2))?.status).toBe("open");
+    expect((await convs.getById(conv.id))?.open_ticket_id).toBeNull();
+  });
+
+  it("el hilo en vivo no se refresca mientras la dueña escribe la nota", async () => {
+    const conv = await convs.getOrCreate("telegram", "u99");
+    const res = await adminApp.request(
+      `/conversations?c=${encodeURIComponent(conv.id)}`,
+      { headers: AUTH },
+      env,
+    );
+    const html = await res.text();
+    expect(html).toMatch(/id="thread-live"[^>]*data-respeta-edicion/);
+  });
+
+  it("la pausa desde el panel dura lo que diga el ajuste takeover_minutes", async () => {
+    const { SettingsRepo, SETTING_KEYS } = await import("../../src/db/settings");
+    await new SettingsRepo(db).set(SETTING_KEYS.takeoverMinutes, "720");
+    const conv = await convs.getOrCreate("telegram", "u100");
+    const antes = Date.now();
+    await adminApp.request(`/conversations/${encodeURIComponent(conv.id)}/pause`, { method: "POST", headers: AUTH }, env);
+    const pausa = (await convs.getById(conv.id))?.paused_until ?? 0;
+    expect(pausa).toBeGreaterThanOrEqual(antes + 720 * 60_000);
+  });
+});
+
 describe("inbox — filtros por sentimiento del Analista", () => {
   it("filtra molestos y contentos según conversation_insights", async () => {
     const { InsightsRepo } = await import("../../src/db/insights");

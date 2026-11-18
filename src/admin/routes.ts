@@ -13,7 +13,14 @@
 import { parsePeerBots } from "./projects";
 import { Hono } from "hono";
 import { generateText } from "ai";
-import { createModel } from "../llm/provider";
+import {
+  createModel,
+  pareceLlaveDeIa,
+  proveedorDelModelo,
+  MAX_TOKENS_DE_PRUEBA,
+  PROVEEDORES,
+  type LlmProvider,
+} from "../llm/provider";
 import { loadLlmOverrides, effectiveBusinessContext } from "../settings-loader";
 import type { Env } from "../env";
 import { checkBasicCredentials, timingSafeEqual } from "./auth";
@@ -41,12 +48,13 @@ import type { ChannelId } from "../channels/shared";
 import { renderInsights } from "./views/insights";
 import { analyzeConversations } from "../insights/analyzer";
 import { renderAgentePage, renderAgenteCanvas, renderNodeModal, toggleTool, toastOob } from "./views/agente";
-import { renderKbList, renderKbEditor } from "./views/kb";
-import { KbDocsRepo, indexDoc, removeDocVectors, reindexAll, MAX_DOC_CHARS } from "../kb/docs";
+import { renderKbList, renderKbEditor, renderKbGithub } from "./views/kb";
+import { KbDocsRepo, indexDoc, removeDocVectors, reindexAll, docDeGithub, MAX_DOC_CHARS } from "../kb/docs";
 import { renderMejoras } from "./views/mejoras";
 import { runFlywheel, getLessons, saveLessons } from "../flywheel/detect";
 import { applySuggestion, dismissSuggestion } from "../flywheel/apply";
 import { renderLeads, exportLeadsCsv } from "./views/leads";
+import { contactosParaMeta, contactosACsv, type Publico } from "../db/publicos";
 import { renderTickets } from "./views/tickets";
 import { renderCatalogo } from "./views/catalogo";
 import { renderCatalogoEditor } from "./views/catalogoEditor";
@@ -60,9 +68,21 @@ import {
   type ProductInput,
   type StockInput,
 } from "../catalog/validation";
-import { renderConfig } from "./views/config";
+import { renderConfig, CONSERVAR } from "./views/config";
 import { renderConexiones, renderWhatsAppDiag } from "./views/conexiones";
+import { readWebhookDiag } from "../channels/webhookDiag";
+import { pausarPorHumano, devolverAlBot } from "../takeover";
+import { chatDelDueno, crearCodigoDeVinculo, desvincular, protegerConsola } from "../owner/dueno";
+import { nombreDelBot } from "../owner/telegram";
+import { avisarAlDueno } from "../owner/avisos";
+import {
+  renderAvisoDuenoEnlace,
+  renderAvisoDuenoSinVincular,
+  renderAvisoDuenoVinculado,
+} from "./views/avisoDueno";
+import { renderWhatsappQrPanel, type EstadoDelPuente } from "./views/whatsappQr";
 import { diagnoseWhatsAppCloud } from "../channels/whatsappDiag";
+import { diagnoseInstagramRead } from "../channels/instagramDiag";
 import { renderCampanas } from "./views/campanas";
 import { sendCampaign, createHandoffTemplate, contentApprovalStatus } from "../campaigns";
 import { Db } from "../db/client";
@@ -195,6 +215,7 @@ adminApp.get("/kb", async (c) =>
       saved: c.req.query("saved") === "1",
       deleted: c.req.query("deleted") === "1",
       reindexed: c.req.query("reindexed") ?? undefined,
+      github: c.req.query("github") ?? undefined,
     }),
   ),
 );
@@ -207,6 +228,13 @@ adminApp.get("/kb/:id/edit", async (c) => {
   return c.html(renderKbEditor(doc, c.env));
 });
 
+// Un documento del conocimiento base (GitHub): se lee, no se edita aquí.
+adminApp.get("/kb/github/:id", (c) => {
+  const doc = docDeGithub(c.req.param("id"));
+  if (!doc) return c.redirect("/admin/kb");
+  return c.html(renderKbGithub(doc, c.env));
+});
+
 // Save = persist in D1 + index into Vectorize immediately (stale vectors for
 // the doc are blanket-deleted first), so searchKb uses it on the next message.
 adminApp.post("/kb/save", async (c) => {
@@ -216,6 +244,10 @@ adminApp.post("/kb/save", async (c) => {
   if (!title || !content) return c.redirect("/admin/kb");
 
   const id = String(form.get("id") ?? "").trim() || crypto.randomUUID();
+  // El conocimiento base vive en GitHub: un documento del panel con su mismo id
+  // o título sería el mismo tema con dos dueños (ver src/kb/docs.ts).
+  const deGithub = docDeGithub(id) ?? docDeGithub(title);
+  if (deGithub) return c.redirect(`/admin/kb?github=${encodeURIComponent(deGithub.title)}`);
   const repo = new KbDocsRepo(new Db(c.env.DB));
   await repo.upsert({ id, title, content });
   const doc = (await repo.getById(id))!;
@@ -234,6 +266,58 @@ adminApp.post("/kb/:id/delete", async (c) => {
 adminApp.post("/kb/reindex", async (c) => {
   const r = await reindexAll(c.env);
   return c.redirect(`/admin/kb?reindexed=${r.indexed}`);
+});
+
+// --- Aviso al dueño por Telegram (vincular sin terminal) -----------------------
+//
+// El fragmento vive en la tarjeta de Telegram de Conexiones. `esperando=1` es
+// el sondeo mientras la dueña abre el enlace: contesta 204 (htmx no toca nada)
+// hasta que el vínculo existe, y entonces pinta el verde.
+adminApp.get("/telegram/dueno", async (c) => {
+  const chat = await chatDelDueno(c.env);
+  if (chat) {
+    return c.html(renderAvisoDuenoVinculado({ chatId: chat, porSecret: !!c.env.OWNER_TELEGRAM_CHAT_ID?.trim() }));
+  }
+  if (c.req.query("esperando")) return c.body(null, 204);
+  return c.html(renderAvisoDuenoSinVincular());
+});
+
+adminApp.post("/telegram/vincular", async (c) => {
+  if (!c.env.TELEGRAM_BOT_TOKEN) return c.html(renderAvisoDuenoSinVincular("Falta el token del bot de Telegram."));
+  // Primero se protege el webhook: la consola solo obedece updates firmados
+  // por Telegram, y el código que la dueña va a mandar tiene que llegar firmado.
+  const webhook = await protegerConsola(c.env);
+  if (!webhook.ok) return c.html(renderAvisoDuenoSinVincular(webhook.error));
+  const { codigo } = await crearCodigoDeVinculo(c.env);
+  return c.html(renderAvisoDuenoEnlace({ bot: await nombreDelBot(c.env), codigo }));
+});
+
+adminApp.post("/telegram/prueba", async (c) => {
+  const chat = await chatDelDueno(c.env);
+  if (!chat) return c.html(renderAvisoDuenoSinVincular());
+  // También protege el webhook: un dueño vinculado por el secret
+  // OWNER_TELEGRAM_CHAT_ID nunca pasó por "Vincular", y sin la firma la
+  // consola no le obedece.
+  await protegerConsola(c.env);
+  const ok = await avisarAlDueno(c.env, {
+    titulo: "🔔 Aviso de prueba",
+    cuerpo: "Así le van a llegar los avisos del bot. Escriba /ayuda para ver lo que puede hacer desde aquí.",
+    conBotones: false,
+  });
+  return c.html(
+    renderAvisoDuenoVinculado({
+      chatId: chat,
+      porSecret: !!c.env.OWNER_TELEGRAM_CHAT_ID?.trim(),
+      resultado: ok
+        ? "✓ Enviado. Revise su Telegram."
+        : "✕ Telegram no lo aceptó. Abra el bot en Telegram y toque Iniciar (un bot no puede escribirle a quien nunca le habló).",
+    }),
+  );
+});
+
+adminApp.post("/telegram/desvincular", async (c) => {
+  await desvincular(c.env);
+  return c.html(renderAvisoDuenoSinVincular());
 });
 
 // --- Handoff: plantilla HSM del aviso al dueño ---------------------------------
@@ -587,6 +671,36 @@ adminApp.post("/catalogo/guardar", async (c) => {
     );
   }
 
+  // El stock ya no tiene un solo escritor: desde el 23-sep también lo mueven
+  // las ventas y devoluciones que la dueña registra por Telegram. Este
+  // formulario guarda el stock que tenía EN PANTALLA, así que si el producto
+  // cambió mientras estaba abierto, guardar pisaría esa venta en silencio. En
+  // ese caso no se guarda: se vuelve a mostrar con el stock actual y lo demás
+  // que ella escribió, para que lo revise y guarde de nuevo.
+  const cargadoEn = Number(form.get("loaded_at") ?? 0);
+  if (codigoOriginal && cargadoEn > 0) {
+    const actual = await repo.getForAdmin(codigoOriginal);
+    if (actual && actual.updatedAt > cargadoEn) {
+      return c.html(
+        renderCatalogoEditor(c.env, {
+          product: {
+            code,
+            name,
+            salePrice: input.salePrice,
+            costPrice: input.costPrice,
+            active,
+            stock: actual.stock,
+            stockTotal: actual.stockTotal,
+            updatedAt: actual.updatedAt,
+          },
+          errors: [
+            "El stock de este producto cambió mientras usted lo editaba (una venta o devolución registrada desde Telegram, u otra pestaña abierta). No se guardó nada: le cargamos el stock actual. Revíselo y vuelva a guardar.",
+          ],
+        }),
+      );
+    }
+  }
+
   // Renombrar el código borra el producto viejo y crea el nuevo: son la misma
   // ficha, no dos.
   if (codigoOriginal && codigoOriginal !== code) await repo.delete(codigoOriginal);
@@ -644,7 +758,9 @@ adminApp.post("/catalogo/:code/borrar", async (c) => {
 });
 
 // Conexiones: mapa de canales con estado verde/gris (paso 4 del onboarding).
-adminApp.get("/conexiones", (c) => c.html(renderConexiones(c.env)));
+adminApp.get("/conexiones", async (c) =>
+  c.html(renderConexiones(c.env, await readWebhookDiag(c.env))),
+);
 
 // Diagnóstico EN VIVO de WhatsApp Cloud: pregunta a Meta si el token sirve, si
 // la app está suscrita a la WABA (la causa #1 de "no llegan los mensajes") y si
@@ -652,6 +768,108 @@ adminApp.get("/conexiones", (c) => c.html(renderConexiones(c.env)));
 adminApp.get("/conexiones/whatsapp/diagnostico", async (c) =>
   c.html(renderWhatsAppDiag(await diagnoseWhatsAppCloud(c.env))),
 );
+
+// Diagnóstico EN VIVO de la LECTURA de DMs de Instagram. El webhook, con acceso
+// estándar, solo trae los de quien tiene rol en la app; preguntarle a Meta por
+// las conversaciones de la cuenta no depende de quién escribió. Esto comprueba
+// ese camino con el token del bot antes de construir nada encima. Solo lee.
+adminApp.get("/conexiones/instagram/diagnostico", async (c) =>
+  c.html(renderWhatsAppDiag(await diagnoseInstagramRead(c.env))),
+);
+
+// --- WhatsApp por QR --------------------------------------------------------
+//
+// El panel no habla con WhatsApp: habla con el puente `juancitoads-bot-wa`, que
+// es quien sostiene el socket. Estas tres rutas son un proxy fino con una sola
+// responsabilidad añadida: que el token del puente NUNCA salga hacia el
+// navegador. Si el panel pidiera el estado desde el cliente, el token viajaría
+// en el HTML y cualquiera con el panel abierto podría vincular otro teléfono.
+
+/** El token, en base64: una cabecera HTTP no entrega intacto un valor no-ASCII. */
+function tokenB64(token: string): string {
+  return btoa(String.fromCharCode(...new TextEncoder().encode(token)));
+}
+
+async function llamarAlPuente(
+  env: Env,
+  ruta: string,
+  init: RequestInit = {},
+): Promise<{ respuesta: Response | null; motivo: string | null }> {
+  if (!env.WA_TOKEN) return { respuesta: null, motivo: "falta WA_TOKEN" };
+  if (!env.PUENTE_WA && !env.WA_PUENTE_URL) {
+    return { respuesta: null, motivo: "falta el binding PUENTE_WA o WA_PUENTE_URL" };
+  }
+  try {
+    // Por SERVICE BINDING cuando existe. Cloudflare rechaza con error 1042 que
+    // un Worker llame a otro Worker de la MISMA cuenta por su URL pública: la
+    // petición ni siquiera llega a la puerta del otro, y el síntoma es un 404
+    // que parece "la ruta no existe". Con binding el host da igual; lo que
+    // cuenta es la ruta.
+    const destino = env.PUENTE_WA
+      ? `https://puente-wa${ruta}`
+      : `${env.WA_PUENTE_URL!.replace(/\/$/, "")}${ruta}`;
+    const peticion = new Request(destino, {
+      ...init,
+      headers: { ...(init.headers ?? {}), "x-wa-token-b64": tokenB64(env.WA_TOKEN) },
+      // 15 s, no 8: el puente reintenta hasta 12,5 s cuando el contenedor está
+      // frío. Con un tope más corto que el del otro lado, el panel se rendía
+      // antes de que llegara la respuesta y mostraba un error que no existía.
+      signal: AbortSignal.timeout(15000),
+    });
+    const respuesta = env.PUENTE_WA ? await env.PUENTE_WA.fetch(peticion) : await fetch(peticion);
+    if (!respuesta.ok) {
+      // El motivo se muestra en pantalla. Un 401 y un 502 piden cosas muy
+      // distintas, y "no se pudo" no distingue ninguna de las dos.
+      //
+      // Va también un trozo del CUERPO, porque el código solo no basta para
+      // saber QUIÉN contestó: un 404 del puente dice {"error":"no existe"} y
+      // uno de otro sitio dice cualquier otra cosa. Sin eso no se puede
+      // distinguir "la ruta no existe" de "la petición ni siquiera llegó".
+      const cuerpo = await respuesta
+        .text()
+        .then((t) => t.replace(/\s+/g, " ").slice(0, 160))
+        .catch(() => "");
+      return {
+        respuesta: null,
+        motivo: `el puente respondió ${respuesta.status}${cuerpo ? ` · ${cuerpo}` : ""}`,
+      };
+    }
+    return { respuesta, motivo: null };
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.error("puente-wa:", e);
+    return { respuesta: null, motivo };
+  }
+}
+
+/** Fragmento que htmx recarga cada 5 s dentro de la tarjeta de Conexiones. */
+adminApp.get("/whatsapp-qr/estado", async (c) => {
+  const [rEstado, rQr] = await Promise.all([
+    llamarAlPuente(c.env, "/api/estado"),
+    llamarAlPuente(c.env, "/api/qr"),
+  ]);
+
+  const estado = rEstado.respuesta
+    ? ((await rEstado.respuesta.json()) as EstadoDelPuente)
+    : ({ error: rEstado.motivo ?? "sin respuesta" } as EstadoDelPuente);
+  const qr = rQr.respuesta
+    ? (((await rQr.respuesta.json()) as { qr?: string | null }).qr ?? null)
+    : null;
+
+  return c.html(renderWhatsappQrPanel(estado, qr));
+});
+
+adminApp.post("/whatsapp-qr/reiniciar", async (c) => {
+  await llamarAlPuente(c.env, "/api/reiniciar", { method: "POST" });
+  // Se devuelve el fragmento con el estado nuevo, no un mensaje: la dueña ve la
+  // consecuencia de lo que acaba de tocar, no una confirmación que hay que creer.
+  return c.html(renderWhatsappQrPanel({ contenedor: { conexion: "arrancando" } }, null));
+});
+
+adminApp.post("/whatsapp-qr/desvincular", async (c) => {
+  await llamarAlPuente(c.env, "/api/desvincular", { method: "POST" });
+  return c.html(renderWhatsappQrPanel({ contenedor: { conexion: "desvinculada" } }, null));
+});
 
 adminApp.get("/campanas", async (c) => {
   const q: Record<string, string | undefined> = {
@@ -724,7 +942,7 @@ adminApp.get("/config/llm-test", async (c) => {
     const r = await generateText({
       model,
       prompt: "Responde únicamente: ok",
-      maxOutputTokens: 8,
+      maxOutputTokens: MAX_TOKENS_DE_PRUEBA,
     });
     const okText = r.text.trim().slice(0, 20) || "ok";
     return c.redirect(
@@ -747,15 +965,25 @@ adminApp.post("/config", async (c) => {
   for (const key of Object.keys(CONTROLS)) {
     const picked = form.get(key);
     if (picked === null) continue; // control not submitted — leave as-is
+    // "Personalizado": un valor que no es ninguna tarjeta. Se deja como está —
+    // antes se reemplazaba por la primera tarjeta al guardar cualquier otra cosa.
+    if (String(picked) === CONSERVAR) continue;
     const value = levelToValue(key, String(picked));
     if (value !== null) await repo.set(key, value);
   }
 
+  // Un tono escrito con sus palabras le gana a la tarjeta elegida.
+  const tonoLibre = String(form.get("tone_libre") ?? "").trim().slice(0, 120);
+  if (tonoLibre) await repo.set(SETTING_KEYS.tone, tonoLibre);
+
   // Free-text controls (stored verbatim, trimmed).
+  //
+  // system_prompt_override YA NO se escribe desde aquí: reemplaza el prompt
+  // entero y es cosa de la pestaña Agente. El campo de este formulario es
+  // "Instrucciones adicionales", que se SUMAN (custom_instructions).
   const textKeys: SettingKey[] = [
     SETTING_KEYS.botName,
-    SETTING_KEYS.businessContext,
-    SETTING_KEYS.systemPromptOverride,
+    SETTING_KEYS.customInstructions,
     SETTING_KEYS.escalationKeywords,
   ];
   for (const key of textKeys) {
@@ -764,19 +992,34 @@ adminApp.post("/config", async (c) => {
     await repo.set(key, String(raw).trim());
   }
 
+  // La información del negocio: si es IGUAL a la del repo, se guarda vacía.
+  //
+  // El formulario la pre-llena con la del repo (member/config.local.ts). Al
+  // guardar la página por cualquier otro motivo, esa copia quedaba en D1 y le
+  // ganaba al repo para siempre: lo siguiente que se mergeara en GitHub no le
+  // llegaba al bot, sin error y sin aviso. Vacía = "use la del repo".
+  const contexto = form.get(SETTING_KEYS.businessContext);
+  if (contexto !== null) {
+    const limpio = String(contexto).replace(/\r\n/g, "\n").trim();
+    await repo.set(SETTING_KEYS.businessContext, limpio === renderBusinessContext().trim() ? "" : limpio);
+  }
+
   // BYO-LLM: proveedor y modelo se guardan tal cual (allow-list de valores).
   const provRaw = form.get(SETTING_KEYS.llmProvider);
+  let proveedorElegido: LlmProvider | undefined;
   if (provRaw !== null) {
     const v = String(provRaw).trim().toLowerCase();
-    await repo.set(
-      SETTING_KEYS.llmProvider,
-      v === "anthropic" || v === "openai" || v === "xai" ? v : "",
-    );
+    proveedorElegido = (PROVEEDORES as readonly string[]).includes(v) ? (v as LlmProvider) : undefined;
+    await repo.set(SETTING_KEYS.llmProvider, proveedorElegido ?? "");
   }
   const modelRaw = form.get(SETTING_KEYS.llmModel);
+  const modeloElegido = modelRaw !== null ? String(modelRaw).trim().slice(0, 100) : "";
   if (modelRaw !== null) {
-    await repo.set(SETTING_KEYS.llmModel, String(modelRaw).trim().slice(0, 100));
+    await repo.set(SETTING_KEYS.llmModel, modeloElegido);
   }
+  // ¿De qué proveedor tiene que ser la llave? Del elegido; si es "automático"
+  // pero el modelo es de uno concreto (Muse, Grok…), de ese.
+  const proveedorDeLaLlave = proveedorElegido ?? (modeloElegido ? proveedorDelModelo(modeloElegido) : undefined);
   // La API key SOLO se sobreescribe si escribieron algo (el input siempre
   // llega vacío cuando no la tocaron); el checkbox la borra explícitamente.
   if (form.get("llm_api_key_clear") === "1") {
@@ -784,14 +1027,61 @@ adminApp.post("/config", async (c) => {
   } else {
     const keyRaw = form.get(SETTING_KEYS.llmApiKey);
     if (keyRaw !== null && String(keyRaw).trim() !== "") {
-      await repo.set(SETTING_KEYS.llmApiKey, String(keyRaw).trim());
+      // Solo si PARECE una llave. El navegador autocompleta los campos de
+      // contraseña con la del panel: en Baby Caleb quedó guardada una
+      // contraseña como llave de IA, y con ella cada respuesta del bot habría
+      // sido "Algo falló de mi lado".
+      const llave = String(keyRaw).trim();
+      // Con Meta no hay prefijo que comprobar, así que se mira lo contrario:
+      // que no sea la llave de otra IA ni un token de Messenger/Instagram.
+      const esDeMeta = proveedorDeLaLlave === "meta";
+      if (!pareceLlaveDeIa(llave, esDeMeta ? "meta" : undefined)) {
+        const motivo = esDeMeta
+          ? "err:Eso no parece la llave de la IA de Meta. Es la de dev.meta.ai: no el token de la Página (EAA…) ni el de Instagram (IGAA…), ni una llave de Claude, ChatGPT o Grok. No se guardó."
+          : "err:Eso no parece una API key (empiezan con sk-ant-, sk- o xai-; la de Meta, eligiendo antes Muse Spark como proveedor). No se guardó: si su navegador la autocompletó, bórrela del campo antes de guardar.";
+        return c.redirect(`/admin/config?llmtest=${encodeURIComponent(motivo)}`);
+      }
+      await repo.set(SETTING_KEYS.llmApiKey, llave);
     }
   }
 
   return c.redirect("/admin/config?saved=1");
 });
 
+// El aviso rojo de Config: un system_prompt_override guardado reemplaza el
+// prompt entero. "convertir" lo pasa a Instrucciones adicionales (se suman);
+// "borrar" lo quita. Solo toca esas dos llaves, aunque el formulario mande todo.
+adminApp.post("/config/override", async (c) => {
+  const form = await c.req.formData();
+  const repo = new SettingsRepo(new Db(c.env.DB));
+  const accion = String(form.get("accion") ?? "");
+  const override = ((await repo.get(SETTING_KEYS.systemPromptOverride)) ?? "").trim();
+  if (accion === "convertir" && override) {
+    const previas = ((await repo.get(SETTING_KEYS.customInstructions)) ?? "").trim();
+    await repo.set(SETTING_KEYS.customInstructions, previas ? `${previas}\n${override}` : override);
+  }
+  if (accion === "convertir" || accion === "borrar") {
+    await repo.set(SETTING_KEYS.systemPromptOverride, "");
+  }
+  return c.redirect("/admin/config?saved=1");
+});
+
 // --- CSV export -------------------------------------------------------------
+
+// Públicos para Meta: la misma lista que ves, con teléfono y correo en
+// columnas separadas, el número en formato internacional, sin repetidos y
+// segmentada. Es lo que se sube al cargador de públicos personalizados.
+adminApp.get("/leads/publico.csv", async (c) => {
+  const q = c.req.query("tipo");
+  const tipo: Publico = q === "compradoras" || q === "interesadas" ? q : "todas";
+  const csv = contactosACsv(await contactosParaMeta(c.env, tipo));
+  return new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="publico-${tipo}-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+});
 
 adminApp.get("/leads/export.csv", async (c) => {
   const csv = await exportLeadsCsv(c.env);
@@ -830,8 +1120,9 @@ adminApp.post("/tickets/:id/resolve", async (c) => {
 
 // --- Inbox actions (F1) -------------------------------------------------------
 
-/** Owner takes over for this long after replying/pausing from the dashboard. */
-const TAKEOVER_MS = 60 * 60 * 1000;
+// Cuánto se calla el bot cuando la dueña contesta o pausa desde el panel: lo
+// decide el ajuste `takeover_minutes` (pestaña Config), el mismo que usan el
+// teléfono del WhatsApp por QR y Telegram. Ver src/takeover.ts.
 
 // Reply AS A HUMAN from the dashboard: sends through the conversation's channel
 // adapter (Twilio/Telegram/Meta/ManyChat), persists the message as role=owner,
@@ -869,7 +1160,7 @@ adminApp.post("/conversations/:id/reply", async (c) => {
   const msgs = new MessagesRepo(db);
   await msgs.append(id, "owner", text);
   await convs.touchLastMessage(id);
-  await convs.setPausedUntil(id, Date.now() + TAKEOVER_MS);
+  await pausarPorHumano(c.env, id, "panel");
 
   c.header("X-Sent", "1");
   return c.html(
@@ -882,8 +1173,7 @@ adminApp.post("/conversations/:id/reply", async (c) => {
 // customer for themselves). Returns the refreshed thread fragment.
 adminApp.post("/conversations/:id/pause", async (c) => {
   const id = c.req.param("id");
-  const convs = new ConversationsRepo(new Db(c.env.DB));
-  await convs.setPausedUntil(id, Date.now() + TAKEOVER_MS);
+  await pausarPorHumano(c.env, id, "panel");
   return c.html(await renderThreadLive(c.env, id));
 });
 
@@ -908,22 +1198,23 @@ adminApp.post("/conversations/:id/delete", async (c) => {
 });
 
 // Return a paused conversation back to the bot. Clears paused_until AND appends
-// an owner-authored summary of the human handoff to the message history, so the
-// bot resumes with context about what the owner already resolved.
+// an owner-authored note to the message history, so the bot resumes with
+// context about what the owner already resolved.
+//
+// La nota es OPCIONAL. Antes era obligatoria y el formulario vivía dentro del
+// bloque que se refresca cada 5 s: devolver una conversación costaba varios
+// intentos. Y se cierran los tickets abiertos de la conversación: devolverla
+// al bot es decir "esto ya lo atendí". Sin cerrarlos, la conversación se
+// quedaba para siempre en el filtro "Atención", y en PanaClaw el siguiente
+// aviso al dueño se perdía porque "ya había un ticket abierto".
 adminApp.post("/conversations/:id/resume", async (c) => {
   const id = c.req.param("id");
-  const convs = new ConversationsRepo(new Db(c.env.DB));
-  await convs.setPausedUntil(id, null);
-  // Insert a system-style owner note summarizing the human handoff so the bot
-  // has context when it picks the conversation back up. The summary field is
-  // optional, so tolerate a request with no form body (formData() throws on an
-  // empty/no-content-type body).
-  const form = await c.req.formData().catch(() => null);
-  const summary =
-    String(form?.get("summary") ?? "").trim() ||
-    "(El dueño habló con el cliente y resolvió la consulta.)";
-  const msgs = new MessagesRepo(new Db(c.env.DB));
-  await msgs.append(id, "owner", summary);
+  await devolverAlBot(c.env, id, {
+    nota: String((await c.req.formData().catch(() => null))?.get("summary") ?? ""),
+    quien: "panel",
+  });
+  // Desde htmx se devuelve el hilo ya actualizado; sin JavaScript, la página.
+  if (c.req.header("HX-Request")) return c.html(await renderThreadLive(c.env, id));
   return c.redirect(`/admin/conversations?c=${encodeURIComponent(id)}`);
 });
 

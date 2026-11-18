@@ -112,6 +112,9 @@ export class ConversationsRepo {
       "tracked_links",
       "template_sends",
       "followup_sends",
+      "seguimientos",
+      "compras",
+      "owner_fotos",
     ]) {
       await this.db.run(`DELETE FROM ${tabla} WHERE conversation_id = ?`, [id]);
     }

@@ -13,8 +13,11 @@ import {
   indexDoc,
   removeDocVectors,
   reindexAll,
-  FIXTURE_CHUNKS,
   MAX_CHUNKS,
+  REPO_KB_LEGADO,
+  DOCS_DE_GITHUB,
+  gitChunks,
+  docDeGithub,
 } from "../../src/kb/docs";
 import type { Env } from "../../src/env";
 
@@ -98,10 +101,78 @@ describe("KbDocsRepo + vector lifecycle", () => {
     );
   });
 
-  it("reindexAll combines repo fixtures with dashboard docs", async () => {
+  // Desde el 29-sep-2026 el índice tiene dos dueños sin temas en común: el
+  // conocimiento base de GitHub (member/conocimiento/) y el panel.
+  const DE_GITHUB = () => DOCS_DE_GITHUB.flatMap(gitChunks).map((c) => c.id);
+
+  it("reindexAll sube el conocimiento base de GitHub y lo del panel", async () => {
+    expect(DOCS_DE_GITHUB.length).toBeGreaterThan(0);
     await repo.upsert({ id: "d3", title: "FAQ", content: "Pregunta y respuesta." });
     const r = await reindexAll(env);
-    expect(r.indexed).toBe(FIXTURE_CHUNKS.length + 1);
+    const subidos = kbUpsert.mock.calls.flatMap((c) => (c[0] as any[]).map((v) => v.id));
+    expect(subidos).toEqual([...DE_GITHUB(), "dash:d3#0"]);
+    expect(r.indexed).toBe(DE_GITHUB().length + 1);
+  });
+
+  it("reindexAll es un espejo: borra lo que ya no está en el panel y los .md viejos del repo", async () => {
+    await repo.upsert({ id: "a", title: "A", content: "uno" });
+    await repo.upsert({ id: "b", title: "B", content: "dos" });
+    await reindexAll(env);
+    await repo.delete("b"); // borrado por SQL, sin pasar por el panel
+    kbDelete.mockClear();
+    const r = await reindexAll(env);
+
+    const borrados = kbDelete.mock.calls.flat(2) as string[];
+    expect(borrados).toContain("dash:b#0");
+    expect(borrados).toContain(`${REPO_KB_LEGADO[0]}#0`);
+    expect(borrados).not.toContain("dash:a#0");
+    for (const id of DE_GITHUB()) expect(borrados).not.toContain(id);
+    expect(r.purged).toEqual(["dash:b#0"]);
+    const indice = await env.DB.prepare("SELECT vector_id FROM kb_indice").all<{ vector_id: string }>();
+    expect(indice.results.map((x) => x.vector_id).sort()).toEqual([...DE_GITHUB(), "dash:a#0"].sort());
+  });
+
+  it("un tema de GitHub no puede tener un segundo dueño en el panel", async () => {
+    const [base] = DOCS_DE_GITHUB;
+    // Mismo título, con otras tildes y mayúsculas: igual es el mismo tema.
+    await repo.upsert({ id: "copia", title: base.title.toUpperCase(), content: "Una versión vieja." });
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('kb_migracion', '2026-09-29', 0)").run();
+    await reindexAll(env);
+    const subidos = kbUpsert.mock.calls.flatMap((c) => (c[0] as any[]).map((v) => v.id));
+    expect(subidos).not.toContain("dash:copia#0");
+    expect(docDeGithub(base.title.toUpperCase())?.id).toBe(base.id);
+  });
+
+  it("la migración del 29-sep saca del panel lo que pasó a GitHub y el documento de seguimiento, una vez", async () => {
+    const [base] = DOCS_DE_GITHUB;
+    await repo.upsert({ id: base.id, title: base.title, content: "La copia del panel." });
+    await repo.upsert({ id: "seguimiento-de-clientas", title: "Seguimiento de clientas", content: "NO hagas seguimiento." });
+    await repo.upsert({ id: "pagos-y-abonos", title: "Pagos, abonos y facturación", content: "Yappy." });
+    await reindexAll(env);
+    expect((await repo.list()).map((d) => d.id)).toEqual(["pagos-y-abonos"]);
+    const borrados = kbDelete.mock.calls.flat(2) as string[];
+    expect(borrados).toContain("dash:seguimiento-de-clientas#0");
+    expect(borrados).toContain(`dash:${base.id}#0`);
+    // Corre una sola vez: si después alguien crea un «Seguimiento» a mano, no se borra solo.
+    await repo.upsert({ id: "seguimiento-de-clientas", title: "Seguimiento de clientas", content: "otra vez" });
+    await reindexAll(env);
+    expect(await repo.getById("seguimiento-de-clientas")).not.toBeNull();
+  });
+
+  it("candado: ningún código del bot importa el respaldo ni los fixtures del repositorio", async () => {
+    const { readFileSync, readdirSync, statSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const archivos: string[] = [];
+    const recorrer = (d: string) => {
+      for (const f of readdirSync(d)) {
+        const p = join(d, f);
+        if (statSync(p).isDirectory()) recorrer(p);
+        else if (p.endsWith(".ts")) archivos.push(p);
+      }
+    };
+    recorrer("src");
+    const culpables = archivos.filter((p) => /kb-fixtures|kb-respaldo|member\/kb\//.test(readFileSync(p, "utf8").replace(/^\s*(\/\/|\*).*$/gm, "")));
+    expect(culpables).toEqual([]);
   });
 
   it("docChunks prefixes ids with dash: and the doc id", async () => {

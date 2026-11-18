@@ -76,14 +76,35 @@ describe("el contexto sí trae lo que no está en ninguna otra parte", () => {
     expect(contexto).toMatch(/nunca tutee/i);
   });
 
-  it("el Yappy y el abono mínimo", () => {
+  it("el Yappy y el pago completo (nov-2026: ya no se piden abonos)", () => {
     expect(contexto).toContain(OPERACION.yappy);
-    expect(contexto).toContain(OPERACION.abonoMinimo);
+    expect(contexto).toMatch(/pago COMPLETO/);
+    expect(contexto).not.toMatch(/el resto se paga cuando el motorizado entrega/i);
+    // El abono sobrevive solo para apartar una talla agotada.
+    expect(contexto).toMatch(new RegExp(`agotado[^"]*${OPERACION.abonoApartarAgotado.replace("$", "\\$")}`));
   });
 
   it("qué no se maneja, para que el bot no lo ofrezca", () => {
     expect(contexto).toMatch(/pañales dany baby/i);
-    expect(contexto).toMatch(/wipes nateen/i);
+  });
+
+  it("no niega lo que el catálogo sí vende (29-sep-2026: wipes Nateen)", () => {
+    // El contexto va en el prompt de cada turno y le gana al catálogo.
+    expect(contexto).toMatch(/Qué vendemos[^\n]*wipes Nateen/i);
+    expect(contexto).not.toMatch(/No manejamos[^\n]*wipes nateen/i);
+  });
+
+  it("no da la dirección de retiro: la dueña pidió no mencionarla (28-sep-2026)", () => {
+    expect(contexto).not.toMatch(/Curundú/i);
+  });
+
+  it("solo delivery (7-oct-2026): no ofrece retiro, no transfiere, y avisa a la dueña", () => {
+    expect(contexto).toMatch(/ÚNICAMENTE por internet/);
+    expect(contexto).toMatch(/NO ofrezca retiro \(ni siquiera si insiste\)/);
+    expect(contexto).toMatch(/NO corte la conversación, NO diga que la pasa con una persona, NO pause y NO abra\s+ticket/);
+    expect(contexto).toContain("avisarRetiroEnPersona");
+    // La dirección no se da ni en la «excepción» que había antes.
+    expect(contexto).not.toMatch(/una persona coordina|excepción/i);
   });
 
   it("que las imágenes y comprobantes los revisa una persona, siempre", () => {

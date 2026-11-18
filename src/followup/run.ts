@@ -1,101 +1,300 @@
 /**
- * Follow-up bot — un solo mensaje breve de seguimiento, SOLO a quien lo amerita.
+ * Seguimiento a las clientas que dejaron de contestar.
  *
- * Selección (determinista, conservadora):
- *  • Su último mensaje fue hace entre 3 h (darle aire) y 20 h (la ventana de
- *    24 h de Meta/WhatsApp se mide desde el último mensaje del CLIENTE — se
- *    envía con margen antes de que cierre).
- *  • La conversación terminó con respuesta del bot (si terminó con el cliente
- *    hablando, eso es un pendiente del agente, no un follow-up).
- *  • Y es un lead que VALE el toque: venta abierta detectada por el Analista
- *    (sale_opportunity) o 4+ mensajes del cliente (engagement alto).
- *  • Nunca a conversaciones pausadas (takeover del dueño), nunca por el canal
- *    instagram oficial (apagado), y UNA sola vez por conversación de por vida
- *    (followup_sends es el claim). Cap por corrida y cap diario.
+ * La regla (29-sep-2026, la agencia con la dueña), y dónde se cambia:
  *
- * El mensaje lo redacta el modelo rápido en la voz del bot (breve, no pushy),
- * se persiste como mensaje del asistente (visible en la Bandeja) y sale por el
- * adapter del canal. Corre en el cron frecuente de scheduled().
+ *   · Solo a las INTERESADAS: las que preguntaron por un producto, un precio,
+ *     una talla o un envío (el bot tuvo que consultar el catálogo, cotizar un
+ *     envío o anotarla como interesada). Un «hola» suelto no cuenta.
+ *   · Pasos: 5 horas, 3 días y 7 días sin respuesta, cada uno contado desde el
+ *     anterior. Si contesta, el ciclo empieza de nuevo; al terminar, se para.
+ *   · Quien YA COMPRÓ no recibe seguimiento comercial: descansa 15 días y ese
+ *     día le llega el de recompra; si no contesta, siguen los recordatorios
+ *     (3 y 7 días). Qué cuenta como compra: src/followup/compras.ts.
+ *   · Si la última en escribir fue una persona del equipo, el bot no se mete:
+ *     la dueña decide. (Antes el seguimiento salía 5 h después de que ella
+ *     cerraba una venta a mano, y era de donde salían los mensajes a quien ya
+ *     había comprado.)
+ *   · Nunca a quien dijo que no le interesa, ni a una conversación en pausa o
+ *     con ticket abierto. Siempre de usted, en horario.
+ *
+ * Tiempos, horario, textos y el interruptor son AJUSTES (src/followup/ajustes.ts):
+ * los cambia la dueña desde Telegram. No viven en la base de conocimiento —
+ * este cron no la lee, y por eso la orden «ya no le des seguimiento a nadie»
+ * del 28-sep, guardada como documento, nunca frenó nada.
+ *
+ * La tabla `seguimientos` es el claim: un paso de un ciclo sale una sola vez
+ * aunque dos corridas se crucen. Ciclo de una interesada = la hora de su último
+ * mensaje (pasos 0, 1, 2…). Ciclo de una compra = la hora de la compra (pasos
+ * 10, 11, 12…).
+ *
+ * La ventana de 24 h: WhatsApp oficial, Messenger e Instagram no dejan escribir
+ * primero pasadas 24 h del último mensaje de la clienta (hace falta una
+ * plantilla aprobada). En esos canales solo sale lo que cabe en la ventana; lo
+ * demás sale por WhatsApp por QR y Telegram.
  */
-import { generateText } from "ai";
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { MessagesRepo } from "../db/messages";
 import { ConversationsRepo } from "../db/conversations";
-import { resolveAgentConfig, loadLlmOverrides } from "../settings-loader";
-import { createModel } from "../llm/provider";
+import { resolveAgentConfig } from "../settings-loader";
 import { pickAdapter } from "../replies/sender";
 import type { ChannelId } from "../channels/shared";
+import { cargarAjustes, POR_DEFECTO, type AjustesSeguimiento } from "./ajustes";
+import { anotarCompraDicha } from "./compras";
 
-/** Ventana de elegibilidad medida desde el último mensaje del cliente. */
-export const MIN_IDLE_MS = 3 * 60 * 60 * 1000; // 3 h
-export const MAX_IDLE_MS = 20 * 60 * 60 * 1000; // 20 h (margen vs. las 24 h)
+const HORA = 60 * 60 * 1000;
+const DIA = 24 * HORA;
 
-export type FollowupReason = "hot" | "active";
+/** El primer paso de la secuencia de quien compró. Los de interesadas son 0, 1, 2… */
+export const PASO_RECOMPRA = 10;
 
-export interface FollowupCandidate {
+/** Si el de recompra no pudo salir su día (fin de semana, cron caído), vale hasta una semana después. */
+const VIGENCIA_RECOMPRA = 7 * DIA;
+
+/** Canales con la ventana de 24 h de Meta/WhatsApp. */
+const CON_VENTANA = new Set(["whatsapp", "messenger", "instagram", "twilio", "manychat"]);
+const VENTANA_MS = 23 * HORA; // margen antes de que cierre
+
+/** Un grupo o una difusión de WhatsApp no es una clienta. */
+const NO_ES_PERSONA = /@(broadcast|g\.us|newsletter)$/;
+
+/** "Buen día" o "Buenas tardes", según la hora del negocio. */
+function saludo(hora: number): string {
+  return hora < 12 ? "Buen día" : "Buenas tardes";
+}
+
+/** El texto de un paso, con el saludo de la hora. */
+export function textoDelPaso(paso: number, hora: number, aj: AjustesSeguimiento = POR_DEFECTO): string {
+  const { texto1, texto2, texto3, textoRecompra } = aj.textos;
+  const deInteresada = [texto1, texto2, texto3];
+  const t =
+    paso === PASO_RECOMPRA
+      ? textoRecompra
+      : paso > PASO_RECOMPRA
+        ? (deInteresada[paso - PASO_RECOMPRA] ?? texto3)
+        : (deInteresada[paso] ?? texto3);
+  return t.replaceAll("{saludo}", saludo(hora));
+}
+
+function etiquetaDelPaso(paso: number): string {
+  if (paso < PASO_RECOMPRA) return `seguimiento-${paso + 1}`;
+  return paso === PASO_RECOMPRA ? "seguimiento-recompra" : `seguimiento-recompra-${paso - PASO_RECOMPRA + 1}`;
+}
+
+/**
+ * ¿La clienta dijo que no le interesa o que no le escriban? Una sola vez basta:
+ * no se le vuelve a escribir nunca. Conservador a propósito — un "no, gracias"
+ * también cuenta: mejor un seguimiento de menos que uno que moleste.
+ *
+ * «Ya compré» a secas NO está aquí: es una compra (src/followup/compras.ts), y
+ * a quien compró se le escribe a los 15 días. «Ya compré en otro lado», sí.
+ */
+export function noQuiereSeguimiento(texto: string): boolean {
+  const t = texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+  // Sin \b al final: "interesad" tiene que cubrir interesada e interesado.
+  return /\b(no (me )?interes|ya no (me )?interes|no estoy interesad|sin interes|no,? gracias|no me (escriba|escriban|escribas|contacte|contacten|contactes|moleste|molesten|molestes)|dej(e|en|a) de (escribir|mandar)|no (me )?(vuelva|vuelvan|vuelvas) a escribir|no quiero (nada|mas|recibir)|ya (lo |la |los |las )?compre en otr[oa] (lado|parte|sitio|lugar|tienda)|ya (lo )?consegui|ya no (lo |los |las )?necesito|no necesito nada|borr(e|en|a) mi numero)/.test(t);
+}
+
+/** Hora y día de la semana del negocio. */
+function relojDelNegocio(env: Env, now: number): { hora: number; diaSemana: number } {
+  const zona = env.BOT_TIMEZONE || "America/Panama";
+  const partes = new Intl.DateTimeFormat("en-US", { timeZone: zona, hour: "numeric", hourCycle: "h23", weekday: "short" })
+    .formatToParts(new Date(now));
+  const hora = Number(partes.find((p) => p.type === "hour")?.value ?? "12");
+  const dia = partes.find((p) => p.type === "weekday")?.value ?? "Mon";
+  return { hora, diaSemana: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(dia) };
+}
+
+/** Dentro del horario del seguimiento (por defecto lunes a viernes, 8:00 a 17:59). */
+export function enHorario(env: Env, now: number, aj: AjustesSeguimiento = POR_DEFECTO): boolean {
+  const { hora, diaSemana } = relojDelNegocio(env, now);
+  return aj.dias.includes(diaSemana) && hora >= aj.horaDesde && hora < aj.horaHasta;
+}
+
+/** Lo que el seguimiento necesita saber de una conversación para decidir. */
+export interface EstadoConversacion {
+  channel: string;
+  /** Último mensaje de la clienta. */
+  ultimaClienta: number | null;
+  /** Último mensaje del negocio (bot o persona del equipo) y de quién fue. */
+  ultimoNegocio: number | null;
+  ultimoNegocioRol: "assistant" | "owner" | null;
+  /** Preguntó por un producto, un precio, una talla o un envío. */
+  interes: boolean;
+  /** La compra más reciente (cualquiera de las cuatro señales), o null. */
+  compra: number | null;
+  /** Los seguimientos que ya salieron en esta conversación. */
+  hechos: { ciclo: number; paso: number; enviado_en: number }[];
+}
+
+/**
+ * El paso que le toca AHORA a esta conversación, o null. Pura: toda la regla de
+ * a quién sí y a quién no está aquí, sin base de datos.
+ */
+export function siguientePaso(
+  e: EstadoConversacion,
+  now: number,
+  aj: AjustesSeguimiento,
+): { ciclo: number; paso: number } | null {
+  const U = e.ultimaClienta;
+  if (U === null) return null;
+  const conVentana = CON_VENTANA.has(e.channel);
+  const cabeEnVentana = () => !conVentana || now - U <= VENTANA_MS;
+
+  // ── Ya compró ──
+  if (e.compra !== null) {
+    const finDescanso = e.compra + aj.postcompraDias * DIA;
+    // Descanso: nada comercial, pase lo que pase en la conversación.
+    if (now < finDescanso) return null;
+    // Si volvió a escribir después del descanso, es una clienta más (abajo).
+    if (U < finDescanso) {
+      const ciclo = e.compra;
+      const hechos = e.hechos.filter((h) => h.ciclo === ciclo && h.paso >= PASO_RECOMPRA).sort((a, b) => a.paso - b.paso);
+      const total = aj.postcompraRecordatorios ? aj.pasosHoras.length : 1;
+      const k = hechos.length;
+      if (k >= total) return null;
+      if (k === 0) {
+        if (now - finDescanso > VIGENCIA_RECOMPRA) return null;
+        return cabeEnVentana() ? { ciclo, paso: PASO_RECOMPRA } : null;
+      }
+      // La dueña le escribió después del de recompra: ella decide.
+      if (e.ultimoNegocioRol === "owner" && (e.ultimoNegocio ?? 0) > hechos[k - 1].enviado_en) return null;
+      if (now - hechos[k - 1].enviado_en < aj.pasosHoras[k] * HORA) return null;
+      return cabeEnVentana() ? { ciclo, paso: PASO_RECOMPRA + k } : null;
+    }
+  }
+
+  // ── Interesada que dejó de contestar ──
+  if (!e.interes) return null;
+  const B = e.ultimoNegocio;
+  // Si ella escribió último, le toca contestar al bot o a una persona, no un seguimiento.
+  if (B === null || B < U) return null;
+  // Si la última en escribir fue una persona del equipo, ella decide.
+  if (e.ultimoNegocioRol === "owner") return null;
+  const hechos = e.hechos.filter((h) => h.ciclo === U && h.paso < PASO_RECOMPRA).sort((a, b) => a.paso - b.paso);
+  const k = hechos.length;
+  if (k >= aj.pasosHoras.length) return null;
+  const desde = k === 0 ? B : hechos[k - 1].enviado_en;
+  if (now - desde < aj.pasosHoras[k] * HORA) return null;
+  return cabeEnVentana() ? { ciclo: U, paso: k } : null;
+}
+
+export interface Pendiente {
   id: string;
   channel: string;
   channel_user_id: string;
-  display_name: string | null;
-  reason: FollowupReason;
+  ciclo: number;
+  paso: number;
 }
 
-interface CandidateRow {
+interface Fila {
   id: string;
   channel: string;
   channel_user_id: string;
-  display_name: string | null;
-  sale_opportunity: number | null;
-  user_msgs: number;
+  metadata: string | null;
+  ultima_clienta: number | null;
+  ultimo_negocio: number | null;
+  ultimo_rol: "assistant" | "owner" | null;
+  interes: number;
+  compra: number;
 }
 
-/** Conversaciones que ameritan follow-up ahora mismo. */
-export async function pickFollowupCandidates(
+/** Hasta cuándo atrás puede haber algo pendiente, en días. */
+function ventanaDias(aj: AjustesSeguimiento): number {
+  const dias = (hs: number[]) => hs.reduce((a, b) => a + b, 0) / 24;
+  const interesadas = dias(aj.pasosHoras);
+  const compradoras = aj.postcompraDias + VIGENCIA_RECOMPRA / DIA + dias(aj.pasosHoras.slice(1));
+  return Math.ceil(Math.max(interesadas, compradoras)) + 2;
+}
+
+/** Las conversaciones a las que les toca un paso ahora mismo. */
+export async function pendientes(
   env: Env,
   now: number,
-  limit: number,
-): Promise<FollowupCandidate[]> {
+  limite: number,
+  aj: AjustesSeguimiento = POR_DEFECTO,
+): Promise<Pendiente[]> {
   const db = new Db(env.DB);
-  const rows = await db.all<CandidateRow>(
-    `SELECT * FROM (
-       SELECT c.id, c.channel, c.channel_user_id, c.display_name,
-         i.sale_opportunity,
-         (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS last_user_at,
-         (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS user_msgs,
-         (SELECT role FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_role
-       FROM conversations c
-       LEFT JOIN conversation_insights i ON i.conversation_id = c.id
-       LEFT JOIN followup_sends f ON f.conversation_id = c.id
-       WHERE f.conversation_id IS NULL
-         AND c.channel != 'instagram'
-         AND (c.paused_until IS NULL OR c.paused_until < ?)
-         -- Con un ticket abierto, el caso está en manos de una persona del
-         -- equipo. Un "¿le quedó alguna duda?" automático encima de un
-         -- comprobante que alguien está verificando es peor que no escribir.
-         AND c.open_ticket_id IS NULL
-     )
-     WHERE last_user_at IS NOT NULL
-       AND last_user_at <= ? AND last_user_at >= ?
-       AND last_role = 'assistant'
-       AND (COALESCE(sale_opportunity, 0) = 1 OR user_msgs >= 4)
-     ORDER BY COALESCE(sale_opportunity, 0) DESC, user_msgs DESC
-     LIMIT ?`,
-    [now, now - MIN_IDLE_MS, now - MAX_IDLE_MS, limit],
+  const desde = now - ventanaDias(aj) * DIA;
+  const filas = await db.all<Fila>(
+    `SELECT c.id, c.channel, c.channel_user_id, c.metadata,
+       (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS ultima_clienta,
+       (SELECT created_at FROM messages m WHERE m.conversation_id = c.id AND m.role IN ('assistant', 'owner')
+          ORDER BY created_at DESC LIMIT 1) AS ultimo_negocio,
+       (SELECT role FROM messages m WHERE m.conversation_id = c.id AND m.role IN ('assistant', 'owner')
+          ORDER BY created_at DESC LIMIT 1) AS ultimo_rol,
+       (EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.role = 'assistant' AND m.tool_calls IS NOT NULL
+                  AND (m.tool_calls LIKE '%"catalogQuery"%' OR m.tool_calls LIKE '%"cotizarEnvio"%' OR m.tool_calls LIKE '%"captureLead"%'))
+        OR EXISTS (SELECT 1 FROM leads l WHERE l.conversation_id = c.id)) AS interes,
+       MAX(
+         COALESCE((SELECT MAX(comprado_en) FROM compras k WHERE k.conversation_id = c.id), 0),
+         COALESCE((SELECT MAX(created_at) FROM stock_movements s WHERE s.conversation_id = c.id AND s.kind = 'venta' AND s.undone_at IS NULL), 0),
+         COALESCE((SELECT MAX(created_at) FROM tickets t WHERE t.conversation_id = c.id AND t.category = 'billing'), 0)
+       ) AS compra
+     FROM conversations c
+     WHERE (c.paused_until IS NULL OR c.paused_until < ?)
+       AND c.open_ticket_id IS NULL
+       AND c.last_message_at >= ?
+     ORDER BY c.last_message_at ASC
+     LIMIT 500`,
+    [now, desde],
   );
-  return rows.map((r) => ({
-    id: r.id,
-    channel: r.channel,
-    channel_user_id: r.channel_user_id,
-    display_name: r.display_name,
-    reason: (r.sale_opportunity ?? 0) === 1 ? "hot" : "active",
-  }));
-}
+  const todos = await db.all<{ conversation_id: string; ciclo: number; paso: number; enviado_en: number }>(
+    "SELECT conversation_id, ciclo, paso, enviado_en FROM seguimientos WHERE enviado_en >= ?",
+    [desde],
+  );
+  const hechosDe = new Map<string, EstadoConversacion["hechos"]>();
+  for (const h of todos) {
+    const l = hechosDe.get(h.conversation_id) ?? [];
+    l.push(h);
+    hechosDe.set(h.conversation_id, l);
+  }
 
-const REASON_HINT: Record<FollowupReason, string> = {
-  hot: "El Analista detectó que quedó una venta o interés abierto sin cerrar.",
-  active: "Hizo varias preguntas (interés alto) y luego dejó de responder.",
-};
+  const salida: Pendiente[] = [];
+  for (const f of filas) {
+    if (salida.length >= limite) break;
+    if (NO_ES_PERSONA.test(f.channel_user_id)) continue;
+    try {
+      if (JSON.parse(f.metadata ?? "{}")?.sin_seguimiento) continue;
+    } catch {
+      /* metadata vieja o vacía: sigue */
+    }
+    const estado: EstadoConversacion = {
+      channel: f.channel,
+      ultimaClienta: f.ultima_clienta,
+      ultimoNegocio: f.ultimo_negocio,
+      ultimoNegocioRol: f.ultimo_rol,
+      interes: !!f.interes,
+      compra: f.compra > 0 ? f.compra : null,
+      hechos: hechosDe.get(f.id) ?? [],
+    };
+    let paso = siguientePaso(estado, now, aj);
+    if (!paso) continue;
+
+    // Le tocaría. Antes de escribirle, lo que ella misma dijo: ¿que no le
+    // interesa? Fuera para siempre. ¿Que ya compró o ya pagó? Es una compra.
+    const suyos = await db.all<{ content: string; created_at: number }>(
+      "SELECT content, created_at FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 200",
+      [f.id],
+    );
+    if (suyos.some((m) => noQuiereSeguimiento(m.content))) {
+      await marcarSinSeguimiento(db, f.id);
+      continue;
+    }
+    const dicho = await anotarCompraDicha(db, f.id, suyos);
+    if (dicho !== null && (estado.compra === null || dicho > estado.compra)) {
+      estado.compra = dicho;
+      paso = siguientePaso(estado, now, aj);
+      if (!paso) continue;
+    }
+    salida.push({ id: f.id, channel: f.channel, channel_user_id: f.channel_user_id, ...paso });
+  }
+  return salida;
+}
 
 export interface RunFollowupsResult {
   sent: number;
@@ -108,45 +307,37 @@ export async function runFollowups(
   opts: { now?: number; limit?: number; dailyCap?: number } = {},
 ): Promise<RunFollowupsResult> {
   const now = opts.now ?? Date.now();
-  const limit = opts.limit ?? 6;
-  const dailyCap = opts.dailyCap ?? 30;
-  const db = new Db(env.DB);
+  const limit = opts.limit ?? 10;
+  const dailyCap = opts.dailyCap ?? 60;
+  const nada = { sent: 0, skipped: 0, errors: 0 };
 
+  // El interruptor de la dueña (/seguimiento apagar).
+  const aj = await cargarAjustes(env);
+  if (!aj.activo) return nada;
+  if (!enHorario(env, now, aj)) return nada;
+
+  const db = new Db(env.DB);
   // Respeta la pausa global del bot (el dueño lo apagó a propósito).
   const cfg = await resolveAgentConfig(env, []);
-  if (cfg.botPaused) return { sent: 0, skipped: 0, errors: 0 };
+  if (cfg.botPaused) return nada;
 
-  // Cap diario global — el follow-up es un toque fino, no una campaña.
-  const sentToday =
-    (
-      await db.first<{ n: number }>(
-        "SELECT COUNT(*) as n FROM followup_sends WHERE sent_at > ?",
-        [now - 24 * 60 * 60 * 1000],
-      )
-    )?.n ?? 0;
-  if (sentToday >= dailyCap) return { sent: 0, skipped: 0, errors: 0 };
+  const hoy =
+    (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM seguimientos WHERE enviado_en > ?", [now - DIA]))?.n ?? 0;
+  if (hoy >= dailyCap) return nada;
 
-  const candidates = await pickFollowupCandidates(
-    env,
-    now,
-    Math.min(limit, dailyCap - sentToday),
-  );
-  if (candidates.length === 0) return { sent: 0, skipped: 0, errors: 0 };
-
+  const lista = await pendientes(env, now, Math.min(limit, dailyCap - hoy), aj);
   const msgs = new MessagesRepo(db);
   const convs = new ConversationsRepo(db);
-  const { model, modelId } = createModel(env, "fast", await loadLlmOverrides(env));
-
+  const { hora } = relojDelNegocio(env, now);
   let sent = 0;
   let skipped = 0;
   let errors = 0;
 
-  for (const cand of candidates) {
-    // Claim ANTES de enviar: si otra corrida (o un tick concurrente) ya lo
-    // tomó, INSERT OR IGNORE no escribe y saltamos — imposible duplicar.
+  for (const p of lista) {
+    // Claim antes de enviar: dos corridas cruzadas no mandan el mismo paso dos veces.
     const claim = await db.run(
-      "INSERT OR IGNORE INTO followup_sends (conversation_id, reason, sent_at) VALUES (?, ?, ?)",
-      [cand.id, cand.reason, now],
+      "INSERT OR IGNORE INTO seguimientos (conversation_id, ciclo, paso, enviado_en) VALUES (?, ?, ?, ?)",
+      [p.id, p.ciclo, p.paso, now],
     );
     if ((claim.meta.changes ?? 0) === 0) {
       skipped++;
@@ -154,65 +345,33 @@ export async function runFollowups(
     }
 
     try {
-      const history = await msgs.lastN(cand.id, 6);
-      const transcript = history
-        .map((m) => `${m.role === "user" ? "Cliente" : "Tú"}: ${m.content.slice(0, 300)}`)
-        .join("\n");
-
-      const result = await generateText({
-        model,
-        prompt: `Eres ${env.BOT_NAME}, respondiendo chats de ${env.BUSINESS_NAME} en primera persona: humano, breve, sin emojis, nunca pushy.
-
-TRATO: hable SIEMPRE de usted ("le quedó", "necesita", "indíquenos", "su pedido").
-NUNCA tutee, aunque en el historial usted mismo haya tuteado antes.
-
-PROHIBIDO, sin excepción — este mensaje sale solo, sin que nadie lo revise y sin
-que puedas consultar nada:
-- NO repitas ni menciones ningún PRECIO, tarifa de envío, descuento ni total,
-  aunque aparezca en los mensajes de abajo. Pueden haber cambiado desde entonces
-  y aquí no hay forma de comprobarlo.
-- NO afirmes que algo está disponible, en stock o agotado. No lo sabes.
-- NO des WhatsApp, Instagram, correo ni ningún otro canal.
-- NO confirmes pagos, pedidos, fechas de entrega ni nada que dependa de una
-  persona del equipo.
-
-Este cliente mostró interés y luego dejó de responder. ${REASON_HINT[cand.reason]}
-${cand.display_name ? `Se llama ${cand.display_name}.` : ""}
-
-Últimos mensajes (son CONTEXTO para saber de qué hablaban, no datos que puedas repetir):
-${transcript}
-
-Escriba UN solo mensaje de seguimiento MUY breve (máximo 2 líneas): retome con
-naturalidad el TEMA de lo último que hablaron —sin cifras— y pregunte si le
-quedó alguna duda o si le ayuda a continuar. Responda SOLO con el mensaje, sin
-comillas ni explicación.`,
-      });
-
-      const text = result.text.trim();
-      if (!text) throw new Error("empty followup text");
-
-      await msgs.append(cand.id, "assistant", text, { modelUsed: modelId });
-      await convs.touchLastMessage(cand.id, now);
-
-      const adapter = pickAdapter(cand.channel as ChannelId);
-      await adapter.sendReply(
-        {
-          channel: cand.channel as ChannelId,
-          channelUserId: cand.channel_user_id,
-          chunks: [text],
-          interChunkDelayMs: 0,
-        },
+      const texto = textoDelPaso(p.paso, hora, aj);
+      await msgs.append(p.id, "assistant", texto, { modelUsed: etiquetaDelPaso(p.paso), createdAt: now });
+      await convs.touchLastMessage(p.id, now);
+      await pickAdapter(p.channel as ChannelId).sendReply(
+        { channel: p.channel as ChannelId, channelUserId: p.channel_user_id, chunks: [texto], interChunkDelayMs: 0 },
         env,
       );
       sent++;
     } catch (e) {
-      // El claim se queda (no reintentamos a este cliente): mejor un follow-up
-      // perdido que un cliente recibiendo dos toques por errores transitorios.
+      // El claim se queda: mejor un seguimiento perdido que uno repetido.
       errors++;
-      console.error(`[followup] failed for ${cand.id}:`, e);
+      console.error(`[seguimiento] falló ${p.id} paso ${p.paso}:`, e);
     }
   }
 
-  if (sent > 0) console.log(`[followup] sent=${sent} skipped=${skipped} errors=${errors}`);
+  if (sent > 0) console.log(`[seguimiento] enviados=${sent} saltados=${skipped} errores=${errors}`);
   return { sent, skipped, errors };
+}
+
+async function marcarSinSeguimiento(db: Db, convId: string): Promise<void> {
+  const fila = await db.first<{ metadata: string | null }>("SELECT metadata FROM conversations WHERE id = ?", [convId]);
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = JSON.parse(fila?.metadata ?? "{}") ?? {};
+  } catch {
+    meta = {};
+  }
+  meta.sin_seguimiento = true;
+  await db.run("UPDATE conversations SET metadata = ? WHERE id = ?", [JSON.stringify(meta), convId]);
 }

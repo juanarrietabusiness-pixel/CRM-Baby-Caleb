@@ -19,13 +19,38 @@ tarjeta **Meta** en `/admin/conexiones` se pone verde.
 - Una cuenta en **developers.facebook.com** (gratis).
 
 ## Decisión de método para Instagram
-- **IG vía Página (recomendado):** la cuenta IG Business está vinculada a la
-  Página → usas el **Page Access Token** (`META_PAGE_ACCESS_TOKEN`). Un solo
-  token para Messenger + IG. Más simple.
-- **IG Login (standalone):** el negocio maneja Instagram sin Página de Facebook →
-  usas el producto **Instagram** con IG Login, que da un token `IGAA…`
-  (`INSTAGRAM_ACCESS_TOKEN`) y firma con `INSTAGRAM_APP_SECRET`. Úsalo solo si no
-  hay Página vinculada.
+
+> **Para los DMs, usa IG Login.** Lo de abajo no es una preferencia de estilo:
+> está comprobado en producción el 23-10-2026, después de un día entero de
+> diagnóstico.
+
+- **IG Login (RECOMENDADO para DMs):** producto **Instagram** → "API con inicio
+  de sesión de Instagram". Da un token `IGAA…` (`INSTAGRAM_ACCESS_TOKEN`) y
+  firma con `INSTAGRAM_APP_SECRET`. En esta ruta **la cuenta de Instagram inicia
+  sesión y autoriza la app ella misma**, así que sus conversaciones son datos de
+  un usuario de la app: llegan los DMs de cualquier persona **con acceso
+  estándar, sin revisión de Meta**.
+- **IG vía Página:** usas el **Page Access Token**. Un solo token para Messenger
+  + IG, más simple de montar… y **no sirve para atender clientes**: con acceso
+  estándar, Meta solo entrega los DMs de cuentas que tienen rol en la app. Los
+  de clientes reales no llegan nunca, sin ningún error visible. Meta lo dice al
+  pedir las conversaciones:
+  > *"Tu consulta ha caducado porque tienes demasiadas conversaciones con
+  > usuarios que no tienen un rol en la aplicación. Solicita acceso avanzado al
+  > permiso `instagram_manage_messages`…"*
+
+  Para usar esta ruta con clientes reales hace falta **acceso avanzado**:
+  revisión de Meta + verificación del negocio.
+
+**Messenger sí va por la Página** — ahí no hay limitación. Las dos rutas
+conviven: el bot deduplica por id de mensaje y responde por donde entró cada uno
+(`src/channels/metaRuta.ts`).
+
+### Paso que no está en la documentación de Meta
+Para agregar la cuenta en IG Login hay que darle el rol **"Evaluador de
+Instagram"** (en Roles de la app → roles adicionales, NO el "Evaluador" normal)
+y **aceptar la invitación** desde `instagram.com/accounts/manage_access/`. Sin
+eso, la cuenta no aparece en la tabla de tokens.
 
 ---
 
@@ -116,7 +141,11 @@ confirma que el bot responde.
 - **Mensajes llegan pero el bot no responde / 403 "bad signature":** falta o está
   mal el `META_APP_SECRET` (o `INSTAGRAM_APP_SECRET` si es IG Login).
 - **IG no responde pero Messenger sí:** la cuenta IG no está vinculada a la Página,
-  o falta suscribir el campo `messages` de Instagram, o `IG_DM_SOURCE="manychat"`
-  está desviando los DMs.
+  o falta suscribir el campo `messages` **del objeto Instagram** (no basta el de
+  Page), o la cuenta de IG no dio el permiso de "Herramientas conectadas", o
+  `IG_DM_SOURCE="manychat"` está desviando los DMs. La tarjeta **Instagram DMs
+  (Meta)** de `/admin/conexiones` dice qué pasó con el último evento que mandó
+  Meta; el procedimiento completo está en
+  [`docs/REVISAR-INSTAGRAM.md`](../../../docs/REVISAR-INSTAGRAM.md).
 - **El bot manda respuestas dobles en IG:** tienes Meta oficial **y** ManyChat
   activos para IG sin `IG_DM_SOURCE="manychat"`. Pon esa bandera.

@@ -644,16 +644,19 @@ const BRAINS = {
   "1": { provider: "anthropic", secret: "ANTHROPIC_API_KEY" },
   "2": { provider: "openai", secret: "OPENAI_API_KEY" },
   "3": { provider: "xai", secret: "XAI_API_KEY" },
+  // La llave de dev.meta.ai — no el token de la Página ni el de Instagram.
+  "4": { provider: "meta", secret: "META_API_KEY" },
 };
 
 async function chooseBrain(rl, flags = {}) {
   // normaliza sinónimos de --cerebro: anthropic→claude, openai→chatgpt, xai→grok
   const raw = String(flags.cerebro || flags.brain || "").trim().toLowerCase();
-  const val = { anthropic: "claude", openai: "chatgpt", gpt: "chatgpt", chatgpt: "chatgpt", xai: "grok", grok: "grok", claude: "claude" }[raw] || raw || null;
+  const val = { anthropic: "claude", openai: "chatgpt", gpt: "chatgpt", chatgpt: "chatgpt", xai: "grok", grok: "grok", claude: "claude", meta: "muse", muse: "muse" }[raw] || raw || null;
   const i = await select(rl, o().brainQ, [
     { key: "claude", label: "Claude", desc: L === "en" ? "recommended" : "recomendado" },
     { key: "chatgpt", label: "ChatGPT", desc: "OpenAI" },
     { key: "grok", label: "Grok", desc: "xAI" },
+    { key: "muse", label: "Muse Spark", desc: "Meta" },
   ], { value: val });
   return BRAINS[String(i + 1)] || BRAINS["1"];
 }

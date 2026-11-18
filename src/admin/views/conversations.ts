@@ -239,21 +239,37 @@ export async function renderThreadLive(env: Env, convId: string): Promise<string
       ? `<span style="${statusBadge(SENTIMENT_COLOR[insight.sentiment])}">${SENTIMENT_BADGE[insight.sentiment].txt}</span>`
       : "";
 
+  /**
+   * Devolver al bot es UN toque. Antes era un desplegable con una nota
+   * obligatoria, y vivía dentro del bloque que se refresca solo cada 5 s: el
+   * refresco cerraba el cuadro y borraba lo escrito, y había que intentarlo
+   * varias veces. Ahora el botón principal devuelve sin preguntar, la nota es
+   * opcional, y el armazón no refresca mientras el cuadro esté abierto
+   * (data-respeta-edicion, en layout.ts).
+   */
+  const resumeUrl = `/admin/conversations/${encodeURIComponent(convId)}/resume`;
   const controls = paused
     ? `
-    <details style="position:relative;margin-left:auto">
-      <summary class="chip" style="cursor:pointer;list-style:none;font-size:11px;color:var(--accent-2);background:var(--panel2);border:1px solid var(--linelit);padding:6px 11px;display:inline-flex;align-items:center;gap:6px">▸ Devolver al bot</summary>
-      <form method="POST" action="/admin/conversations/${encodeURIComponent(convId)}/resume"
-            style="position:absolute;right:0;z-index:10;margin-top:8px;width:280px;background:var(--panel);border:1px solid var(--linelit);box-shadow:0 18px 48px rgba(0,0,0,.55);padding:12px">
-        <p style="font-size:11px;color:var(--muted);margin:0 0 8px">Cuéntale al bot qué resolviste para que siga con contexto.</p>
-        <textarea name="summary" rows="3" required placeholder="Ej. Ya le confirmé su pago y le di acceso."
-                  style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--cream);padding:8px 10px;font-size:12px;outline:none;resize:vertical;margin-bottom:8px"></textarea>
-        <button class="bigbtn" style="width:100%;background:var(--accent);border:1px solid var(--accent);color:var(--on-accent);box-shadow:0 6px 18px rgba(0,0,0,.45);padding:9px;font-size:12px;font-weight:700;font-family:var(--font-display);cursor:pointer">Devolver al bot</button>
+    <div style="margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+      <form method="POST" action="${resumeUrl}" hx-post="${resumeUrl}" hx-target="#thread-live" hx-swap="innerHTML" style="margin:0">
+        <button type="submit" class="chip tap" style="cursor:pointer;font-size:12px;font-weight:700;color:var(--on-accent);background:var(--accent);border:1px solid var(--accent);padding:6px 12px;min-height:32px;display:inline-flex;align-items:center;gap:6px">
+          ${ico("play")} Devolver al bot
+        </button>
       </form>
-    </details>`
+      <details style="position:relative">
+        <summary class="chip tap" style="cursor:pointer;list-style:none;font-size:12px;color:var(--muted);background:var(--panel2);border:1px solid var(--linelit);padding:6px 11px;display:inline-flex;align-items:center;gap:6px;min-height:32px">+ con nota</summary>
+        <form method="POST" action="${resumeUrl}" hx-post="${resumeUrl}" hx-target="#thread-live" hx-swap="innerHTML"
+              style="position:absolute;right:0;z-index:10;margin-top:8px;width:min(300px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--linelit);box-shadow:0 18px 48px rgba(0,0,0,.55);padding:12px">
+          <label for="resume-note" style="display:block;font-size:12px;color:var(--muted);margin:0 0 8px">Opcional: cuéntele al bot qué resolvió, para que siga con contexto.</label>
+          <textarea id="resume-note" name="summary" rows="3" placeholder="Ej. Ya le confirmé su pago y le reservé la caja."
+                    style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--cream);padding:8px 10px;font-size:16px;outline:none;resize:vertical;margin-bottom:8px"></textarea>
+          <button class="bigbtn tap" style="width:100%;background:var(--accent);border:1px solid var(--accent);color:var(--on-accent);box-shadow:0 6px 18px rgba(0,0,0,.45);padding:9px;font-size:12px;font-weight:700;font-family:var(--font-display);cursor:pointer;min-height:44px">Devolver con esta nota</button>
+        </form>
+      </details>
+    </div>`
     : `
     <button hx-post="/admin/conversations/${encodeURIComponent(convId)}/pause" hx-target="#thread-live" hx-swap="innerHTML"
-            class="chip" style="margin-left:auto;font-size:11px;color:var(--muted);background:var(--panel2);border:1px solid var(--linelit);padding:6px 11px;cursor:pointer">
+            class="chip tap" style="margin-left:auto;font-size:12px;color:var(--muted);background:var(--panel2);border:1px solid var(--linelit);padding:6px 11px;cursor:pointer;min-height:32px">
       ⏸ Pausar bot aquí
     </button>`;
 
@@ -432,7 +448,7 @@ export async function renderInbox(env: Env, p: InboxParams): Promise<string> {
   if (p.selectedId) {
     const thread = await renderThreadLive(env, p.selectedId);
     rightPane = `
-      <div id="thread-live" class="flex flex-col flex-1 min-h-0"
+      <div id="thread-live" class="flex flex-col flex-1 min-h-0" data-respeta-edicion
            hx-get="/admin/conversations/thread/${encodeURIComponent(p.selectedId)}"
            hx-trigger="every 5s" hx-swap="innerHTML">
         ${thread}

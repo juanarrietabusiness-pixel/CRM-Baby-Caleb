@@ -46,15 +46,20 @@ export interface Env {
   // re-etiqueta el dashboard, aporta el playbook del giro y sus columnas.
   // Ausente/desconocido → pack genérico (comportamiento actual). Ver src/niches/.
   BOT_NICHE?: string;
-  // LLM provider for the chat brain: "anthropic" (default) | "openai".
-  // If unset and only OPENAI_API_KEY is present, auto-selects "openai".
+  // LLM provider for the chat brain: "anthropic" (default) | "openai" | "xai" | "meta".
+  // If unset and only OPENAI_API_KEY is present, auto-selects "openai"; si la
+  // ÚNICA llave de IA es la de Meta, "meta".
   // (Voice transcription + embeddings always run on Cloudflare Workers AI.)
-  LLM_PROVIDER?: "anthropic" | "openai";
+  LLM_PROVIDER?: "anthropic" | "openai" | "xai" | "meta";
   // Optional per-tier model id overrides (fast = cheap default, smart = upgrade).
   ANTHROPIC_MODEL_FAST?: string;
   ANTHROPIC_MODEL_SMART?: string;
   OPENAI_MODEL_FAST?: string;
   OPENAI_MODEL_SMART?: string;
+  META_MODEL_FAST?: string;   // por defecto muse-spark-1.3 (ver src/llm/provider.ts)
+  META_MODEL_SMART?: string;
+  /** Base de la API de Meta (por defecto https://api.meta.ai/v1). Solo para pruebas. */
+  META_BASE?: string;
   BUFFER_SECONDS: string;
   DASHBOARD_BASE_URL: string;
 
@@ -69,9 +74,19 @@ export interface Env {
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_WA_FROM?: string;
   TWILIO_HANDOFF_CONTENT_SID?: string;  // approved WhatsApp template for owner handoff DM
+  // WhatsApp por QR — canal ALTERNO, vía el Worker puente `juancitoads-bot-wa`.
+  // El bot no habla con WhatsApp: habla con el puente, que sostiene el socket.
+  /** Service binding al puente. Worker a Worker por URL pública da error 1042. */
+  PUENTE_WA?: Fetcher;
+  WA_PUENTE_URL?: string;  // var — solo para construir la ruta; el salto va por el binding
+  WA_TOKEN?: string;       // secret — el MISMO valor que el secret del puente
   // Meta oficial (Facebook Messenger + Instagram DMs, sin ManyChat).
   META_PAGE_ACCESS_TOKEN?: string;  // Messenger / IG ligado a Página (graph.facebook.com)
   INSTAGRAM_ACCESS_TOKEN?: string;  // Instagram API con Instagram Login, token IGAA… (graph.instagram.com)
+  // Mismo valor que el de arriba, con el nombre que usa el panel de Cloudflare
+  // en algunas instalaciones. Se acepta cualquiera de los dos (ver
+  // `instagramToken` en channels/meta.ts) para no obligar a repegar secrets.
+  META_IG_ACCESS_TOKEN?: string;
   META_VERIFY_TOKEN?: string;       // string que tú eliges; valida el handshake GET del webhook
   META_APP_SECRET?: string;
   // "manychat" = los DMs de Instagram entran SOLO por ManyChat (el webhook
@@ -81,6 +96,7 @@ export interface Env {
   // solo en ManyChat.
   IG_OFFICIAL?: string;         // App Secret de Facebook; firma los webhooks de Messenger
   INSTAGRAM_APP_SECRET?: string;    // App Secret del producto Instagram (IG Login); firma los webhooks de IG
+  META_IG_APP_SECRET?: string;      // alias del anterior; se acepta cualquiera de los dos nombres
   // WhatsApp OFICIAL (Cloud API de Meta, sin BSP/Twilio). Mismo ecosistema Graph
   // que Meta; el número corre en la cuenta del miembro con SU token. El envío es
   // a graph.facebook.com/<phone_number_id>/messages; el media entrante se sirve
@@ -97,6 +113,12 @@ export interface Env {
   // Messenger, Instagram). Si falta, se usa la del código (src/channels/graph.ts).
   GRAPH_API_VERSION?: string;
   XAI_API_KEY?: string;             // xAI (Grok) — proveedor LLM alterno (ver src/llm/provider.ts)
+  // IA de Meta (Muse Spark) — proveedor LLM alterno. Es la llave de dev.meta.ai,
+  // NO el token de la Página ni el de Instagram de arriba (esos son la Graph API
+  // y no abren la IA). MODEL_API_KEY es el nombre que usa la documentación de
+  // Meta; se aceptan los dos, igual que en la aplicación de calendarios.
+  META_API_KEY?: string;
+  MODEL_API_KEY?: string;
 
   // ── Cal.com (agenda real para scheduleAppointment) ───────────────────────
   // Con estas vars, el bot consulta disponibilidad real y reserva en Cal.com.
@@ -121,6 +143,9 @@ export interface Env {
   // Token guarding POST /kb/reindex (header: X-Reindex-Token). Secret.
   // Set via `wrangler secret put KB_REINDEX_TOKEN`.
   KB_REINDEX_TOKEN: string;
+  // El commit desplegado (scripts/ci-deploy.mjs lo pone con --var). /kb/reindex
+  // lo contesta para que el despliegue sepa que le respondió la versión nueva.
+  VERSION_GIT?: string;
 
   // Control plane (hosted): glue para que un plano de control externo lea este
   // bot self-hosted vía los endpoints /api/*. Ambos opcionales; sin el token,

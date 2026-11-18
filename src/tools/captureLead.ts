@@ -29,6 +29,29 @@ export function captureLeadTool(env: Env, getConversationId: () => string | null
       // Optional external export — Pro-tier feature, skipped if no creds
       // (Implementation deferred to Task 7.4 — adds Google Sheets export)
 
+      // Una interesada que deja sus datos es una venta a punto de cerrarse, y
+      // el lead quedaba en el panel sin que nadie se enterara. Se avisa al
+      // Telegram del dueño (si está vinculado), con los botones de siempre.
+      // Nunca bloquea la respuesta a la clienta.
+      try {
+        const { avisarAlDueno } = await import("../owner/avisos");
+        const { avisoReciente } = await import("../owner/acciones");
+        // El bot suele capturar en dos pasos (primero el nombre, después el
+        // correo): un aviso por conversación cada media hora basta.
+        if (convId && (await avisoReciente(env, convId, 30 * 60_000))) {
+          return { leadId, message: "Lead capturado." };
+        }
+        await avisarAlDueno(env, {
+          titulo: "🛍 Interesada",
+          cuerpo: [intent, name && `Nombre: ${name}`, contact && `Contacto: ${contact}`, notes && `Nota: ${notes}`]
+            .filter(Boolean)
+            .join("\n"),
+          conversationId: convId,
+        });
+      } catch (e) {
+        console.warn("[captureLead] no se pudo avisar al dueño:", e);
+      }
+
       return { leadId, message: "Lead capturado." };
     },
   });

@@ -88,7 +88,12 @@ if (config.conSistema) {
 
 console.log("\n── Desplegando el Worker");
 const argsDeploy = config.config === "wrangler.toml" ? ["deploy"] : ["deploy", "--config", config.config];
-const dep = spawnSync("npx", ["wrangler", ...argsDeploy], {
+// El commit viaja como VERSION_GIT: /kb/reindex lo contesta, y el despliegue
+// espera a que conteste ESTE commit antes de dar el índice por actualizado.
+// El 29-sep-2026 el reindex le cayó a la versión anterior —que también decía
+// "espejo":true— y la migración del conocimiento no corrió.
+const version = process.env.GITHUB_SHA ? ["--var", `VERSION_GIT:${process.env.GITHUB_SHA}`] : [];
+const dep = spawnSync("npx", ["wrangler", ...argsDeploy, ...version], {
   stdio: "inherit",
   shell: process.platform === "win32",
 });

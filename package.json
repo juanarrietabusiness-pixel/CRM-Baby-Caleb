@@ -23,6 +23,8 @@
     "css:check": "node scripts/build-admin-css.mjs --check",
     "icons:build": "node scripts/build-icons.mjs",
     "icons:check": "node scripts/build-icons.mjs --check",
+    "conocimiento": "node scripts/build-conocimiento.mjs",
+    "conocimiento:check": "node scripts/build-conocimiento.mjs --check",
     "ensayo": "tsx scripts/ensayo-del-cambio.ts"
   },
   "dependencies": {
@@ -30,6 +32,7 @@
     "@ai-sdk/openai": "^3.0.68",
     "@ai-sdk/xai": "^3.0.106",
     "@anthropic-ai/sdk": "^0.90.0",
+    "@cloudflare/containers": "^0.3.7",
     "agents": "^0.1.0",
     "ai": "^6.0.0",
     "hono": "^4.10.0",

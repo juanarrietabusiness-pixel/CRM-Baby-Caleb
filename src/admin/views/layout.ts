@@ -543,6 +543,25 @@ const GLOBAL_SCRIPT = `
     }
   });
 
+  // ---- Un refresco no pisa lo que estás escribiendo ----
+  //
+  // El hilo del chat se reemplaza entero cada 5 segundos, y con él los
+  // controles de su cabecera. Si la dueña abría "Devolver al bot" y empezaba a
+  // escribir la nota, a los pocos segundos el cuadro se cerraba solo y se
+  // llevaba lo escrito: había que hacer maniobras para lograrlo.
+  //
+  // Un contenedor con data-respeta-edicion no se refresca mientras tenga un
+  // desplegable abierto o el cursor dentro de un campo. En cuanto se cierra o
+  // se sale del campo, el siguiente refresco pasa normal.
+  document.body.addEventListener("htmx:beforeRequest", function (e) {
+    var el = e.detail && e.detail.elt;
+    if (!el || !el.hasAttribute || !el.hasAttribute("data-respeta-edicion")) return;
+    var activo = document.activeElement;
+    var escribiendo =
+      activo && el.contains(activo) && (activo.tagName === "TEXTAREA" || activo.tagName === "INPUT");
+    if (escribiendo || el.querySelector("details[open]")) e.preventDefault();
+  });
+
   document.body.addEventListener("htmx:afterSwap", function (e) { drawIcons(e.target); });
   document.body.addEventListener("htmx:oobAfterSwap", function (e) { drawIcons(e.target); });
   // ---- El cajón de navegación (móvil) ----

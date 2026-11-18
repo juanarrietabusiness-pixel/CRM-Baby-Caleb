@@ -242,6 +242,7 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(
       undefined as any,
     );
+    vi.spyOn(ConversationsRepo.prototype, "isPaused").mockResolvedValue(false);
     vi.spyOn(senderMod, "pickAdapter").mockReturnValue({
       sendReply: vi.fn(async () => {}),
     } as any);
@@ -255,18 +256,42 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     return streamTextMock.mock.calls[0][0].messages;
   }
 
-  it("pro tier: builds a multimodal message from the [IMAGE_URL] marker", async () => {
-    const messages = await runAlarm({
-      tier: "pro",
-      lastContent: "describe esto\n[IMAGE_URL: https://example.com/pic.png]",
-    });
+  it("pro tier: builds a multimodal message from the [IMAGE_URL] marker, con la imagen en BYTES", async () => {
+    // El CRM descarga la imagen y se la pasa al modelo ya leída: antes iba el
+    // enlace, y si el proveedor no podía bajarlo el cliente recibía "algo falló".
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const antes = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(png, { headers: { "content-type": "application/octet-stream" } })) as any;
+    let messages: any[];
+    try {
+      messages = await runAlarm({
+        tier: "pro",
+        lastContent: "describe esto\n[IMAGE_URL: https://example.com/pic.png]",
+      });
+    } finally {
+      globalThis.fetch = antes;
+    }
 
     const last = messages[messages.length - 1];
     expect(Array.isArray(last.content)).toBe(true);
-    expect(last.content).toEqual([
-      { type: "image", image: new URL("https://example.com/pic.png") },
-      { type: "text", text: "describe esto" },
-    ]);
+    expect(last.content[0].type).toBe("image");
+    expect(Array.from(last.content[0].image as Uint8Array)).toEqual(Array.from(png));
+    expect(last.content[0].mediaType).toBe("image/png");
+    expect(last.content[1]).toEqual({ type: "text", text: "describe esto" });
+  });
+
+  it("pro tier: si la imagen no se puede abrir, el modelo recibe la nota y atiende igual", async () => {
+    const antes = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("nope", { status: 404 })) as any;
+    let messages: any[];
+    try {
+      messages = await runAlarm({ tier: "pro", lastContent: "mire\n[IMAGE_URL: https://example.com/pic.png]" });
+    } finally {
+      globalThis.fetch = antes;
+    }
+    const last = messages[messages.length - 1];
+    expect(typeof last.content).toBe("string");
+    expect(last.content).toMatch(/no se pudo abrir/);
   });
 
   it("free tier: leaves the last message as plain text (no multimodal build)", async () => {
@@ -294,6 +319,7 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(
       undefined as any,
     );
+    vi.spyOn(ConversationsRepo.prototype, "isPaused").mockResolvedValue(false);
     vi.spyOn(senderMod, "pickAdapter").mockReturnValue({
       sendReply: vi.fn(async () => {}),
     } as any);
@@ -327,6 +353,7 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(
       undefined as any,
     );
+    vi.spyOn(ConversationsRepo.prototype, "isPaused").mockResolvedValue(false);
     vi.spyOn(senderMod, "pickAdapter").mockReturnValue({
       sendReply: vi.fn(async () => {}),
     } as any);
@@ -352,10 +379,12 @@ describe("SupportAgent.ingest — bot_paused (settings)", () => {
     vi.restoreAllMocks();
   });
 
-  it("buffers the client message but does NOT arm the alarm when bot_paused=1", async () => {
+  it("con bot_paused=1 guarda el mensaje en D1 (visible en el panel), no lo deja en el buffer ni arma la alarma", async () => {
     stubSettings({ bot_paused: "1" });
     const { agent, storage } = makeAgent({ tier: "free" });
     stubConversations();
+    const append = vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue("m1");
+    vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(undefined as any);
 
     await agent.ingest({
       channel: "telegram",
@@ -363,10 +392,23 @@ describe("SupportAgent.ingest — bot_paused (settings)", () => {
       text: "hola, estoy pausado?",
     });
 
-    // Message is persisted in the buffer …
-    expect(agent.state.pendingMessages).toHaveLength(1);
-    expect(agent.state.pendingMessages[0].text).toBe("hola, estoy pausado?");
-    // … but the bot stays silent: no alarm scheduled.
+    // Antes el mensaje se quedaba en el buffer del DO: invisible en el panel,
+    // y al despausar se contestaba todo lo acumulado de un golpe.
+    expect(append).toHaveBeenCalledWith("conv-1", "user", "hola, estoy pausado?");
+    expect(agent.state.pendingMessages).toHaveLength(0);
+    expect(storage.setAlarm).not.toHaveBeenCalled();
+  });
+
+  it("con la conversación en pausa (una persona a cargo) también guarda el mensaje sin contestar", async () => {
+    stubSettings();
+    const { agent, storage } = makeAgent({ tier: "free" });
+    stubConversations({ paused: true });
+    const append = vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue("m1");
+    vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(undefined as any);
+
+    await agent.ingest({ channel: "whatsapp-qr", channelUserId: "1@lid", text: "¿sigue ahí?" });
+
+    expect(append).toHaveBeenCalledWith("conv-1", "user", "¿sigue ahí?");
     expect(storage.setAlarm).not.toHaveBeenCalled();
   });
 
@@ -382,5 +424,70 @@ describe("SupportAgent.ingest — bot_paused (settings)", () => {
     });
 
     expect(storage.setAlarm).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SupportAgent.processBuffer — una persona tomó la conversación", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    stubSettings();
+    streamTextMock.mockReset();
+    streamTextMock.mockImplementation(() => makeStreamResult("respuesta del bot"));
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function preparar(opts: { pausadaAntes?: boolean; pausadaDespues?: boolean }) {
+    const { agent } = makeAgent({ tier: "free" });
+    const append = vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue("m1");
+    vi.spyOn(MessagesRepo.prototype, "lastN").mockResolvedValue([{ role: "user", content: "hola" }] as any);
+    vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(undefined as any);
+    const sendReply = vi.fn(async () => {});
+    vi.spyOn(senderMod, "pickAdapter").mockReturnValue({ sendReply } as any);
+    vi.spyOn(ConversationsRepo.prototype, "isPaused")
+      .mockResolvedValueOnce(opts.pausadaAntes ?? false)
+      .mockResolvedValue(opts.pausadaDespues ?? opts.pausadaAntes ?? false);
+    return { agent, append, sendReply };
+  }
+
+  it("si la dueña contestó mientras corría la espera del buffer, el bot no se mete", async () => {
+    const { agent, append, sendReply } = preparar({ pausadaAntes: true });
+    agent.state.pendingMessages = [{ text: "hola", receivedAt: Date.now() }];
+
+    await agent.processBuffer();
+
+    expect(streamTextMock).not.toHaveBeenCalled();
+    expect(sendReply).not.toHaveBeenCalled();
+    expect(append).toHaveBeenCalledWith("conv-1", "user", "hola", expect.anything());
+  });
+
+  it("si la dueña contestó mientras el modelo pensaba, la respuesta del bot no sale", async () => {
+    const { agent, append, sendReply } = preparar({ pausadaAntes: false, pausadaDespues: true });
+    agent.state.pendingMessages = [{ text: "hola", receivedAt: Date.now() }];
+
+    await agent.processBuffer();
+
+    expect(streamTextMock).toHaveBeenCalledTimes(1);
+    expect(sendReply).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalledWith("conv-1", "assistant", expect.anything(), expect.anything());
+  });
+
+  it("lo que quedó días en el buffer se anota pero no se contesta", async () => {
+    const { agent, append, sendReply } = preparar({});
+    const hace3dias = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    agent.state.pendingMessages = [{ text: "¿tienen talla M?", receivedAt: hace3dias }];
+
+    await agent.processBuffer();
+
+    expect(append).toHaveBeenCalledWith("conv-1", "user", "¿tienen talla M?", { createdAt: hace3dias });
+    expect(streamTextMock).not.toHaveBeenCalled();
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("sin pausa, contesta normal", async () => {
+    const { agent, sendReply } = preparar({});
+    agent.state.pendingMessages = [{ text: "hola", receivedAt: Date.now() }];
+    await agent.processBuffer();
+    expect(sendReply).toHaveBeenCalledTimes(1);
   });
 });

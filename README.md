@@ -145,11 +145,11 @@ lo construyó. También puedes correrlo desde el repo clonado, sin pasar por npm
 node cli/bin/cli.js init
 ```
 
-**Para sacar una versión nueva:** sube el `version` de `cli/package.json`, y luego
-Actions → **Publicar CLI en npm** → *Run workflow* (o publica un release). Los
-detalles de autenticación están en la cabecera de
-[`publish-cli.yml`](./.github/workflows/publish-cli.yml) — incluido el 403 por 2FA
-que se lleva por delante al primer intento si el token no trae esa casilla.
+**Para sacar una versión nueva:** se publica desde el repositorio de la agencia
+(CRM-JuancitoADS), que es el que npm tiene registrado como *Trusted Publisher*,
+con su workflow *Publicar CLI en npm*. Este repo es el bot de un cliente y no
+publica el CLI: el workflow se quitó de aquí el 23-sep-2026 para que nadie lo
+dispare por error desde el repo equivocado.
 
 Y si quieres probar un fork o una rama antes de publicar:
 

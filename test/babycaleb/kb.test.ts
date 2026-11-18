@@ -18,13 +18,19 @@ import { ZONAS_CIUDAD_PANAMA } from "../../member/zonas-envio";
 import {
   PRODUCTOS,
   TALLAS,
+  TALLAS_PANTS,
   TARIFAS_DELIVERY,
   OPERACION,
   ESCALADAS,
 } from "./verdad-del-cliente";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const chunks = buildFixtures(resolve(ROOT, "member/kb"));
+// Lo que el bot encuentra con searchKb: el conocimiento base de GitHub
+// (member/conocimiento/) y la copia del panel (member/kb-respaldo/).
+const chunks = [
+  ...buildFixtures(resolve(ROOT, "member/conocimiento")),
+  ...buildFixtures(resolve(ROOT, "member/kb-respaldo")),
+];
 
 /**
  * Todo el texto que se va a indexar, junto y con el espacio normalizado.
@@ -92,8 +98,17 @@ describe("tallas y presentaciones", () => {
   });
 
   it("dice qué NO se maneja, para que el bot no lo ofrezca por si acaso", () => {
-    expect(KB).toMatch(/wipes nateen.*no se manejan/i);
     expect(KB).toMatch(/pañales dany baby.*no se manejan/i);
+  });
+
+  it("los wipes Nateen sí se manejan (29-sep-2026) y no quedó el «no se manejan» viejo", () => {
+    expect(KB).toMatch(/wipes nateen: sí se manejan/i);
+    expect(KB).not.toMatch(/wipes nateen: hoy no se manejan/i);
+  });
+
+  it.each(TALLAS_PANTS)("pants $talla tiene su rango de peso en libras y kilos", (t) => {
+    expect(KB).toContain(t.lbs);
+    expect(KB).toContain(t.kg);
   });
 });
 
@@ -129,20 +144,42 @@ describe("envíos y delivery", () => {
 
   it("cubre Ferguson: el cargo del motorizado y el pago total por adelantado", () => {
     expect(KB).toContain(OPERACION.cargoFerguson);
-    expect(KB).toMatch(/totalidad del producto/i);
+    // La dueña lo reescribió desde Telegram (25-sep): «en envíos por Ferguson
+    // se paga la totalidad antes».
+    expect(KB).toMatch(/Ferguson se paga la totalidad/i);
   });
 
   it("cubre los tiempos: corte de la 1 p.m. y última entrega a las 5 p.m.", () => {
     expect(KB).toContain(OPERACION.corteEnvioMismoDia);
     expect(KB).toContain(OPERACION.ultimaEntrega);
     expect(KB).toMatch(/sábados.*agenda previa/i);
-    expect(KB).toMatch(/domingos no hay entregas/i);
+    // El conector queda libre a propósito: la dueña reescribe este documento
+    // desde el panel y desde Telegram, y el 17-nov-2026 pasó de "Domingos no
+    // hay entregas" a "Domingos cerrados: no hay entregas" — el mismo dato con
+    // otras palabras. Lo que se vigila es el HECHO, dentro de la misma frase
+    // ([^.] no deja que "domingos" y "no hay entregas" vengan de dos párrafos
+    // distintos), no la redacción exacta.
+    expect(KB).toMatch(/domingos[^.]*no hay entregas/i);
   });
 
-  it("cubre el retiro en Altos de Curundú con su horario", () => {
-    expect(KB).toContain(OPERACION.retiro);
-    for (const hora of OPERACION.retiroHorario) expect(KB).toContain(hora);
-    expect(KB).toMatch(/un día de anticipación/i);
+  it("solo delivery: no hay retiro, no se transfiere y se avisa a la dueña (7-oct-2026)", () => {
+    // Decisión del dueño: Baby Caleb vende ÚNICAMENTE online, por delivery. Quien
+    // quiera ir en persona NO recibe un retiro, ni una excepción, ni una
+    // dirección; el bot sigue ofreciendo el delivery y avisa en silencio a la
+    // dueña (avisarRetiroEnPersona), que decide si interviene.
+    expect(KB).toMatch(/tienda online/i);
+    expect(KB).toMatch(/únicamente por internet, con entrega por delivery/i);
+    expect(KB).toMatch(/NO ofrezca retiro, ni siquiera si la clienta insiste/i);
+    expect(KB).toMatch(/NO dé ninguna dirección/i);
+    expect(KB).toMatch(/NO corte la conversación, NO diga que la pasa con una persona, NO pause y NO abra ticket/i);
+    expect(KB).toContain("avisarRetiroEnPersona");
+  });
+
+  it("ya no queda la excepción del retiro ni su dirección", () => {
+    expect(KB).not.toMatch(/haremos esta excepción|podemos hacer esta excepción/i);
+    expect(KB).not.toMatch(/un día de anticipación/i);
+    expect(KB).not.toMatch(/Curundú/i);
+    expect(KB).not.toMatch(/pasa la conversación a una persona/i);
   });
 });
 
@@ -151,14 +188,20 @@ describe("pagos", () => {
     expect(KB).toContain(OPERACION.yappy);
   });
 
-  it("el abono mínimo y su razón de ser están dichos", () => {
-    expect(KB).toContain(OPERACION.abonoMinimo);
-    expect(KB).toMatch(/no se entregan pedidos sin abono/i);
+  it("el pedido se paga completo por adelantado (nov-2026)", () => {
+    expect(KB).toMatch(/no se agendan ni se entregan pedidos sin el pago completo/i);
+    expect(KB).toMatch(/ya no se piden abonos/i);
+    expect(KB).not.toMatch(/no se entregan pedidos sin abono/i);
+    expect(KB).not.toMatch(/ir abonando/i);
   });
 
-  it("explica el 'sí y no' del contra entrega", () => {
-    expect(KB).toMatch(/sí y no/i);
-    expect(KB).toMatch(/el resto se paga cuando el motorizado entrega/i);
+  it("no es contra entrega", () => {
+    expect(KB).toMatch(/¿Es contra entrega\? No/);
+    expect(KB).not.toMatch(/el resto se paga cuando el motorizado entrega/i);
+  });
+
+  it("el abono queda solo para apartar una talla agotada", () => {
+    expect(KB).toContain(`abono de mínimo ${OPERACION.abonoApartarAgotado}`);
   });
 
   it("el número de cuenta NO lo da el bot", () => {
@@ -199,7 +242,10 @@ describe("escalada a humano — los 18 disparadores del documento", () => {
   });
 
   it("cualquier archivo entrante escala, sin excepción", () => {
-    expect(KB).toMatch(/cualquier.*imagen, video, audio o documento, escale/is);
+    // Desde el 23-sep-2026 las notas de voz se transcriben y se contestan (decisión
+    // de la dueña); imágenes, videos y documentos siguen escalando siempre.
+    expect(KB).toMatch(/cualquier imagen, foto, video o documento, escale/is);
+    expect(KB).toMatch(/notas de voz.*transcritas/is);
     expect(KB).toMatch(/sin excepción/i);
   });
 
@@ -265,7 +311,7 @@ describe("el trato es de usted", () => {
   it("el eslogan es la única excepción, y está donde debe", () => {
     const conEslogan = chunks.filter((c) => c.content.includes(ESLOGAN));
     expect(conEslogan).toHaveLength(1);
-    expect(conEslogan[0].id).toMatch(/^05-el-negocio/);
+    expect(conEslogan[0].id).toMatch(/^sobre-baby-caleb/);
     // Y queda dicho que es una cita, para que el bot no lo tome de licencia.
     expect(conEslogan[0].content).toMatch(/es el eslogan y se\s+cita tal cual/);
   });

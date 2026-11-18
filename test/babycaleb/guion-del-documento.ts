@@ -95,10 +95,12 @@ export const GUION: CasoDelGuion[] = [
     debeContener: ["Pañales Dany Baby: no se manejan", "Nateen"],
   },
   {
-    id: "wipes-nateen-no",
-    pregunta: "¿van a llegar más wipes nateen?",
+    // Desde el 29-sep-2026 sí se venden (caja de 960): precio y presentación, del catálogo.
+    id: "wipes-nateen-si",
+    pregunta: "¿tienen wipes nateen?",
     fuente: "kb",
-    debeContener: ["Wipes Nateen: hoy no se manejan", "se le avisará"],
+    debeContener: ["Wipes Nateen: sí se manejan", "catalogQuery"],
+    noDebeContener: ["Wipes Nateen: hoy no se manejan"],
   },
   {
     id: "fular-colores",
@@ -160,7 +162,7 @@ export const GUION: CasoDelGuion[] = [
     id: "interior-ferguson",
     pregunta: "vivo en Veraguas, ¿me pueden enviar?",
     fuente: "kb",
-    debeContener: ["Veraguas", "Ferguson", "$2.50", "totalidad del producto"],
+    debeContener: ["Veraguas", "Ferguson", "$2.50", "Ferguson se paga la totalidad"],
   },
   {
     id: "mismo-dia",
@@ -172,25 +174,36 @@ export const GUION: CasoDelGuion[] = [
     id: "fin-de-semana",
     pregunta: "¿entregan sábado o domingo?",
     fuente: "kb",
-    debeContener: ["sábados", "domingos no hay entregas"],
+    // Dos trozos y no la frase entera: la dueña reescribe este documento desde
+    // el panel y el 17-nov-2026 cambió "Domingos no hay entregas" por
+    // "Domingos cerrados: no hay entregas". El dato es el mismo.
+    debeContener: ["sábados", "domingos", "no hay entregas"],
   },
   {
     id: "retiro",
     pregunta: "¿puedo pasar a buscarlo?",
     fuente: "kb",
-    debeContener: ["Altos de Curundú", "7:00 a.m.", "5:00 p.m.", "un día de anticipación"],
+    // Decisión del dueño (7-oct-2026): solo delivery. No se ofrece retiro, no se
+    // da dirección, no se transfiere: se sigue con el delivery y se avisa a la dueña.
+    debeContener: ["tienda online", "únicamente por internet", "avisarRetiroEnPersona"],
   },
   {
-    id: "abono-minimo",
-    pregunta: "¿cuánto tengo que abonar para apartar?",
+    id: "pago-completo",
+    pregunta: "¿cuánto tengo que pagar para que me agenden el pedido?",
     fuente: "kb",
-    debeContener: ["$5.00", "@babycalebpanama", "No se entregan pedidos sin abono"],
+    debeContener: ["el total", "@babycalebpanama", "No se agendan ni se entregan pedidos sin el pago completo"],
   },
   {
     id: "contra-entrega",
     pregunta: "¿es contra entrega?",
     fuente: "kb",
-    debeContener: ["Sí y no", "el resto se paga cuando el motorizado entrega"],
+    debeContener: ["¿Es contra entrega? No", "el pedido se paga completo antes de agendarse"],
+  },
+  {
+    id: "apartar-agotado",
+    pregunta: "¿puedo apartar una talla que no tienen?",
+    fuente: "kb",
+    debeContener: ["abono de mínimo $5.00", "Talla o producto agotado"],
   },
   {
     id: "factura",

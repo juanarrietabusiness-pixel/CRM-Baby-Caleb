@@ -1,0 +1,206 @@
+# La consola del dueño por Telegram
+
+> Para la dueña del negocio. Sin terminal: todo se hace desde el panel y desde
+> el teléfono.
+
+El mismo bot de Telegram que atiende clientas es también **su** canal con el
+CRM. Por ahí le llegan los avisos —y por ahí usted le contesta, le da órdenes y
+maneja el inventario.
+
+## 1. Vincular su Telegram (una sola vez)
+
+Hay dos caminos, los dos sin terminal. **Basta uno**: no hace falta hacer los
+dos, ni dejar el panel abierto después.
+
+**A · Con su ID, en Cloudflare**
+
+1. Averigüe su ID: envíele **`/miid`** al bot del negocio (o use cualquier bot
+   de ID, como @userinfobot). Es un número.
+2. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** →
+   `juancitoads-bot` → **Settings → Variables and Secrets → Add**.
+3. Tipo **Secret** (no *Text*: las de tipo Text se borran en el siguiente
+   despliegue). Nombre: `OWNER_TELEGRAM_CHAT_ID`. Valor: ese número, sin
+   espacios. **Deploy**.
+
+Listo. El bot protege solo su consola antes del primer aviso.
+
+**B · Con el enlace del panel**
+
+1. Panel → **Conexiones** → tarjeta **Telegram** → **Vincular mi Telegram**.
+2. Abra el enlace en el teléfono donde tiene Telegram y toque **Iniciar**.
+3. La tarjeta se pone en verde sola.
+
+El código del panel dura 15 minutos y sirve una sola vez. Si el enlace no abre,
+envíele al bot el mensaje que aparece en pantalla (`/dueno 123456`). Si hay de
+los dos, manda el de Cloudflare.
+
+El ID **no** va en los secrets de GitHub: el despliegue no lo carga. Un dato,
+un solo sitio.
+
+Para comprobarlo (opcional): panel → Conexiones → Telegram → **Enviarme un
+aviso de prueba**. En el Resumen, *Salud del bot* debe decir **✓ handoff avisa
+por Telegram**.
+
+> Antes esto exigía `wrangler secret put` en una terminal, y por eso el panel
+> decía **⚠ HANDOFF SIN AVISO**: el bot creaba tickets y nadie se enteraba.
+
+> Si alguna vez un botón contesta *"Activé la protección… Toque el botón otra
+> vez"*, tóquelo otra vez y ya. Pasa solo si el webhook de Telegram se
+> re-registró a mano.
+
+## 2. Qué le llega
+
+| Aviso | Cuándo |
+|---|---|
+| 🚨 **Ticket** | Una clienta pide una persona, quiere pagar, manda un comprobante, reclama… Si mandó una foto que el bot no revisa (un comprobante), le llega la foto justo antes del aviso. |
+| 🛍 **Interesada** | El bot anotó a alguien con intención de compra (nombre, contacto). |
+| 💬 **Le escribió** | Usted atiende una conversación desde Telegram y la clienta contestó. |
+| ⚠️ **Salud del bot** | El bot está fallando en cadena (rara vez). |
+
+Cada aviso de una conversación trae botones:
+
+- **▶️ Devolver al bot** — el bot retoma la conversación y se cierra el ticket.
+- **⏸ Pausar bot** — el bot se calla ahí; la atiende usted.
+- **🛒 Registrar venta** — lee la conversación y le **propone** la venta para
+  descontar del stock. Usted confirma con un toque.
+- **💬 Abrir en el panel**.
+
+**Y se puede responder:** toque *Responder* sobre el aviso, escriba, y su texto
+le llega a la clienta por su canal (WhatsApp, Telegram…). El bot queda en pausa
+en esa conversación mientras usted la atiende.
+
+## 3. Comandos
+
+| Comando | Qué hace |
+|---|---|
+| `/pendientes` | Tickets abiertos y conversaciones que atiende una persona, con botón para devolverlas. |
+| `/bot #ref` | Devuelve la conversación al bot. La `#ref` sale en `/pendientes`. |
+| `/pausar #ref` | Pausa el bot en esa conversación. |
+| `/responder #ref texto` | Le escribe a esa clienta. |
+| `/stock` · `/stock nateen m` | Stock exacto por bodega. |
+| `/venta NAT-M 2` | Descuenta una venta (varias: `NAT-M 2, NAT-S 1`; bodega al final: `oeste`). Trae **↩️ Deshacer**. |
+| `/devolucion NAT-L 1` | Pregunta si el producto **vuelve al inventario** — puede llegar abierto. |
+| `/ajuste NAT-M +3` · `-1` · `=10` | Corrige el stock. |
+| `/movimientos [código]` | Lo último que se movió en el inventario. |
+| `/seguimiento` | A quién le escribe el bot cuando dejan de contestar, cuándo, y qué pasa con quien ya compró. `/seguimiento apagar` · `prender`. |
+| `/difusion` | Cómo va el mensaje a muchas clientas: a cuántas les llegó y cuántas faltan, con **⏸ Pausar**, **▶️ Seguir** y **🛑 Terminar**. |
+| `/compro #ref` | Esa clienta ya compró: no le llega seguimiento comercial hasta el de recompra (a los 15 días). No toca el stock. Trae **↩️ No compró**. |
+| `/nocompro #ref` | Quita esa marca. |
+| `/cliente` | Probar el bot como si fuera una clienta. `/dueno` para volver. |
+| `/nuevo` | Que el asistente olvide lo que venían hablando y empiece de cero. |
+| `/miid` | Su chat id (el número del secret `OWNER_TELEGRAM_CHAT_ID` en Cloudflare). |
+| `/ayuda` | Esta lista. |
+
+También puede hablarle con sus palabras —**escritas, en nota de voz o con una
+foto**—: *"¿qué tengo pendiente?"*, *"¿quién escribió hoy?"*, *"devuélvele la
+conversación de Ana al bot"*, *"vendí 2 cajas de la M"*, o la foto de una
+factura del proveedor. Un asistente interno lo entiende:
+
+- **Sabe que usted es el jefe.** Este canal es interno: seguimiento de clientas,
+  trazabilidad, logística, inventario y ajustes. Nunca la confunde con una
+  clienta.
+- **Se acuerda de lo que vienen hablando** (los últimos días): *"¿y de la L?"*
+  o *"dile que sí"* se entienden por lo anterior. `/nuevo` para empezar de cero.
+- **Oye notas de voz.** Le muestra lo que entendió (🎤 «…») antes de contestar,
+  para que vea si el oído falló. Hasta 5 minutos por nota.
+- **Ve fotos**: una lista, una factura, un comprobante, un producto.
+- Una nota de voz **sobre un aviso** es una instrucción sobre esa clienta. Si
+  hay que decirle algo, se lo propone con botón (el texto escrito sobre un aviso
+  sigue saliendo directo, como siempre).
+
+Lo que sale hacia afuera (un mensaje a una clienta) o mueve el inventario,
+**siempre** se lo propone con botones: no pasa nada sin su toque. Los comandos
+siguen igual.
+
+
+### El seguimiento a clientas (desde el 29-sep-2026)
+
+El bot le escribe solo a quien **preguntó por un producto, un precio, una talla
+o un envío** y dejó de contestar: a las 5 horas, a los 3 días y a los 7 días.
+Nunca a quien dijo que no le interesa, ni si **usted** fue la última en
+escribir en esa conversación (usted decide), ni en una conversación en pausa o
+con ticket abierto.
+
+**Quien ya compró no recibe seguimiento comercial.** Descansa 15 días; ese día
+le llega el mensaje de recompra y, si no contesta, los recordatorios. Cuenta
+como compra cualquiera de estas: el botón **✅ Compró** del aviso (o `/compro`),
+una venta registrada (`/venta` o **🛒 Registrar venta**), un comprobante o pago
+que el bot pasó a una persona, o que ella escriba «ya compré» / «ya pagué».
+
+Todo eso se cambia **desde aquí, con sus palabras**: *"que el de recompra salga
+a los 20 días"*, *"cambie el primer mensaje por…"*, *"no escriba los viernes"*,
+*"apague el seguimiento"*. Le llega **🔁 ¿Cambio así el seguimiento?** con
+**✅ Guardar**: hasta que lo toca, no cambia nada.
+
+Esto **no** va en la base de conocimiento. El 28-sep usted pidió «ya no le des
+más seguimiento a nadie», la consola lo guardó como documento y contestó «el bot
+lo usa desde ya»; pero el proceso que manda los seguimientos nunca lee esa base,
+y siguió escribiendo. Ahora la orden va a donde se decide.
+
+### Lo que la consola NO cambia: el conocimiento base
+
+Las tallas, los productos, quiénes somos y el uso del producto viven en GitHub y
+los actualiza la agencia (así no quedan dos versiones). Si le pide cambiar algo
+de eso, la consola se lo dice y le deja el texto listo para reenviarlo. Lo que
+sí cambia desde aquí: cómo se atiende (pagos, envíos, retiro, cambios, agotados,
+cuándo pasar a una persona) y el seguimiento. Los precios y el stock, en el
+catálogo, como siempre.
+
+### Pedirle que le escriba a un cliente (o a varios)
+
+- *"Respóndale a Brian que nos llegó su pago"* → le llega **✉️ ¿Le mando esto a
+  … ?** con el texto y el botón **✅ Enviar**. Toca el botón **o contesta «sí»**
+  (escrito o en nota de voz). «No» lo descarta. Hasta entonces **no ha salido
+  nada**, y el asistente no puede decir lo contrario: si lo intenta, la consola
+  lo corrige y le avisa "no le he enviado nada".
+- *"Escríbales a los que escribieron hoy"* → le propone **un solo mensaje para
+  todos**, con la lista y un botón **✅ Enviar a N**. `{nombre}` se cambia por el
+  nombre de cada uno. Deja fuera sola, y le dice a quién: a quien dijo que no le
+  interesa, a los grupos y a quien por WhatsApp oficial ya pasó las 24 h.
+- Un mensaje a **uno** calla al bot en esa conversación una hora. Uno a
+  **varios**, no: si alguno contesta, el bot lo atiende.
+
+### Un mensaje a muchas: la difusión (desde el 12-nov-2026)
+
+- *"¿Cuántas preguntaron por los Dany Baby en los últimos dos meses?"* → la
+  consola **lee lo que escribieron las clientas** (hasta 90 días) y le dice
+  cuántas son, por qué canal, a cuántas se les puede escribir y cuántas ya
+  compraron. Antes contestaba con los leads anotados y le dijo «una»: eran 233.
+- *"Mándales este mensaje"* → le llega **📣 Difusión lista** con ese conteo, el
+  ritmo y cómo le llega a una clienta, con el botón **▶️ Empezar** (o «sí»).
+  Hasta entonces no sale nada.
+- **Sale de a poco**: unas 40 al día (máximo 60), en el horario del seguimiento
+  (`/seguimiento`), unas pocas por hora y con 1 a 2 minutos entre cada mensaje.
+  Es así a propósito: por el WhatsApp de código QR, cientos de mensajes iguales
+  de golpe es como WhatsApp bloquea el número.
+- Sale como mensaje del **equipo**: si alguna contesta, el bot la atiende, y el
+  seguimiento automático no le manda «¿Desea algún pedido?» por esto.
+- Quedan fuera solas: quien dijo que no le interesa (también si lo dice durante
+  la difusión), los grupos, quien por Instagram o WhatsApp oficial pasó las
+  24 h, y quien en ese momento atiende una persona. Una a la vez; al terminar,
+  le llega el resumen. Ver `src/difusion/difusion.ts`.
+
+(24-sep-2026, en PanaClaw: el asistente dijo "✅ Mensaje enviado" dos veces sin
+haber enviado nada. Por eso el «sí» ya no pasa por la IA y lo que la IA contesta
+se revisa antes de salir.)
+
+## 4. El inventario, con cuidado
+
+- Una venta sale de la bodega que tenga stock suficiente (la de más stock), o
+  de la que usted nombre. Si no alcanza, **no se descuenta nada** — ni de los
+  productos que sí alcanzaban.
+- Una devolución siempre pregunta: **✅ vuelve al stock** o **🚫 está
+  abierto/dañado** (se anota, pero no se suma).
+- Todo queda en la bitácora (`/movimientos`) con quién lo hizo, y se puede
+  deshacer.
+- El stock sigue viviendo en un solo sitio: el catálogo. Si alguien tiene el
+  editor del catálogo abierto mientras usted registra una venta, el editor **no
+  pisa** esa venta: avisa y recarga el stock actual.
+
+## 5. Cuando usted contesta, el bot se calla
+
+Da igual por dónde conteste —el panel, el **teléfono del negocio** (WhatsApp por
+QR) o Telegram—: el bot se calla en esa conversación. Cuánto tiempo, lo decide
+en **Config → Cuando una persona contesta** (1 hora, 4 horas o todo el día).
+Cada respuesta suya reinicia el plazo. Para devolverla antes: el botón **▶️
+Devolver al bot**, en Telegram o en el panel.

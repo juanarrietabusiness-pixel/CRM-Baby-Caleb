@@ -1,11 +1,23 @@
 import { Hono } from "hono";
 import type { Env } from "./env";
 import type { ChannelAdapter } from "./channels/shared";
-import { telegramAdapter } from "./channels/telegram";
+import { contestarMiId, mensajeDeTelegram, type TgUpdate } from "./channels/telegram";
+import { atenderAlDueno } from "./owner/consola";
+import { webhookConfiable } from "./owner/telegram";
 import { manychatAdapter } from "./channels/manychat";
 import { twilioAdapter } from "./channels/twilio";
-import { parseMetaEvents, verifyMetaSignature } from "./channels/meta";
+import {
+  parseMetaEvents,
+  verifyMetaSignature,
+  resumirMetaEventos,
+  describirResumen,
+  instagramAppSecret,
+} from "./channels/meta";
+import { yaProcesado, recordarRuta, purgarVistos, type RutaMeta } from "./channels/metaRuta";
+import { recordWebhookEvent } from "./channels/webhookDiag";
 import { parseWhatsAppEvents, serveWhatsAppMedia } from "./channels/whatsapp";
+import { whatsappQrAdapter, parseRespuestaPropia, esChatDeUnaPersona } from "./channels/whatsappQr";
+import { registrarRespuestaDelTelefono } from "./takeover";
 import { adminApp } from "./admin/routes";
 import { purgeOldMessages } from "./crons/purgeOldMessages";
 import { reindexAll } from "./kb/docs";
@@ -60,7 +72,31 @@ async function routeToAgent(c: { req: { raw: Request }; env: Env; text: (t: stri
   }
 }
 
-app.post("/webhooks/telegram", (c) => routeToAgent(c, telegramAdapter));
+// Telegram tiene DOS públicos en el mismo bot: las clientas y el dueño. Lo del
+// dueño —sus comandos, sus botones, sus respuestas sobre un aviso, el código
+// que lo vincula— lo atiende la consola y no llega al agente. Siempre 200:
+// un 500 hace que Telegram reintente el mismo update una y otra vez.
+app.post("/webhooks/telegram", async (c) => {
+  let update: TgUpdate;
+  try {
+    update = (await c.req.json()) as TgUpdate;
+  } catch {
+    return c.text("ok", 200);
+  }
+  try {
+    const confiable = await webhookConfiable(c.env, c.req.header("x-telegram-bot-api-secret-token"));
+    if (await atenderAlDueno(c.env, update as any, { confiable })) return c.text("ok", 200);
+    if (await contestarMiId(update, c.env)) return c.text("ok", 200);
+    // Botones, ediciones, altas en grupos: nada que contestar.
+    if (!update.message) return c.text("ok", 200);
+    const msg = await mensajeDeTelegram(update, c.env);
+    const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
+    await c.env.AGENT.get(doId).ingest(msg);
+  } catch (e) {
+    console.error("telegram webhook error:", e);
+  }
+  return c.text("ok", 200);
+});
 app.post("/webhooks/manychat", (c) => routeToAgent(c, manychatAdapter));
 // WhatsApp (Twilio): rutea el mensaje entrante al bot de clientes (Claude). El
 // body se lee UNA vez; ack con TwiML vacío para que Twilio no reenvíe el cuerpo
@@ -76,6 +112,71 @@ app.post("/webhooks/twilio", async (c) => {
   const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
   await c.env.AGENT.get(doId).ingest(msg).catch((e) => console.error("ingest:", e));
   return new Response("<Response></Response>", { status: 200, headers: { "Content-Type": "text/xml" } });
+});
+
+// --- WhatsApp por QR (canal alterno, vía el puente `juancitoads-bot-wa`) ----
+//
+// Aquí NO llega WhatsApp: llega el puente, que es quien sostiene el socket. Por
+// eso no hay firma de Meta que validar — se valida el token compartido, que es
+// el mismo secret que el puente presenta.
+//
+// Fail-closed como /kb/reindex: si WA_TOKEN faltara, un token vacío NO debe
+// abrir la puerta. La comparación es de tiempo constante.
+function tokenDelPuenteValido(c: { req: { header: (n: string) => string | undefined }; env: Env }): boolean {
+  const provided = c.req.header("x-wa-token") ?? "";
+  const expected = c.env.WA_TOKEN ?? "";
+  return !!expected && tokensMatch(provided, expected);
+}
+
+app.post("/webhooks/whatsapp-qr", async (c) => {
+  if (!tokenDelPuenteValido(c)) return c.text("no autorizado", 401);
+
+  let msg;
+  try {
+    msg = await whatsappQrAdapter.parseIncoming(c.req.raw, c.env);
+  } catch (e) {
+    console.error("whatsapp-qr parse error:", e);
+    // 400 y no 200: el puente lo anota en su estado. Un mensaje que se pierde
+    // en silencio es peor que un error visible.
+    return c.text("no se pudo leer el mensaje", 400);
+  }
+
+  // Estados de los contactos, grupos y canales: no son alguien escribiéndole al
+  // negocio. Antes el bot "contestaba" estados y dejaba conversaciones fantasma.
+  if (!esChatDeUnaPersona(msg.channelUserId)) return c.json({ ok: true, ignorado: "no es el chat de una persona" });
+
+  // Reacciones, ediciones, borrados y demás mensajes de protocolo: nada que
+  // contestar. Antes llegaban al agente como un mensaje vacío.
+  if (!msg.text && !msg.audioUrl && !msg.imageUrl) return c.json({ ok: true, ignorado: true });
+
+  const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
+  await c.env.AGENT.get(doId).ingest(msg).catch((e) => console.error("ingest:", e));
+  return c.json({ ok: true });
+});
+
+// La nota de voz o la imagen del WhatsApp por QR, para el proveedor de IA. URL
+// firmada y con vencimiento; ver src/media/almacen.ts.
+app.get("/webhooks/whatsapp-qr/media/:id", async (c) => {
+  const { servirMedia } = await import("./media/almacen");
+  return servirMedia(c.env, c.req.param("id"), c.req.query("exp"), c.req.query("sig"));
+});
+
+// La dueña contestó desde el teléfono del negocio (o desde WhatsApp Web): el
+// bot se calla en esa conversación. Ver src/takeover.ts.
+app.post("/webhooks/whatsapp-qr/propio", async (c) => {
+  if (!tokenDelPuenteValido(c)) return c.text("no autorizado", 401);
+  let datos;
+  try {
+    datos = parseRespuestaPropia(await c.req.json());
+  } catch (e) {
+    console.error("whatsapp-qr propio parse error:", e);
+    return c.text("no se pudo leer el mensaje", 400);
+  }
+  const r = await registrarRespuestaDelTelefono(c.env, datos);
+  if (r.accion === "pausada") {
+    console.log(`[whatsapp-qr] una persona contestó desde el teléfono — ${r.conversationId} en pausa`);
+  }
+  return c.json({ ok: true, ...r });
 });
 
 // --- Meta oficial (Facebook Messenger + Instagram DMs, sin ManyChat) --------
@@ -99,18 +200,56 @@ app.get("/webhooks/meta", (c) => {
 app.post("/webhooks/meta", async (c) => {
   const raw = await c.req.text();
   const sig = c.req.header("x-hub-signature-256");
+  // Qué producto manda el evento: "page" = Messenger, "instagram" = DMs de IG.
+  // Se lee ANTES de validar la firma solo para el diagnóstico (saber de qué
+  // canal era el evento rechazado); ninguna decisión de negocio depende de
+  // este valor sin firma válida.
+  let declaredObject = "desconocido";
+  try {
+    const peek = JSON.parse(raw) as { object?: string };
+    if (typeof peek?.object === "string" && peek.object) declaredObject = peek.object;
+  } catch {
+    // cuerpo no-JSON: se reporta abajo
+  }
+  const source = `meta:${declaredObject}`;
+  // `waitUntil` cuando exista (producción); en tests/Miniflare sin ctx, await directo.
+  const note = (outcome: Parameters<typeof recordWebhookEvent>[2], detail?: string) => {
+    const p = recordWebhookEvent(c.env, source, outcome, detail);
+    try {
+      c.executionCtx.waitUntil(p);
+      return Promise.resolve();
+    } catch {
+      return p;
+    }
+  };
+
   // Messenger (app de Facebook) e Instagram (IG Login) pueden firmar con App
   // Secrets DISTINTOS aunque sea la misma app de Meta. Aceptamos la firma si
   // cuadra con cualquiera de los dos secretos configurados (fail-closed si con
   // ninguno). Así un solo webhook /webhooks/meta sirve para ambos canales.
-  const valid =
-    (!!c.env.META_APP_SECRET && (await verifyMetaSignature(raw, sig, c.env.META_APP_SECRET))) ||
-    (!!c.env.INSTAGRAM_APP_SECRET && (await verifyMetaSignature(raw, sig, c.env.INSTAGRAM_APP_SECRET)));
-  if (!valid) return c.text("bad signature", 403);
+  //
+  // Y de paso dice POR CUÁL RUTA vino el evento, que es el dato que hace falta
+  // para contestarle por donde entró: si validó con el App Secret de
+  // Instagram, es Instagram Login; si no, es la Página.
+  const secretIg = instagramAppSecret(c.env);
+  const okPage =
+    !!c.env.META_APP_SECRET && (await verifyMetaSignature(raw, sig, c.env.META_APP_SECRET));
+  const okIg = !okPage && !!secretIg && (await verifyMetaSignature(raw, sig, secretIg));
+  const valid = okPage || okIg;
+  const ruta: RutaMeta = okIg ? "ig" : "page";
+  if (!valid) {
+    // El motivo más común en Instagram: el producto "Instagram con IG Login"
+    // firma con SU App Secret y no se guardó INSTAGRAM_APP_SECRET.
+    const detail = `firma no cuadró (secrets configurados: META_APP_SECRET=${!!c.env.META_APP_SECRET}, INSTAGRAM_APP_SECRET=${!!secretIg}, firma presente=${!!sig})`;
+    console.warn(`meta webhook rechazado [${source}]: ${detail}`);
+    await note("firma_rechazada", detail);
+    return c.text("bad signature", 403);
+  }
   let body: unknown;
   try {
     body = JSON.parse(raw);
   } catch {
+    await note("sin_mensaje", "cuerpo no es JSON válido");
     return c.text("bad json", 400);
   }
   // Kill-switch del canal oficial de Instagram (IG_OFFICIAL="off"): se ignora
@@ -118,17 +257,51 @@ app.post("/webhooks/meta", async (c) => {
   // (decisión de diseño). Messenger (object === "page") no se ve
   // afectado. Para reactivar: quitar la var y redeploy.
   if ((body as { object?: string }).object === "instagram" && c.env.IG_OFFICIAL === "off") {
+    console.warn("meta webhook: evento de Instagram descartado por IG_OFFICIAL=off");
+    await note("ignorado", 'IG_OFFICIAL="off" apaga el canal oficial de Instagram');
     return c.text("EVENT_RECEIVED", 200);
   }
 
-  for (const msg of parseMetaEvents(body as any)) {
+  const events = parseMetaEvents(body as any);
+  let ingested = 0;
+  let skipped = 0;
+  let repetidos = 0;
+  for (const msg of events) {
+    // La misma cuenta puede estar suscrita por las dos rutas a la vez, así que
+    // el mismo DM puede llegar dos veces. Sin esto, el bot contestaría dos
+    // veces: dos llamadas al modelo y dos mensajes a la clienta.
+    const mid = (msg.rawPayload as { message?: { mid?: string } } | undefined)?.message?.mid;
+    if (await yaProcesado(c.env, mid)) {
+      repetidos++;
+      continue;
+    }
     // Anti-duplicado: cuando IG_DM_SOURCE="manychat", los DMs de Instagram
     // entran SOLO por el webhook de ManyChat — el canal oficial los ignora
     // (si no, cada DM se procesa DOBLE: 2x LLM, 2x respuestas al lead y
     // colisiones de rate limit en ráfagas de historias).
-    if (msg.channel === "instagram" && c.env.IG_DM_SOURCE === "manychat") continue;
+    if (msg.channel === "instagram" && c.env.IG_DM_SOURCE === "manychat") {
+      skipped++;
+      continue;
+    }
+    // Por dónde contestarle: lo sabemos con certeza por la firma.
+    if (msg.channel === "instagram") await recordarRuta(c.env, msg.channelUserId, ruta);
     const doId = c.env.AGENT.idFromName(`${msg.channel}:${msg.channelUserId}`);
     await c.env.AGENT.get(doId).ingest(msg);
+    ingested++;
+  }
+  if (ingested > 0) {
+    await note("ok", `${ingested} mensaje(s) encolado(s) al agente · ruta ${ruta}`);
+  } else if (repetidos > 0) {
+    // Llegó de verdad, pero ya lo habíamos atendido por la otra ruta.
+    await note("ignorado", `${repetidos} mensaje(s) repetido(s): ya procesados por la otra ruta`);
+  } else if (skipped > 0) {
+    console.warn("meta webhook: DM de Instagram descartado por IG_DM_SOURCE=manychat");
+    await note("ignorado", 'IG_DM_SOURCE="manychat" desvía los DMs de Instagram a ManyChat');
+  } else {
+    // Llegó firmado y válido, pero sin nada que contestar. Decir EXACTAMENTE
+    // qué era: si aparecen adjuntos tipo story_mention o share, entonces son
+    // mensajes de verdad que estamos tirando nosotros, no Meta.
+    await note("sin_mensaje", describirResumen(resumirMetaEventos(body as any)));
   }
   return c.text("EVENT_RECEIVED", 200);
 });
@@ -252,8 +425,37 @@ app.post("/kb/reindex", async (c) => {
   if (!expected || !tokensMatch(provided, expected)) {
     return c.json({ ok: false, error: "unauthorized" }, 401);
   }
-  const r = await reindexAll(c.env);
-  return c.json({ ok: true, indexed: r.indexed, purged: r.purged }, 200);
+  let r;
+  try {
+    r = await reindexAll(c.env);
+  } catch (e) {
+    // El motivo va en la respuesta: el despliegue lo imprime, y sin él un 500
+    // no dice nada.
+    console.error("[kb/reindex] falló:", e);
+    return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+  // `version`: el commit de ESTE Worker. El despliegue reintenta hasta verlo —
+  // justo después de publicar, un reindex todavía puede caerle al Worker
+  // anterior (pasó el 24-sep, y el 29-sep con `espejo`, que la versión vieja
+  // también contestaba: la migración del conocimiento no corrió).
+  return c.json(
+    { ok: true, espejo: true, version: c.env.VERSION_GIT ?? null, indexed: r.indexed, purged: r.purged },
+    200,
+  );
+});
+
+// La copia de la base de conocimiento para GitHub (.github/workflows/respaldar-kb.yml).
+// Solo LEE: el panel es la única fuente, y lo que se guarde en el repositorio no
+// vuelve nunca al bot. Mismo secreto que el reindex.
+app.get("/kb/export", async (c) => {
+  const provided = c.req.header("X-Reindex-Token") ?? "";
+  const expected = c.env.KB_REINDEX_TOKEN ?? "";
+  if (!expected || !tokensMatch(provided, expected)) {
+    return c.json({ ok: false, error: "unauthorized" }, 401);
+  }
+  const { KbDocsRepo } = await import("./kb/docs");
+  const docs = await new KbDocsRepo(new Db(c.env.DB)).list();
+  return c.json({ ok: true, docs: docs.map((d) => ({ id: d.id, title: d.title, content: d.content, updated_at: d.updated_at })) });
 });
 
 app.notFound((c) => c.text("not found", 404));
@@ -265,9 +467,10 @@ export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
     app.fetch(request, env, ctx),
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
-    // Follow-up bot: UN mensaje breve de seguimiento a leads que lo ameritan
-    // (venta abierta / 4+ preguntas), dentro de la ventana de 24h y máximo una
-    // vez por conversación. Acotado por caps internos.
+    // Seguimiento a clientas (src/followup/run.ts): solo interesadas, nunca si
+    // la dueña escribió último, y quien compró recibe solo el de recompra. Los
+    // tiempos, textos y el interruptor son ajustes que la dueña cambia por
+    // Telegram (/seguimiento). Acotado por caps internos.
     const { runFollowups } = await import("./followup/run");
     await runFollowups(env).catch((e) => console.error("followups:", e));
 
@@ -277,12 +480,49 @@ export default {
     const { checkBotHealth } = await import("./watchdog");
     await checkBotHealth(env).catch((e) => console.error("watchdog:", e));
 
+    // La firma del webhook de la consola del dueño, por si todavía no está (un
+    // dueño que puso su chat id en Cloudflare y aún no recibe avisos). Una sola
+    // vez por token; después es una lectura de D1.
+    const { protegerConsolaUnaVez } = await import("./owner/dueno");
+    await protegerConsolaUnaVez(env);
+
+    // La difusión en curso, si la hay (src/difusion/difusion.ts): unas pocas por
+    // hora, en el horario del seguimiento y con minutos entre una y otra. Va al
+    // final porque espera entre mensajes: lo de arriba no tiene por qué esperarla.
+    const { runDifusiones } = await import("./difusion/difusion");
+    await runDifusiones(env).catch((e) => console.error("difusion:", e));
+
     // Los trabajos nocturnos SOLO corren en el tick diario (3am UTC) — un tick
     // más frecuente (si el miembro lo configura) no debe purgar/analizar de más.
     if (event.cron && event.cron !== "0 3 * * *") return;
 
     // Daily cron (wrangler.toml: "0 3 * * *") — purge messages older than 90 days.
     await purgeOldMessages(env);
+    // Los ids de mensaje que guardamos para no contestar dos veces caducan:
+    // un DM de hace una semana ya no va a volver a llegar por la otra ruta.
+    await purgarVistos(env).catch((e) => console.error("purga meta_seen:", e));
+    // Los botones y avisos de la consola del dueño de hace más de 30 días ya
+    // no los toca nadie: se podan para que las tablas no crezcan sin fin.
+    try {
+      const { purgarAcciones } = await import("./owner/acciones");
+      await purgarAcciones(env, Date.now() - 30 * 24 * 60 * 60 * 1000);
+    } catch (e) {
+      console.error("purga de la consola:", e);
+    }
+    // La memoria de la consola del dueño: lo de hace un mes ya no es contexto.
+    try {
+      const { purgarMemoria } = await import("./owner/memoria");
+      await purgarMemoria(env, Date.now() - 30 * 24 * 60 * 60 * 1000);
+    } catch (e) {
+      console.error("purga de la memoria de la consola:", e);
+    }
+    // Los audios e imágenes del WhatsApp por QR ya se usaron: se guardan dos días.
+    try {
+      const { purgarMedia } = await import("./media/almacen");
+      await purgarMedia(env, Date.now() - 2 * 24 * 60 * 60 * 1000);
+    } catch (e) {
+      console.error("purga de media:", e);
+    }
     // Corrida nocturna del Analista de insights (F2). No debe tumbar la purga.
     await analyzeConversations(env, { limit: 50 }).catch((e) => console.error("insights:", e));
     // Flywheel (F5): detecta huecos de KB y lecciones de takeovers → propone

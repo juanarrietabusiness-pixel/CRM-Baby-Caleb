@@ -44,6 +44,10 @@ const RATES: Record<string, Rates> = {
   "grok-4": { input: 3.0, cacheRead: 0.75, output: 15.0 },
   "grok-4-fast-non-reasoning": { input: 0.2, cacheRead: 0.05, output: 0.5 },
   "grok-3-mini": { input: 0.3, cacheRead: 0.075, output: 0.5 },
+  // Meta (Muse Spark), con las tarifas que usa la aplicación de calendarios.
+  // El Contributor es barato porque Meta entrena con lo que recibe.
+  "muse-spark-1.3": { input: 1.25, cacheRead: 0.15, output: 4.25 },
+  "muse-spark-1.2-contributor": { input: 0.1, cacheRead: 0.1, output: 0.2 },
 };
 
 // Any concrete model id string (Anthropic or OpenAI). Kept as a string alias so

@@ -13,7 +13,7 @@
  *      system_prompt_override anula el bloque <fuentes_de_verdad> entero; un
  *      business_context viejo mete precios en el prompt de cada turno.
  *   2. ¿Los precios de `catalog_items` son los del documento de la dueña?
- *   3. ¿Hay documentos escritos desde /admin/kb que compitan con member/kb/?
+ *   3. ¿La base de conocimiento del panel existe y no trae precios de producto?
  *      Esos no están en git: nadie los revisa y nadie ve el diff.
  *
  *   pnpm auditar
@@ -23,6 +23,7 @@ import { spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCTOS, DESCATALOGADOS, AJUSTES } from "../test/babycaleb/verdad-del-cliente";
+import { renderBusinessContext } from "../src/businessContext";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -103,26 +104,53 @@ console.log(`\nAuditoría de la verdad — base "${db}" (solo lectura)\n`);
 
 // ── 1. settings: lo que se inyecta en el prompt de cada turno ──────────────
 console.log("1 · Ajustes que le pueden ganar al catálogo");
-const settings = Object.fromEntries(
-  consultar<{ key: string; value: string }>(db, "SELECT key, value FROM settings").map((r) => [
-    r.key,
-    r.value ?? "",
-  ]),
+const filasDeSettings = consultar<{ key: string; value: string; updated_at: number }>(
+  db,
+  "SELECT key, value, updated_at FROM settings",
 );
+const settings = Object.fromEntries(filasDeSettings.map((r) => [r.key, r.value ?? ""]));
+const guardadoEl = (key: string) => {
+  const t = filasDeSettings.find((r) => r.key === key)?.updated_at;
+  return t ? new Date(t).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "fecha desconocida";
+};
 
 const override = (settings["system_prompt_override"] ?? "").trim();
 if (override) {
   mal(
-    "Hay un system_prompt_override guardado: REEMPLAZA el prompt entero, incluido\n" +
-      "    el bloque <fuentes_de_verdad> que obliga a consultar el catálogo. Bórrelo\n" +
-      "    desde /admin (pestaña Agente) salvo que sepa exactamente por qué está ahí.",
+    `Hay un system_prompt_override guardado (${guardadoEl("system_prompt_override")}): REEMPLAZA el prompt\n` +
+      "    entero, incluido el bloque <fuentes_de_verdad> que obliga a consultar el catálogo.\n" +
+      `    Dice: "${override.slice(0, 90)}${override.length > 90 ? "…" : ""}"\n` +
+      "    Arréglelo desde /admin → Config: el aviso rojo tiene 'Convertirlo en instrucción\n" +
+      "    adicional' (se suma, no reemplaza) y 'Borrarlo'.",
   );
   problemas++;
 } else ok("Sin system_prompt_override: el bot usa el prompt generado, con sus fuentes de verdad.");
 
+// La llave de IA del panel. Si no parece una llave, casi seguro es una
+// contraseña que el navegador autocompletó en el campo (pasó en Baby Caleb).
+// Desde el 23-sep el bot la ignora y usa la del sistema, así que no hace decir
+// nada falso — pero es una contraseña guardada en texto plano en la base.
+const llave = (settings["llm_api_key"] ?? "").trim();
+if (llave && !/^(sk-|xai-)\S{16,}$/.test(llave)) {
+  ojo(
+    `llm_api_key tiene algo que NO es una API key (${llave.length} caracteres, guardado ${guardadoEl("llm_api_key")}).\n` +
+      "    Suele ser una contraseña que el navegador autocompletó. El bot la ignora, pero está\n" +
+      "    guardada en la base: bórrela en /admin → Config → 'Quitar mi API key'.",
+  );
+  avisos++;
+}
+
 const contexto = (settings["business_context"] ?? "").trim();
+const delRepo = renderBusinessContext().trim();
 if (!contexto) {
   ok("business_context vacío: cae al del repo (member/config.local.ts), que es el bueno.");
+} else if (contexto.replace(/\r\n/g, "\n") === delRepo) {
+  ojo(
+    "business_context en D1 es una COPIA idéntica del repo. Hoy dicen lo mismo, pero la copia\n" +
+      "    le gana al repo: lo próximo que se mergee en member/config.local.ts no le llega al bot.\n" +
+      "    Se arregla solo al guardar /admin → Config una vez (una copia igual al repo ya se guarda vacía).",
+  );
+  avisos++;
 } else {
   const precios = PRODUCTOS.map((p) => `$${(p.precioCents / 100).toFixed(0)}`).filter((p) =>
     contexto.includes(p),
@@ -208,7 +236,7 @@ if ((settings["escalar_media"] ?? "") !== "1") {
 } else ok("escalar_media encendido: los archivos no llegan al modelo y abren ticket solos.");
 
 if ((settings["bot_paused"] ?? "") === "1") {
-  ojo("El bot está EN PAUSA desde el panel: no está contestando a nadie.");
+  ojo(`El bot está EN PAUSA desde el panel (desde ${guardadoEl("bot_paused")}): no le contesta a nadie.`);
   avisos++;
 }
 
@@ -350,34 +378,59 @@ if (envenenadas.length) {
   avisos++;
 } else ok("Ninguna sugerencia pendiente.");
 
-const factosConPrecio = consultar<{ n: number }>(
+// Un dato recordado con un PRECIO DE PRODUCTO sí es un problema: se congela y
+// le gana al catálogo. Uno que registra un PAGO que la clienta hizo ("pagó un
+// abono de $5 por Yappy") no lo es — es historia, y el bot debe recordarla.
+// Hasta el 23-sep se marcaba cualquier "$" y la auditoría salía roja por eso.
+const PAGO = /pag[oó]|abon[oó]|deposit|transfiri|transferencia|yappy|comprobante|adelant/i;
+const preciosDelCatalogo = PRODUCTOS.map((p) => (p.precioCents / 100).toFixed(0));
+const factosConDinero = consultar<{ conversation_id: string; fact: string }>(
   db,
-  "SELECT COUNT(*) AS n FROM customer_facts WHERE fact LIKE '%$%'",
+  "SELECT conversation_id, fact FROM customer_facts WHERE fact LIKE '%$%'",
 );
-if ((factosConPrecio[0]?.n ?? 0) > 0) {
+const conPrecioDeProducto = factosConDinero.filter(
+  (f) =>
+    !PAGO.test(f.fact) &&
+    preciosDelCatalogo.some((p) => new RegExp(`\\$\\s?${p}(?![\\d])`).test(f.fact)),
+);
+if (conPrecioDeProducto.length > 0) {
   mal(
-    `${factosConPrecio[0].n} dato(s) recordados de clientes llevan un precio dentro. Se inyectan\n` +
-      "    en la conversación como bloque <cliente> y no se actualizan cuando cambie el catálogo.",
+    `${conPrecioDeProducto.length} dato(s) recordados de clientes llevan un precio de producto dentro. Se inyectan\n` +
+      "    en la conversación como bloque <cliente> y no se actualizan cuando cambie el catálogo:\n" +
+      conPrecioDeProducto.map((f) => `      · ${f.conversation_id}: "${f.fact.slice(0, 80)}"`).join("\n"),
   );
   problemas++;
+} else if (factosConDinero.length > 0) {
+  ok(`${factosConDinero.length} dato(s) recordados mencionan dinero, pero son pagos de la clienta, no precios del catálogo.`);
 } else ok("Ningún dato recordado de cliente lleva precios congelados.");
 
-// ── 3. kb_docs del panel contra member/kb/ ────────────────────────────────
-console.log("\n3 · Documentos de conocimiento escritos desde el panel");
-const docs = consultar<{ id: string; title: string; n: number }>(
+// ── 3. La base de conocimiento: el panel es la única fuente ─────────────────
+// Desde el 23-sep-2026 el bot solo sabe lo que hay en /admin/kb (member/kb-respaldo/
+// es una copia, no se indexa). Lo que se revisa aquí es que exista y que no
+// cargue precios de producto, que viven solo en el catálogo.
+console.log("\n3 · La base de conocimiento del panel");
+const docs = consultar<{ id: string; title: string; content: string }>(
   db,
-  "SELECT id, title, length(content) AS n FROM kb_docs ORDER BY title",
+  "SELECT id, title, content FROM kb_docs ORDER BY title",
 );
 if (docs.length === 0) {
-  ok("Ninguno: toda la base de conocimiento viene de member/kb/, que sí está en git.");
+  mal("El panel no tiene ningún documento: el bot no sabe políticas, envíos ni pagos.");
+  problemas++;
 } else {
-  ojo(
-    `Hay ${docs.length} documento(s) escritos desde /admin/kb. No están en git: nadie los\n` +
-      "    revisa, nadie ve el diff, y conviven con los de member/kb/ en el mismo índice.\n" +
-      "    Si dicen algo permanente, múdelo a member/kb/ y bórrelo del panel.",
+  ok(`${docs.length} documento(s) en el panel — es lo único que el bot consulta.`);
+  // Montos que SÍ son política (abono mínimo, cargo del motorizado a Ferguson).
+  const politica = new Set(["5", "5.00", "2.50"]);
+  const conPrecio = docs.filter((d) =>
+    [...d.content.matchAll(/\$\s?(\d+(?:\.\d{2})?)/g)].some((m) => !politica.has(m[1])),
   );
-  avisos++;
-  for (const d of docs) console.log(`      · "${d.title}" (${d.n} caracteres, id ${d.id})`);
+  if (conPrecio.length > 0) {
+    ojo(
+      "Estos documentos mencionan montos que no son el abono ni el cargo a Ferguson. Si es un\n" +
+        "    precio de producto, bórrelo de ahí: los precios viven solo en el Catálogo.\n" +
+        conPrecio.map((d) => `      · "${d.title}"`).join("\n"),
+    );
+    avisos++;
+  } else ok("Ningún documento del panel trae precios de producto.");
 }
 
 // ── Cierre ────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
  * Los canales por los que puede llegar un mensaje.
  *
  * `web` es distinto a todos los demás y conviene saberlo antes de tocar nada:
- * los otros seis EMPUJAN la respuesta —la clienta escribe, se va, y el bot le
+ * los otros EMPUJAN la respuesta —la clienta escribe, se va, y el bot le
  * manda el mensaje cuando termina de pensar—, mientras que el chat de la web
  * la ESPERA en la misma petición. Por eso `web` no tiene adaptador de envío:
  * no hay a dónde enviar, la respuesta vuelve por donde entró la pregunta.
@@ -14,6 +14,10 @@ export type ChannelId =
   | "messenger"
   | "instagram"
   | "whatsapp"
+  /** WhatsApp vinculado por QR, vía el puente `juancitoads-bot-wa`. Canal ALTERNO:
+   *  Baileys no es oficial y el número puede ser baneado, así que la Cloud API
+   *  ("whatsapp") se queda conectada como respaldo. */
+  | "whatsapp-qr"
   | "web";
 
 /**

@@ -8,7 +8,7 @@ import { MessagesRepo } from "./db/messages";
 import { isPro } from "./config";
 import { resolveAgentConfig } from "./settings-loader";
 import { buildTools } from "./tools";
-import { buildMultimodalUserMessage } from "./media/vision";
+import { imagenParaElModelo, mensajeConImagen, NOTA_IMAGEN_ILEGIBLE } from "./media/vision";
 import { chunkReply } from "./replies/chunker";
 import { pickAdapter } from "./replies/sender";
 import { selectModel } from "./upgrade/modelSelector";
@@ -17,9 +17,29 @@ import { monthIaCostUsd, applyBudgetGuard } from "./budget";
 import { CustomerFactsRepo } from "./db/facts";
 import { TicketsRepo } from "./db/tickets";
 import { notifyOwner } from "./tools/handoffHuman";
-import { createModel } from "./llm/provider";
+import { createModel, OPCIONES_POR_PROVEEDOR } from "./llm/provider";
+import { anotarFalloLlm, describirError, secretosDelEntorno } from "./llm/ultimoFallo";
 import { costOfUsage } from "./pricing";
 import type { ArchivoNoLegible, ChannelId } from "./channels/shared";
+import { pausarPorHumano, viaDeAtencion } from "./takeover";
+import { revisarRespuesta, hayQueBloquear, notaDeRevision, respuestaSegura } from "./replies/revisor";
+import type { Problema } from "./replies/revisor";
+import { frasesProhibidas } from "../member/config.local";
+
+/**
+ * Las tools que el modelo puede volver a usar al rehacer una respuesta que el
+ * revisor detuvo: solo las que CONSULTAN. Las que hacen algo (abrir un ticket,
+ * anotar un lead, pausar) ya corrieron en el primer intento; repetirlas
+ * duplicaría el ticket o el aviso a la dueña.
+ */
+const TOOLS_DE_CONSULTA = new Set(["catalogQuery", "searchKb", "cotizarEnvio"]);
+
+/**
+ * Un mensaje que lleva más que esto en el buffer no es de "la clienta sigue
+ * escribiendo": es un resto de una pausa o de una caída. El buffer normal vive
+ * entre 5 y 30 segundos.
+ */
+const BUFFER_VENCIDO_MS = 10 * 60_000;
 
 export interface SupportAgentState {
   conversationId: string | null;
@@ -102,15 +122,34 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       conversationId: conv.id,
     });
 
-    // Owner intervened → pause the bot, do NOT process this as user input
+    // Una persona del equipo intervino → el bot se calla en esta conversación.
+    // Su mensaje se anota como `owner` para que el panel muestre la
+    // conversación completa, pero NO se procesa como si fuera de la clienta.
     if (payload.isOwnerMessage) {
-      const pausedUntil = Date.now() + 60 * 60 * 1000;
-      await convs.setPausedUntil(conv.id, pausedUntil);
+      if (payload.text?.trim()) {
+        await new MessagesRepo(db).append(conv.id, "owner", payload.text.trim());
+        await convs.touchLastMessage(conv.id);
+      }
+      await pausarPorHumano(this.env, conv.id);
       return { acknowledged: true };
     }
 
-    // If paused, ignore (bot stays silent)
+    // En pausa (una persona tiene la conversación): el bot no contesta, pero el
+    // mensaje SÍ se guarda. Antes se tiraba, y el panel —desde donde la dueña
+    // atiende— mostraba la conversación sin lo que la clienta escribió mientras
+    // tanto. Un CRM que pierde la mitad del chat no sirve para retomarlo.
     if (await convs.isPaused(conv.id)) {
+      await this.anotarSinResponder(conv.id, payload);
+      return { acknowledged: true };
+    }
+
+    // El bot entero en pausa desde el panel: mismo trato que una conversación
+    // pausada. Antes el mensaje se quedaba en el buffer del Durable Object —fuera
+    // de D1, invisible en el panel— y al despausar se contestaba TODO lo
+    // acumulado de un golpe, días después, como si fuera un solo mensaje.
+    const cfg = await resolveAgentConfig(this.env, []);
+    if (cfg.botPaused) {
+      await this.anotarSinResponder(conv.id, payload);
       return { acknowledged: true };
     }
 
@@ -208,16 +247,6 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       imageRetryCount: hasImage ? 0 : this.state.imageRetryCount,
     });
 
-    // Resolve effective config (D1 settings overlaid on env defaults).
-    // We need at least bot_paused (to decide whether to reply) and the buffer.
-    const cfg = await resolveAgentConfig(this.env, []);
-
-    // Owner paused the bot via the dashboard → keep the message buffered but
-    // stay silent: do NOT arm the alarm, so alarm() never runs.
-    if (cfg.botPaused) {
-      return { acknowledged: true };
-    }
-
     // Schedule buffer processing via the agents SDK scheduler.
     // The SDK overrides alarm() to dispatch named callbacks from its
     // cf_agents_schedules table, so raw ctx.storage.setAlarm() alone won't
@@ -238,6 +267,83 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
   }
 
   /**
+   * Guarda el mensaje de la clienta en D1 sin contestarlo: la conversación la
+   * tiene una persona, o el bot está en pausa. El audio no se transcribe —cuesta
+   * y nadie lo va a leer como texto—, se deja constancia de que llegó.
+   */
+  private async anotarSinResponder(convId: string, payload: AgentIncomingPayload): Promise<void> {
+    const partes = [payload.text?.trim() ?? ""];
+    if (payload.audioUrl) partes.push("(la clienta mandó un audio)");
+    if (payload.imageUrl) partes.push("(la clienta mandó una imagen)");
+    const texto = partes.filter(Boolean).join("\n");
+    if (!texto) return;
+    const db = new Db(this.env.DB);
+    await new MessagesRepo(db).append(convId, "user", texto);
+    const convs = new ConversationsRepo(db);
+    await convs.touchLastMessage(convId);
+
+    // Si la dueña está atendiendo ESTA conversación desde Telegram, lo que la
+    // clienta escribe se le reenvía allá: así Telegram es una conversación de
+    // ida y vuelta y no un aviso suelto. Desde el panel o el teléfono no hace
+    // falta — ya lo está viendo.
+    try {
+      const conv = await convs.getById(convId);
+      if (conv?.paused_until && conv.paused_until > Date.now() && viaDeAtencion(conv.metadata) === "telegram") {
+        const { avisarAlDueno } = await import("./owner/avisos");
+        // Con la foto, si mandó una: la dueña atiende desde Telegram y un
+        // "(la clienta mandó una imagen)" sin la imagen no le sirve de nada.
+        await avisarAlDueno(this.env, {
+          titulo: "💬 Le escribió",
+          cuerpo: texto,
+          conversationId: convId,
+          conBotones: "devolver",
+          foto: payload.imageUrl ?? null,
+        });
+      }
+    } catch (e) {
+      console.warn("[SupportAgent] no se pudo reenviar a Telegram:", e);
+    }
+  }
+
+  /**
+   * El revisor detuvo una respuesta que no se pudo arreglar (un pago dado por
+   * bueno, una frase que el negocio prohíbe): se abre el ticket y se avisa a la
+   * dueña con lo que el bot iba a decir, para que conteste ella. Si ya hay un
+   * ticket abierto en la conversación, no se abre otro.
+   */
+  private async pasarAUnaPersonaPorRevisor(convId: string, borrador: string, problemas: Problema[]): Promise<void> {
+    try {
+      const db = new Db(this.env.DB);
+      const convs = new ConversationsRepo(db);
+      const conv = await convs.getById(convId);
+      if (conv?.open_ticket_id) return;
+      const motivo = problemas.map((p) => p.codigo).join(", ");
+      const ticketId = await new TicketsRepo(db).create({
+        conversationId: convId,
+        category: problemas.some((p) => p.codigo === "pago-confirmado") ? "billing" : "other",
+        summary: `El revisor detuvo una respuesta del bot (${motivo}). Conteste usted.`,
+        transcript: borrador.slice(0, 1500),
+      });
+      await convs.setOpenTicket(convId, ticketId);
+      await notifyOwner(this.env, {
+        reason: "respuesta detenida",
+        summary: `El bot iba a decir algo que no debe (${motivo}) y no lo mandó. Lo que iba a decir: «${borrador.slice(0, 300)}»`,
+        ticketId,
+        conversationId: convId,
+      });
+    } catch (e) {
+      console.error("[revisor] no se pudo abrir el ticket:", e);
+    }
+  }
+
+  /** ¿Hay una persona a cargo, o el bot entero está apagado desde el panel? */
+  private async hayQueCallarse(convId: string): Promise<boolean> {
+    const db = new Db(this.env.DB);
+    if (await new ConversationsRepo(db).isPaused(convId)) return true;
+    return (await resolveAgentConfig(this.env, [])).botPaused;
+  }
+
+  /**
    * Called by the agents SDK scheduler when the msg-buffer task fires.
    * Processes accumulated messages as one input, runs the LLM loop, and
    * sends the chunked reply over the channel adapter.
@@ -252,12 +358,9 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
    * es un error, es «ahora no contesto», y la pantalla lo dice.
    */
   async processBuffer(): Promise<string[]> {
-    const buffered = [...this.state.pendingMessages];
+    const pendientes = [...this.state.pendingMessages];
     this.setState({ ...this.state, pendingMessages: [] });
-    if (buffered.length === 0) return [];
-
-    const combined = buffered.map((m) => m.text).join("\n").trim();
-    if (!combined) return [];
+    if (pendientes.length === 0) return [];
 
     const db = new Db(this.env.DB);
     const msgs = new MessagesRepo(db);
@@ -267,6 +370,31 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       console.warn("[SupportAgent.processBuffer] no conversation_id in state");
       return [];
     }
+
+    // Lo vencido se anota pero no se contesta. Son restos de antes de este
+    // arreglo (la pausa global dejaba todo en el buffer) o de una caída: al
+    // volver, el bot respondía de un golpe mensajes de hace días como si la
+    // clienta los acabara de escribir.
+    const ahora = Date.now();
+    const vencidos = pendientes.filter((m) => ahora - m.receivedAt > BUFFER_VENCIDO_MS);
+    for (const m of vencidos) {
+      if (m.text.trim()) await msgs.append(convId, "user", m.text.trim(), { createdAt: m.receivedAt });
+    }
+    const buffered = pendientes.filter((m) => ahora - m.receivedAt <= BUFFER_VENCIDO_MS);
+    if (buffered.length === 0) return [];
+
+    // Entre que llegó el mensaje y que venció la espera del buffer, una
+    // persona pudo haber tomado la conversación (contestó desde el teléfono,
+    // desde el panel). Si es así, el mensaje se guarda y el bot no se mete.
+    if (await this.hayQueCallarse(convId)) {
+      for (const m of buffered) {
+        if (m.text.trim()) await msgs.append(convId, "user", m.text.trim(), { createdAt: m.receivedAt });
+      }
+      return [];
+    }
+
+    const combined = buffered.map((m) => m.text).join("\n").trim();
+    if (!combined) return [];
 
     // Persist user message
     await msgs.append(convId, "user", combined);
@@ -313,14 +441,24 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     const lastUserMsg = history[history.length - 1];
     let mediaEscalada = false;
     let tipoArchivo = "un archivo";
+    let fotoEscalada: string | undefined;
+    // La imagen va en BYTES, leída por el CRM (ver imagenParaElModelo). Si no
+    // se pudo abrir, el modelo lo sabe y atiende a la clienta igual.
+    let textoSinImagen: string | null = null;
     if (lastUserMsg) {
       const imgMatch = lastUserMsg.content.match(/\[IMAGE_URL: (.+?)\]/);
       const fileMatch = lastUserMsg.content.match(RE_ARCHIVO);
       const cleanText = limpiarMarcas(lastUserMsg.content);
       if (imgMatch && isPro(this.env) && !cfg.escalarMedia) {
-        aiMessages.push(buildMultimodalUserMessage(cleanText, imgMatch[1]));
+        textoSinImagen = `${cleanText || "(sin texto)"}\n\n${NOTA_IMAGEN_ILEGIBLE}`;
+        const img = await imagenParaElModelo(this.env, imgMatch[1]);
+        aiMessages.push(img ? mensajeConImagen(cleanText, img) : { role: "user", content: textoSinImagen });
+        if (!img) textoSinImagen = null; // ya va sin imagen: no hay a qué caer
       } else if ((imgMatch || fileMatch) && cfg.escalarMedia) {
         mediaEscalada = true;
+        // Solo la imagen se le puede reenviar a la dueña por Telegram; un PDF
+        // o un video quedan en el panel y en su teléfono.
+        if (imgMatch) fotoEscalada = imgMatch[1];
         tipoArchivo = imgMatch ? "una imagen" : fileMatch![1] === "audio"
           ? "una nota de voz"
           : fileMatch![1] === "video"
@@ -367,8 +505,14 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         await convs.setOpenTicket(convId, ticketId);
         await notifyOwner(this.env, {
           reason: "archivo recibido",
-          summary: `La clienta envió ${tipoArchivo} que el bot no puede revisar.`,
+          summary:
+            `La clienta envió ${tipoArchivo} que el bot no puede revisar (¿un comprobante de pago?). ` +
+            (fotoEscalada
+              ? "Aquí arriba se lo mando; también está en el teléfono y en el panel."
+              : "No se lo puedo reenviar por aquí, pero está en el teléfono y en el panel."),
           ticketId,
+          conversationId: convId,
+          foto: fotoEscalada,
         });
       } catch (e) {
         console.error("[SupportAgent] no se pudo crear el ticket del archivo:", e);
@@ -452,36 +596,65 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     let toolCallCount = 0;
     let toolCallsMade: { toolName: string; input: unknown }[] = [];
     let usedModelId = modelId;
+    let usedModel: any = model;
+    /** Lo que devolvieron las tools en este turno, en texto: respaldo para el revisor. */
+    let datosDeTools = "";
+    let ok = true;
 
-    // Corre el loop del LLM con un modelo dado; deja los resultados en las vars.
-    const attempt = async (m: any) => {
+    // Corre el loop del LLM con un modelo dado. `extra` es para rehacer una
+    // respuesta: un bloque de sistema más y otras tools.
+    const correr = async (m: any, extra?: { system?: SystemModelMessage[]; tools?: typeof enabledTools }) => {
       const result = streamText({
         model: m,
-        system,
+        system: extra?.system ? [...system, ...extra.system] : system,
         messages: aiMessages,
-        tools: enabledTools,
+        tools: extra?.tools ?? enabledTools,
+        // Opciones por proveedor: con Meta, sin `eager_input_streaming` en las tools.
+        providerOptions: OPCIONES_POR_PROVEEDOR,
         stopWhen: ({ steps }) => steps.length >= 6,
         ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
       });
-      let text = "";
+      let streamed = "";
       for await (const chunk of result.textStream) {
-        text += chunk;
+        streamed += chunk;
       }
-      assistantText = text;
       const usage = await result.usage;
-      inputTokens = usage?.inputTokens ?? 0;
-      outputTokens = usage?.outputTokens ?? 0;
-      cachedTokens = usage?.cachedInputTokens ?? 0;
       const steps = await result.steps;
-      toolCallCount = steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0);
-      // Persist what the agent DID (not just what it said): tool name + input,
-      // feeding the dashboard's thread chips, stats and the Mi Agente counters.
-      toolCallsMade = steps.flatMap((s) =>
-        (s.toolCalls ?? []).map((tc: any) => ({
-          toolName: tc.toolName as string,
-          input: tc.input,
-        })),
-      );
+      // El texto de CADA paso, separado por una línea en blanco. textStream los
+      // pega sin espacio: "Déjeme consultar el catálogo.Acá están los
+      // productos" salió así en 76 respuestas entre el 29-sep y el 6-oct.
+      const porPasos = steps.map((st) => (st.text ?? "").trim()).filter(Boolean).join("\n\n");
+      return {
+        text: porPasos || streamed,
+        inputTokens: usage?.inputTokens ?? 0,
+        outputTokens: usage?.outputTokens ?? 0,
+        cachedTokens: usage?.cachedInputTokens ?? 0,
+        toolCallCount: steps.reduce((n, st) => n + (st.toolCalls?.length ?? 0), 0),
+        // Persist what the agent DID (not just what it said): tool name + input,
+        // feeding the dashboard's thread chips, stats and the Mi Agente counters.
+        toolCallsMade: steps.flatMap((st) =>
+          (st.toolCalls ?? []).map((tc: any) => ({
+            toolName: tc.toolName as string,
+            input: tc.input,
+          })),
+        ),
+        datosDeTools: steps
+          .flatMap((st) => (st.toolResults ?? []).map((tr: any) => `${tr.toolName}: ${JSON.stringify(tr.output)}`))
+          .join("\n"),
+      };
+    };
+
+    // Corre el loop y deja los resultados en las vars (el camino de siempre).
+    const attempt = async (m: any) => {
+      const r = await correr(m);
+      assistantText = r.text;
+      inputTokens = r.inputTokens;
+      outputTokens = r.outputTokens;
+      cachedTokens = r.cachedTokens;
+      toolCallCount = r.toolCallCount;
+      toolCallsMade = r.toolCallsMade;
+      datosDeTools = r.datosDeTools;
+      usedModel = m;
     };
 
     try {
@@ -493,11 +666,13 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       // intento). El jitter des-sincroniza mensajes que llegaron en el mismo
       // segundo. El bot no puede quedarse mudo el día del evento.
       console.error("[SupportAgent.processBuffer] streamText failed:", e);
+      // El error REAL, para Config: sin esto solo queda en los logs de Cloudflare.
+      const falloReal = describirError(e, secretosDelEntorno(this.env, cfg.llm?.apiKey));
       const backoff = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const { fallbackModel } = await import("./llm/provider");
       const primary = createModel(this.env, tier, cfg.llm);
       const fb = fallbackModel(this.env, tier, primary.provider);
-      let ok = false;
+      ok = false;
 
       await backoff(2000 + Math.floor(Math.random() * 1500));
       try {
@@ -528,9 +703,95 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         }
       }
 
-      if (!ok) {
-        assistantText = "Disculpe, algo falló de mi lado. Inténtelo de nuevo en un momento.";
+      // Con una imagen de por medio, un último intento SIN ella: que el
+      // proveedor no pueda procesar la foto no es razón para dejar al cliente
+      // con "algo falló". Se le atiende diciéndole que no se abrió.
+      if (!ok && textoSinImagen) {
+        aiMessages[aiMessages.length - 1] = { role: "user", content: textoSinImagen };
+        try {
+          await attempt(model);
+          ok = true;
+        } catch (e4: any) {
+          console.error("[SupportAgent.processBuffer] sin la imagen también falló:", e4);
+        }
       }
+
+      await anotarFalloLlm(this.env, {
+        cuando: Date.now(),
+        proveedor: primary.provider,
+        modelo: modelId,
+        mensaje: falloReal,
+        recuperado: ok,
+        respaldo: ok && usedModelId !== modelId ? usedModelId : undefined,
+      });
+
+      if (!ok) {
+        assistantText = "Algo falló de mi lado. Por favor, intente de nuevo en un momento.";
+      }
+    }
+
+    // El revisor: lo que la respuesta NO puede decir, antes de mandarla
+    // (src/replies/revisor.ts). Si encuentra algo, el modelo la rehace UNA vez
+    // con la lista de problemas delante; si lo que bloquea sigue ahí, no sale y
+    // la conversación pasa a una persona. Es un extra: si falla, sale la
+    // respuesta como antes.
+    let revision: Problema[] = [];
+    if (ok && assistantText.trim()) {
+      try {
+        const contextoRevision = (datos: string) => ({
+          formaDeTrato: cfg.formaDeTrato,
+          frasesProhibidas,
+          textoDeLaClienta: combined,
+          respaldoMontos: [cfg.systemPrompt, datos, ...history.map((m) => m.content)],
+        });
+        revision = revisarRespuesta(assistantText, contextoRevision(datosDeTools));
+        if (revision.length > 0) {
+          console.warn(`[revisor] conv ${convId}: ${revision.map((p) => p.codigo).join(", ")} — se rehace`);
+          const borrador = assistantText;
+          const consulta = Object.fromEntries(
+            Object.entries(enabledTools).filter(([n]) => TOOLS_DE_CONSULTA.has(n)),
+          ) as typeof enabledTools;
+          let rehecha: Awaited<ReturnType<typeof correr>> | null = null;
+          try {
+            rehecha = await correr(usedModel, {
+              system: [{ role: "system", content: notaDeRevision(borrador, revision, datosDeTools) }],
+              tools: consulta,
+            });
+          } catch (e) {
+            console.error("[revisor] no se pudo rehacer la respuesta:", e);
+          }
+          if (rehecha) {
+            inputTokens += rehecha.inputTokens;
+            outputTokens += rehecha.outputTokens;
+            cachedTokens += rehecha.cachedTokens;
+            toolCallsMade = [...toolCallsMade, ...rehecha.toolCallsMade];
+          }
+          const datos = [datosDeTools, rehecha?.datosDeTools ?? ""].filter(Boolean).join("\n");
+          const despues = rehecha?.text.trim() ? revisarRespuesta(rehecha.text, contextoRevision(datos)) : revision;
+          if (hayQueBloquear(despues)) {
+            console.warn(`[revisor] conv ${convId}: sigue ${despues.map((p) => p.codigo).join(", ")} — no sale, pasa a una persona`);
+            assistantText = respuestaSegura(cfg.formaDeTrato);
+            await this.pasarAUnaPersonaPorRevisor(convId, borrador, despues);
+          } else if (rehecha?.text.trim()) {
+            assistantText = rehecha.text;
+          }
+          // Queda a la vista en el hilo del panel, como una tool más.
+          toolCallsMade = [
+            ...toolCallsMade,
+            { toolName: "revisor", input: { corrigio: revision.map((p) => p.codigo), bloqueo: hayQueBloquear(despues) } },
+          ];
+        }
+      } catch (e) {
+        console.error("[revisor] falló; la respuesta sale sin revisar:", e);
+      }
+    }
+
+    // Última puerta: el modelo tarda segundos, y en esos segundos una persona
+    // pudo haber contestado. Si ya hay alguien a cargo, la respuesta del bot no
+    // sale — mandarla sería justo el choque que esto existe para evitar.
+    if (await this.hayQueCallarse(convId)) {
+      console.log(`[SupportAgent] conv ${convId}: una persona tomó la conversación mientras el bot pensaba — no se envía`);
+      return [];
     }
 
     // Persist assistant message (with usage + model_used + tool calls)

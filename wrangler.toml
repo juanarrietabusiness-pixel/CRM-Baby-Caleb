@@ -48,6 +48,22 @@ index_name = "juancitoads-bot-kb"
 # binding = "CATALOG"
 # bucket_name = "juancitoads-bot-catalog"
 
+# El puente de WhatsApp por QR. Por SERVICE BINDING y no por URL pública:
+# Cloudflare rechaza con error 1042 que un Worker llame a otro de la MISMA
+# cuenta por su URL — la petición ni siquiera llega, y el síntoma es un 404 que
+# se lee como "la ruta no existe".
+#
+# Estuvo comentado hasta el 16-sep-2026 a propósito: Cloudflare también rechaza
+# el DEPLOY de un Worker que declara un binding hacia otro que no existe, y aquí
+# mergear a `main` es desplegar. Se activa ahora porque `juancitoads-bot-wa` ya
+# está publicado (`puente-wa.yml`, corrida del 16-sep 17:06 UTC).
+#
+# Si algún día hay que recrear el puente desde cero, vuelve a comentarse primero
+# y se destapa después — en ese orden.
+[[services]]
+binding = "PUENTE_WA"
+service = "juancitoads-bot-wa"
+
 # ---------------------------------------------------------------------------
 # El sistema de Baby Caleb
 # ---------------------------------------------------------------------------
@@ -78,15 +94,28 @@ BOT_TIMEZONE = "America/Panama"
 BOT_TIER = "pro"
 BUFFER_SECONDS = "15"
 DASHBOARD_BASE_URL = "https://juancitoads-bot.juanarrietabusiness.workers.dev"
+# WhatsApp por QR (canal alterno). El bot no habla con WhatsApp: habla con este
+# puente, que sostiene el socket desde un contenedor. Ver puente-wa/.
+WA_PUENTE_URL = "https://juancitoads-bot-wa.juanarrietabusiness.workers.dev"
 
 # Secrets (set with `wrangler secret put <NAME>` — never commit values):
-#   ANTHROPIC_API_KEY          required — Claude API
+#   ANTHROPIC_API_KEY          required — Claude API (o una de las de abajo)
+#   OPENAI_API_KEY / XAI_API_KEY   optional — ChatGPT / Grok como cerebro o respaldo
+#   META_API_KEY               optional — la IA de Meta (Muse Spark), de dev.meta.ai. También vale
+#                              MODEL_API_KEY. NO es META_PAGE_ACCESS_TOKEN (eso es Messenger/IG).
+#                              Ver src/llm/provider.ts. Y NUNCA pongas ANTHROPIC_BASE_URL en este
+#                              Worker aunque la guía de Meta lo pida: el código ya apunta cada
+#                              proveedor a su sitio, y esa variable mandaría la llave de Anthropic a Meta.
 #   DASHBOARD_PASSWORD         required (Pro) — HTTP Basic Auth for /admin (user: admin)
 #   KB_REINDEX_TOKEN           required — guards POST /kb/reindex (header: X-Reindex-Token)
 #                              set with: wrangler secret put KB_REINDEX_TOKEN
 #   TELEGRAM_BOT_TOKEN         per-channel — Telegram bot
 #   MANYCHAT_API_KEY           per-channel — ManyChat (Pro)
 #   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WA_FROM   per-channel — Twilio WhatsApp (Pro)
+#   WA_TOKEN                   per-channel — WhatsApp por QR. El MISMO valor que el
+#                              secret WA_TOKEN del puente `juancitoads-bot-wa`. Solo
+#                              ASCII: un token con tilde o eñe pasa toda prueba hecha
+#                              por navegador y falla solo en la máquina.
 #   CALCOM_API_KEY             optional — scheduleAppointment (Pro)
 #   GOOGLE_SERVICE_ACCOUNT_JSON  optional — Sheets export (Pro)
 #   RESEND_API_KEY             optional — handoff email
@@ -99,7 +128,7 @@ DASHBOARD_BASE_URL = "https://juancitoads-bot.juanarrietabusiness.workers.dev"
 #   CONTROL_PLANE_URL          optional (var) — base URL of the control plane (future reports / license check)
 
 [triggers]
-crons = ["0 3 * * *"]  # daily 3am UTC: purge old messages
+crons = ["0 * * * *", "0 3 * * *"]  # cada hora: seguimientos a clientas (src/followup/run.ts) · 3am UTC: purga y análisis nocturno
 
 # DASHBOARD_PASSWORD  (secret) — HTTP Basic Auth password for the admin dashboard; username is always "admin".
 # Set it with: wrangler secret put DASHBOARD_PASSWORD

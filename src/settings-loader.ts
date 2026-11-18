@@ -26,6 +26,8 @@ export interface AgentConfig {
   escalarMedia: boolean;
   /** BYO-LLM del dashboard (proveedor / API key / modelo). */
   llm: LlmOverrides;
+  /** usted / tú / vos. El revisor de respuestas busca el tuteo solo con "usted". */
+  formaDeTrato?: FormaDeTrato;
 }
 
 /**
@@ -132,6 +134,8 @@ export async function resolveAgentConfig(env: Env, toolNames: string[]): Promise
   // Forma de trato (usted / tú / vos). Sin valor, el prompt no dice nada y el
   // modelo elige — que es como terminó tuteando un negocio que trata de usted.
   const formaDeTrato = normalizeFormaDeTrato(get(SETTING_KEYS.formaDeTrato));
+  // Reglas extra del dueño (pestaña Config): se suman al prompt generado.
+  const instrucciones = get(SETTING_KEYS.customInstructions);
 
   // Flywheel lessons (JSON array). Only injected into the GENERATED prompt —
   // a manual override replaces the whole prompt, lessons included.
@@ -154,6 +158,7 @@ export async function resolveAgentConfig(env: Env, toolNames: string[]): Promise
       botName,
       lessons,
       formaDeTrato,
+      instrucciones,
     });
 
   const bufferSecondsRaw = get(SETTING_KEYS.bufferSeconds);
@@ -194,5 +199,6 @@ export async function resolveAgentConfig(env: Env, toolNames: string[]): Promise
     temperature,
     monthlyBudgetUsd,
     llm: llmOverridesFrom(settings),
+    formaDeTrato,
   };
 }

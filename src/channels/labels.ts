@@ -10,6 +10,7 @@ export const CHANNEL_LABELS: Record<string, string> = {
   web: "Chat de la web",
   twilio: "WhatsApp",
   whatsapp: "WhatsApp", // legacy rows
+  "whatsapp-qr": "WhatsApp (QR)",
   telegram: "Telegram",
   instagram: "Instagram",
   messenger: "Messenger",

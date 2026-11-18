@@ -9,7 +9,7 @@
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { SuggestionsRepo } from "../db/suggestions";
-import { KbDocsRepo, indexDoc } from "../kb/docs";
+import { KbDocsRepo, indexDoc, docDeGithub } from "../kb/docs";
 import { getLessons, saveLessons, MAX_LESSONS } from "./detect";
 
 export async function applySuggestion(env: Env, id: string): Promise<boolean> {
@@ -28,6 +28,8 @@ export async function applySuggestion(env: Env, id: string): Promise<boolean> {
     const title = String(payload.title ?? s.title).slice(0, 200);
     const content = String(payload.content ?? "").trim();
     if (!content) return false;
+    // Ese tema es conocimiento base (GitHub): se lo cambia la agencia, no una sugerencia.
+    if (docDeGithub(title)) return false;
     const docs = new KbDocsRepo(new Db(env.DB));
     const docId = crypto.randomUUID();
     await docs.upsert({ id: docId, title, content });

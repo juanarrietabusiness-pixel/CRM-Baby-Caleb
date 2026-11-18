@@ -1,0 +1,217 @@
+# Desplegar el puente de WhatsApp por QR — sin abrir una terminal.
+#
+# Workflow APARTE del deploy del bot, igual que el Worker. Construir la imagen
+# del contenedor puede fallar, y si eso pasa no debe arrastrar al despliegue del
+# bot: un cambio de la base de conocimiento no se puede quedar sin publicar
+# porque WhatsApp esté roto.
+#
+# Necesita dos secrets del repositorio:
+#   CLOUDFLARE_API_TOKEN  — el mismo del bot, MÁS "Cloudflare Images: Edit"
+#                           (el registro de imágenes se apoya en Images).
+#   WA_TOKEN              — protege las rutas del puente y es lo que el
+#                           contenedor presenta para escribir en D1.
+#                           SOLO ASCII. Ver la validación de abajo.
+name: Puente WhatsApp · desplegar
+
+on:
+  workflow_dispatch:
+    inputs:
+      que_hacer:
+        description: "¿Qué quieres hacer?"
+        type: choice
+        default: desplegar
+        options:
+          - desplegar
+          - borrar-el-puente
+  # También solo, cuando un merge a main cambia el puente. Antes era siempre a
+  # mano, y el cambio se quedaba en el repo sin publicar hasta que alguien se
+  # acordara — y después había que acordarse OTRA vez de reiniciar el
+  # contenedor. Ahora un merge lo publica y lo reinicia (ver el último paso).
+  push:
+    branches: [main]
+    paths:
+      - "puente-wa/**"
+      - ".github/workflows/puente-wa.yml"
+
+# La versión de wrangler va CLAVADA, no en `@4`.
+#
+# El 17-sep-2026 este despliegue se cayó sin que cambiáramos nada suyo:
+#
+#     VALIDATE_INPUT
+#     observability cannot define both observability and configuration.observability
+#
+# `npx wrangler@4` trae siempre la última. La 4.133.0 se publicó el 16-sep a
+# las 20:23 UTC — 49 minutos después del último despliegue verde, que corrió
+# con la 4.132.0— y empezó a mandar `containers.configuration.observability.logs`
+# además del campo `observability` que la aplicación ya tenía. La API rechaza
+# las dos formas juntas.
+#
+# Un despliegue que depende de "lo último que hayan publicado" no es
+# reproducible: el mismo commit pasa hoy y falla mañana sin que nadie toque
+# nada. Subir esta versión es una decisión deliberada, no un efecto secundario.
+env:
+  WRANGLER: "4.132.0"
+  # Desde `push` no hay inputs: se despliega.
+  QUE_HACER: ${{ inputs.que_hacer || 'desplegar' }}
+
+concurrency:
+  group: puente-wa
+
+jobs:
+  puente:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: puente-wa
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      # Node 22: wrangler 4.x aborta en 20 con un mensaje que no nombra la causa
+      # real. Ya nos costó un deploy — ver docs/bitacora-whatsapp-qr.md.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      # El puente dejó de ser autosuficiente: desde que extiende la clase
+      # `Container`, su bundle importa `@cloudflare/containers` y esbuild tiene
+      # que poder resolverlo. Sin este paso el deploy muere al empaquetar, con
+      # un error de módulo no encontrado que no dice que falte instalar.
+      #
+      # `working-directory: .` porque las dependencias viven en la raíz del
+      # repo, no dentro de puente-wa/, que no tiene package.json propio.
+      - name: Instalar dependencias
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Revisar los secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WA_TOKEN: ${{ secrets.WA_TOKEN }}
+        run: |
+          falta=0
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Falta CLOUDFLARE_API_TOKEN."
+            falta=1
+          fi
+          if [ "$QUE_HACER" = "desplegar" ]; then
+            if [ -z "$WA_TOKEN" ]; then
+              echo "::error::Falta el secret WA_TOKEN."
+              echo "Genera uno en tu computador o teléfono y guárdalo en:"
+              echo "  Settings -> Secrets and variables -> Actions -> New repository secret"
+              echo "Tiene que ser SOLO ASCII: letras, números y guiones. 32+ caracteres."
+              falta=1
+            else
+              # Esta validación existe por un incidente real. Un token con una
+              # tilde o una eñe funciona en TODA prueba hecha por navegador —la
+              # URL lo codifica bien— y falla solo en la máquina: Node escribe
+              # las cabeceras en latin-1 y Cloudflare las lee como UTF-8, así que
+              # el token llega del mismo largo y con distinto contenido. El 401
+              # resultante no delata nada. Mejor rechazarlo aquí.
+              largo=${#WA_TOKEN}
+              if [ "$largo" -lt 24 ]; then
+                echo "::error::WA_TOKEN es demasiado corto ($largo). Mínimo 24 caracteres."
+                falta=1
+              fi
+              if printf '%s' "$WA_TOKEN" | LC_ALL=C grep -q '[^ -~]'; then
+                echo "::error::WA_TOKEN tiene caracteres fuera de ASCII imprimible."
+                echo "Un token con tilde o eñe pasa toda prueba por navegador y falla"
+                echo "solo en la maquina. Usa letras, numeros y guiones."
+                falta=1
+              fi
+            fi
+          fi
+          [ "$falta" = "0" ] || exit 1
+
+      # La base de la sesion ya existe y su id esta en el wrangler.toml. Este
+      # paso NO es para este bot: es para que el mismo workflow sirva tal cual
+      # en el siguiente cliente, donde la base no existe y el dueno tampoco usa
+      # la terminal. Por eso crea si falta y, si puede resolver el id, lo
+      # escribe; y por eso no falla si no puede — el id comiteado es correcto y
+      # tumbar aqui el despliegue por un paso de comodidad seria peor.
+      - name: Confirmar la base de la sesion
+        if: ${{ env.QUE_HACER == 'desplegar' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx wrangler@$WRANGLER d1 create juancitoads-bot-wa-auth \
+            || echo "La base ya existia. Se sigue."
+          id=$(npx wrangler@$WRANGLER d1 list --json 2>/dev/null \
+                | node -e 'let e="";process.stdin.on("data",d=>e+=d).on("end",()=>{
+                    try{
+                      const b=JSON.parse(e).find(x=>x.name==="juancitoads-bot-wa-auth");
+                      process.stdout.write(b&&b.uuid?b.uuid:"");
+                    }catch{process.stdout.write("")}
+                  })' || true)
+          if [ -z "$id" ]; then
+            echo "::warning::No se pudo resolver el id por API. Se usa el del wrangler.toml."
+          else
+            echo "Base juancitoads-bot-wa-auth -> $id"
+            sed -i "s/^database_id = \".*\"/database_id = \"$id\"/" wrangler.toml
+          fi
+          grep '^database_id' wrangler.toml
+
+      - name: Aplicar el esquema a D1
+        if: ${{ env.QUE_HACER == 'desplegar' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler@$WRANGLER d1 execute juancitoads-bot-wa-auth --file=esquema.sql --remote --yes
+
+      - name: Guardar WA_TOKEN en el Worker
+        if: ${{ env.QUE_HACER == 'desplegar' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WA_TOKEN: ${{ secrets.WA_TOKEN }}
+        # Por stdin: así no aparece en la línea de comandos ni en el log.
+        run: printf '%s' "$WA_TOKEN" | npx wrangler@$WRANGLER secret put WA_TOKEN
+
+      # Aquí se ejercita "Cloudflare Images: Edit". Si sale
+      # `Forbidden - Authentication error` DESPUÉS de construir la imagen,
+      # revisa primero el PLAN de la cuenta: en el plan gratis los contenedores
+      # no existen y el error miente.
+      - name: Desplegar el puente
+        if: ${{ env.QUE_HACER == 'desplegar' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler@$WRANGLER deploy
+
+      # Un contenedor SANO no toma una imagen nueva: el latido lo ve corriendo y
+      # lo deja en paz. En el piloto costó ~30 minutos diagnosticar código
+      # viejo creyendo que era el nuevo, y el paso quedaba en manos de alguien
+      # que se acordara de tocar "Reiniciar el servicio" en el panel.
+      #
+      # Aquí se hace lo mismo que ese botón: /api/reiniciar destruye el
+      # contenedor y lo levanta con la imagen nueva. La sesión vive en D1, así
+      # que vuelve en menos de un minuto SIN pedir QR. La pausa de antes es para
+      # que la versión nueva termine de propagarse.
+      - name: Reiniciar el contenedor (toma la imagen nueva)
+        if: ${{ env.QUE_HACER == 'desplegar' }}
+        working-directory: .
+        env:
+          WA_TOKEN: ${{ secrets.WA_TOKEN }}
+        run: |
+          URL="$(grep -oP '^WA_PUENTE_URL\s*=\s*"\K[^"]+' wrangler.toml)"
+          if [ -z "$URL" ]; then
+            echo "::warning::No encontré WA_PUENTE_URL en wrangler.toml. Reinicie desde el panel: Conexiones → WhatsApp (QR) → Reiniciar el servicio."
+            exit 0
+          fi
+          sleep 30
+          TOKEN_B64="$(printf '%s' "$WA_TOKEN" | base64 -w0)"
+          if RESP="$(curl -sS --fail-with-body --retry 3 --retry-delay 10 --max-time 60 \
+                      -X POST "$URL/api/reiniciar" -H "x-wa-token-b64: $TOKEN_B64")"; then
+            echo "$RESP"
+            echo "Contenedor reiniciado con la imagen nueva. Vuelve solo, sin pedir QR."
+          else
+            echo "$RESP"
+            echo "::warning::No se pudo reiniciar solo. Hágalo desde el panel: Conexiones → WhatsApp (QR) → Reiniciar el servicio."
+          fi
+
+      - name: Borrar el puente
+        if: ${{ env.QUE_HACER == 'borrar-el-puente' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        # La base `juancitoads-bot-wa-auth` NO se borra aquí: contiene la sesión de
+        # WhatsApp, y borrarla obligaria a re-escanear el QR. Se borra a mano
+        # desde el panel de Cloudflare si de verdad se quiere empezar de cero.
+        run: npx wrangler@$WRANGLER delete --name juancitoads-bot-wa

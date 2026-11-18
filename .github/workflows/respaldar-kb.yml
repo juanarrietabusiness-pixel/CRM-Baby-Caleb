@@ -1,0 +1,85 @@
+# Respaldar la base de conocimiento — una COPIA del panel en GitHub.
+#
+# El panel (/admin → KB) es la ÚNICA fuente de lo que el bot sabe. Esto guarda
+# una copia de cada documento en member/kb-respaldo/ para tener historial (qué
+# decía una regla el mes pasado, quién la cambió) y poder recuperar un
+# documento borrado por error.
+#
+# Va en UNA sola dirección: panel → GitHub. El bot no lee esta carpeta, el
+# despliegue no la toca (deploy.yml la ignora) y hay una prueba que falla si
+# alguien la conecta al índice. Cambiarla aquí no cambia nada en el bot: para
+# eso, el panel.
+#
+# Necesita el secret KB_REINDEX_TOKEN (el mismo del despliegue).
+name: Respaldar la base de conocimiento
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # todos los días, 11 p.m. de Panamá
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: respaldar-kb
+  cancel-in-progress: false
+
+jobs:
+  respaldar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Bajar los documentos del panel
+        env:
+          KB_REINDEX_TOKEN: ${{ secrets.KB_REINDEX_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KB_REINDEX_TOKEN" ]; then
+            echo "::error::Falta el secret KB_REINDEX_TOKEN del repositorio."
+            exit 1
+          fi
+          URL="$(grep -oP 'DASHBOARD_BASE_URL\s*=\s*"\K[^"]+' wrangler.toml)"
+          curl -sS --fail-with-body --retry 3 --retry-delay 5 --max-time 60 \
+            "$URL/kb/export" -H "X-Reindex-Token: $KB_REINDEX_TOKEN" > kb.json
+          jq -e '.ok == true and (.docs | length) > 0' kb.json > /dev/null || {
+            echo "::error::El panel no devolvió documentos. No se toca el respaldo (un panel vacío no borra la copia)."
+            exit 1
+          }
+
+      - name: Escribir la copia
+        run: |
+          set -euo pipefail
+          rm -f member/kb-respaldo/*.md
+          mkdir -p member/kb-respaldo
+          node -e '
+            const fs = require("fs");
+            const { docs } = JSON.parse(fs.readFileSync("kb.json", "utf8"));
+            const slug = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "documento";
+            const usados = new Set();
+            for (const d of docs) {
+              let nombre = /^[a-z0-9-]+$/.test(d.id) ? d.id : slug(d.title);
+              while (usados.has(nombre)) nombre += "-2";
+              usados.add(nombre);
+              const cuerpo = d.content.replace(/\r\n/g, "\n").trim();
+              fs.writeFileSync(`member/kb-respaldo/${nombre}.md`, `<!-- id: ${d.id} -->\n# ${d.title}\n\n${cuerpo}\n`);
+            }
+            console.log(`${docs.length} documento(s) copiados.`);
+          '
+          rm -f kb.json
+
+      - name: Guardar en el repositorio (solo si cambió algo)
+        run: |
+          set -euo pipefail
+          git add -A member/kb-respaldo
+          if git diff --cached --quiet; then
+            echo "Sin cambios desde el último respaldo."
+            exit 0
+          fi
+          git diff --cached --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Respaldo de la base de conocimiento del panel ($(date -u +%Y-%m-%d))"
+          git push

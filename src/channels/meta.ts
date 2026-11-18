@@ -11,6 +11,16 @@
 import type { ChannelAdapter, IncomingMessage, OutgoingReply, ChannelId } from "./shared";
 import type { Env } from "../env";
 import { graphVersion, GRAPH_API_VERSION } from "./graph";
+import { rutaDe } from "./metaRuta";
+
+// Los secrets de la ruta de Instagram Login se aceptan con DOS nombres. El
+// panel de Cloudflare los llama `META_IG_*` en algunas instalaciones y así
+// nadie tiene que volver a pegar un token para que el bot lo vea.
+export const instagramToken = (env: Env): string | undefined =>
+  env.INSTAGRAM_ACCESS_TOKEN?.trim() || env.META_IG_ACCESS_TOKEN?.trim() || undefined;
+
+export const instagramAppSecret = (env: Env): string | undefined =>
+  env.INSTAGRAM_APP_SECRET?.trim() || env.META_IG_APP_SECRET?.trim() || undefined;
 
 
 interface MetaMessaging {
@@ -29,6 +39,27 @@ interface MetaMessaging {
 interface MetaWebhookBody {
   object?: string;
   entry?: { id?: string; time?: number; messaging?: MetaMessaging[] }[];
+}
+
+/**
+ * Un adjunto que la clienta mandó a propósito y el bot NO puede leer.
+ *
+ * `file` y `video` antes caían en el `continue` de `parseMetaEvents` y el
+ * mensaje desaparecía entero: ni guardado, ni ticket, ni respuesta — y el
+ * comprobante de una transferencia llega en PDF muy seguido.
+ *
+ * `story_mention`, `share` y compañía se quedan FUERA a propósito: no son un
+ * archivo que haya que revisar (a esta cuenta la etiquetan en historias todos
+ * los días) y abrir un ticket por cada una sería avisarle a la dueña de nada.
+ * Esos los cuenta `resumirMetaEventos` aparte, para que el panel pueda decir
+ * que se están descartando.
+ */
+const ADJUNTO_ILEGIBLE = new Set(["file", "video"]);
+
+/** ¿Este adjunto es un mensaje de la clienta? Una sola definición para las dos
+ *  funciones de abajo: si se separan, el resumen del panel miente. */
+function adjuntoEsContenido(tipo?: string): boolean {
+  return tipo === "audio" || tipo === "image" || (tipo !== undefined && ADJUNTO_ILEGIBLE.has(tipo));
 }
 
 /**
@@ -56,12 +87,10 @@ export function parseMetaEvents(body: MetaWebhookBody): IncomingMessage[] {
       if (!sender) continue;
       const audio = m.attachments?.find((a) => a.type === "audio");
       const image = m.attachments?.find((a) => a.type === "image");
-      // Cualquier otro adjunto (file, video, …) no se puede leer, pero tampoco
-      // se puede tirar: antes caía en el `continue` de abajo y la clienta
-      // quedaba en visto. Genera mensaje para que se abra el ticket.
-      const otro = m.attachments?.find(
-        (a) => a.type && a.type !== "audio" && a.type !== "image",
-      );
+      // Un PDF o un video no se pueden leer, pero tampoco se pueden tirar:
+      // antes caían en el `continue` de abajo y la clienta quedaba en visto.
+      // Generan mensaje para que se abra el ticket (ver ADJUNTO_ILEGIBLE).
+      const otro = m.attachments?.find((a) => ADJUNTO_ILEGIBLE.has(a.type));
       if (!m.text && !audio && !image && !otro) continue; // recibos/postbacks sin contenido
       out.push({
         channel,
@@ -79,6 +108,104 @@ export function parseMetaEvents(body: MetaWebhookBody): IncomingMessage[] {
     }
   }
   return out;
+}
+
+/**
+ * Por qué se descartó cada evento de un POST, para el diagnóstico del panel.
+ *
+ * `parseMetaEvents` tira cuatro clases de evento en silencio, y una de ellas
+ * —"sin texto ni audio ni imagen"— incluye mensajes de verdad: una respuesta a
+ * una historia llega como adjunto `story_mention`, y un producto compartido
+ * como `share`. Si eso estuviera pasando, el síntoma sería idéntico al de "no
+ * me llegan los DMs", pero la culpa sería nuestra y no de Meta.
+ *
+ * Cuenta sin guardar nada del cliente: ni texto, ni ids, solo tipos.
+ */
+export interface ResumenMeta {
+  total: number;
+  conMensaje: number;
+  echo: number;
+  quickReply: number;
+  sinRemitente: number;
+  /** Eventos sin `message`: recibos de entrega y de lectura, reacciones. */
+  recibo: number;
+  /** Trae mensaje, pero sin texto ni audio ni imagen: aquí viven los perdidos. */
+  sinContenido: number;
+  /** Tipos de adjunto vistos en los descartados (story_mention, share, …). */
+  tipos: string[];
+  /**
+   * Eventos que Meta puso en `standby` en vez de en `messaging`.
+   *
+   * Cuando dos apps están suscritas a la misma Página, el protocolo de
+   * transferencia de Meta manda los mensajes entrantes SOLO a la receptora
+   * principal; las demás los reciben aquí. Los ecos y los recibos llegan
+   * igual por `messaging`, así que el síntoma es exactamente este: "salen sí,
+   * entran no". No los procesamos —sin control del hilo no se puede
+   * responder— pero contarlos dice si es esto lo que pasa.
+   */
+  standby: number;
+  /** Otras llaves de `entry` que no sabemos leer, por si Meta cambia la forma. */
+  otrasLlaves: string[];
+}
+
+const LLAVES_CONOCIDAS = new Set(["id", "time", "messaging", "standby", "changes"]);
+
+export function resumirMetaEventos(body: MetaWebhookBody): ResumenMeta {
+  const r: ResumenMeta = {
+    total: 0, conMensaje: 0, echo: 0, quickReply: 0, sinRemitente: 0, recibo: 0, sinContenido: 0, tipos: [],
+    standby: 0, otrasLlaves: [],
+  };
+  const tipos = new Set<string>();
+  const otras = new Set<string>();
+  for (const entry of (body.entry ?? []) as Record<string, unknown>[]) {
+    const enEspera = Array.isArray(entry.standby) ? entry.standby : [];
+    r.standby += enEspera.length;
+    r.total += enEspera.length; // llegaron: que el conteo no los esconda
+    for (const k of Object.keys(entry)) if (!LLAVES_CONOCIDAS.has(k)) otras.add(k);
+    for (const ev of ((entry.messaging ?? []) as MetaMessaging[])) {
+      r.total++;
+      const m = ev.message;
+      if (!m) { r.recibo++; continue; }
+      if (m.is_echo) { r.echo++; continue; }
+      if (m.quick_reply) { r.quickReply++; continue; }
+      if (!ev.sender?.id) { r.sinRemitente++; continue; }
+      const tieneMedio = m.attachments?.some((a) => adjuntoEsContenido(a.type));
+      if (!m.text && !tieneMedio) {
+        r.sinContenido++;
+        for (const a of m.attachments ?? []) if (a?.type) tipos.add(a.type);
+        continue;
+      }
+      r.conMensaje++;
+    }
+  }
+  r.tipos = [...tipos];
+  r.otrasLlaves = [...otras];
+  return r;
+}
+
+/** El resumen en una línea de español, para la tarjeta de Conexiones. */
+export function describirResumen(r: ResumenMeta): string {
+  const partes: string[] = [];
+  // Primero, porque si aparece explica TODO lo demás.
+  if (r.standby) {
+    partes.push(
+      `${r.standby} en STANDBY (otra app de Meta es la receptora principal de esta Página; por eso entran los ecos y no los mensajes)`,
+    );
+  }
+  if (r.conMensaje) partes.push(`${r.conMensaje} con mensaje`);
+  if (r.recibo) partes.push(`${r.recibo} recibo/reacción`);
+  if (r.echo) partes.push(`${r.echo} eco de la propia cuenta`);
+  if (r.quickReply) partes.push(`${r.quickReply} tap de botón`);
+  if (r.sinRemitente) partes.push(`${r.sinRemitente} sin remitente`);
+  if (r.sinContenido) {
+    partes.push(
+      r.tipos.length
+        ? `${r.sinContenido} con adjunto que NO procesamos (${r.tipos.join(", ")})`
+        : `${r.sinContenido} sin texto ni adjunto`,
+    );
+  }
+  if (r.otrasLlaves.length) partes.push(`llaves que no leemos: ${r.otrasLlaves.join(", ")}`);
+  return `${r.total} evento(s): ${partes.join(", ") || "ninguno reconocible"}`;
 }
 
 /**
@@ -144,9 +271,20 @@ export const metaAdapter: ChannelAdapter = {
     //    + INSTAGRAM_ACCESS_TOKEN.
     //  • Messenger / IG ligado a una Página de Facebook → graph.facebook.com
     //    + META_PAGE_ACCESS_TOKEN.
-    const useIG = reply.channel === "instagram" && !!env.INSTAGRAM_ACCESS_TOKEN;
+    // Se responde POR DONDE ENTRÓ el mensaje. El id de quien escribe no tiene
+    // por qué ser el mismo en las dos rutas, así que contestar por la otra
+    // puede acabar en "destinatario desconocido". La ruta la anotó el webhook
+    // según cuál App Secret validó la firma; si no hay anotación (mensajes de
+    // antes de esto, o sin D1), se cae al criterio de siempre: Instagram Login
+    // si hay token suyo.
+    const igToken = instagramToken(env);
+    const ruta = reply.channel === "instagram" ? await rutaDe(env, reply.channelUserId) : "page";
+    const useIG =
+      reply.channel === "instagram" &&
+      !!igToken &&
+      (ruta !== "page" || !env.META_PAGE_ACCESS_TOKEN);
     const base = useIG ? "https://graph.instagram.com" : "https://graph.facebook.com";
-    const token = useIG ? env.INSTAGRAM_ACCESS_TOKEN : env.META_PAGE_ACCESS_TOKEN;
+    const token = useIG ? igToken : env.META_PAGE_ACCESS_TOKEN;
     if (!token) {
       throw new Error("Meta: falta INSTAGRAM_ACCESS_TOKEN (IG Login) o META_PAGE_ACCESS_TOKEN (Messenger).");
     }
@@ -162,7 +300,11 @@ export const metaAdapter: ChannelAdapter = {
         recipient: { id: reply.channelUserId },
         message: { text: reply.chunks[i] },
       };
-      if (!useIG) payload.messaging_type = "RESPONSE"; // requerido en Messenger, no en IG Login
+      // `messaging_type` es de Messenger. La Send API de Instagram no lo acepta
+      // en NINGUNO de sus dos caminos — ni IG Login, ni IG ligado a una Página
+      // (que sale por graph.facebook.com con el Page Access Token, igual que
+      // Messenger). Atarlo a `!useIG` lo colaba en ese segundo caso.
+      if (reply.channel === "messenger") payload.messaging_type = "RESPONSE";
       const res = await fetch(url, {
         method: "POST",
         headers: {

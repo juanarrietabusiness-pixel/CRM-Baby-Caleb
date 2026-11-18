@@ -43,7 +43,8 @@ export function catalogQueryTool(env: Env) {
       "esa cantidad en `cantidad`: si `alcanza` es true, confirma sin dar cifras de inventario; si es false, " +
       "ofrece `maximoDisponible`, que es lo máximo que puedes prometer. Fuera de ese caso la cantidad exacta de " +
       "inventario no se le dice a la clienta: si viene 'pocas', di que quedan pocas unidades; si viene 'agotado', " +
-      "dilo y ofrece avisar cuando entre.",
+      "dilo y ofrece apartarlo con un abono mínimo de $5 para cuando llegue el siguiente stock (ver la base de " +
+      "conocimiento: 'Talla o producto agotado'); si le interesa, anótala con captureLead.",
     inputSchema: z.object({
       query: z
         .string()

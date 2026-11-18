@@ -236,3 +236,179 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 );
 CREATE INDEX IF NOT EXISTS idx_catalog_code ON catalog_items(code);
 CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(active);
+
+-- ── Movimientos de inventario ──────────────────────────────────────────────
+-- Cada cambio de stock que NO hace el editor del panel queda anotado aquí:
+-- una venta registrada desde Telegram, una devolución, un ajuste. El número
+-- vivo sigue siendo catalog_items.stock_qty (un dato, un solo dueño), esto es
+-- la bitácora que permite contestar "¿por qué el M bajó a 3?" y deshacer.
+-- delta: unidades que se sumaron (positivo) o restaron (negativo). Una
+-- devolución que NO vuelve al inventario (producto abierto) se anota con 0.
+-- kind: venta | devolucion | ajuste | deshacer
+-- actor: quién lo pidió (telegram:<chat id>, panel, bot)
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id              TEXT PRIMARY KEY,
+  code            TEXT NOT NULL,
+  branch          TEXT NOT NULL,
+  delta           INTEGER NOT NULL,
+  kind            TEXT NOT NULL,
+  note            TEXT,
+  conversation_id TEXT,
+  actor           TEXT,
+  undone_at       INTEGER,
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_code ON stock_movements(code, created_at);
+
+-- ── Consola del dueño por Telegram ─────────────────────────────────────────
+-- Una acción que espera el SÍ del dueño: la venta que el bot propone, la
+-- devolución que pregunta si vuelve al inventario. El botón de Telegram solo
+-- carga el id (callback_data tiene tope de 64 bytes), el detalle vive aquí.
+-- status: pendiente | hecha | descartada
+CREATE TABLE IF NOT EXISTS owner_actions (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  payload    TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'pendiente',
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER
+);
+
+-- Cada aviso que se le manda al dueño por Telegram, con la conversación de la
+-- que habla. Es lo que permite que el dueño toque "Responder" sobre el aviso y
+-- su texto le llegue a ESA clienta, sin tener que copiar ningún identificador.
+CREATE TABLE IF NOT EXISTS owner_notices (
+  tg_chat_id      TEXT NOT NULL,
+  tg_message_id   INTEGER NOT NULL,
+  conversation_id TEXT,
+  ticket_id       TEXT,
+  created_at      INTEGER NOT NULL,
+  PRIMARY KEY (tg_chat_id, tg_message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_owner_notices_conv ON owner_notices(conversation_id);
+
+-- La conversación del dueño con su consola: lo que le dijo y lo que se le
+-- contestó. Es la memoria del asistente interno, para que "¿y la M?" o "dile
+-- que sí" se entiendan por lo que se habló antes, como pasa con las clientas.
+-- rol: dueno | consola
+CREATE TABLE IF NOT EXISTS owner_chat (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id    TEXT NOT NULL,
+  rol        TEXT NOT NULL,
+  contenido  TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_owner_chat ON owner_chat(chat_id, created_at);
+
+-- Audios e imágenes que llegan por el WhatsApp por QR. Baileys no deja una URL
+-- que se pueda descargar después (como la Cloud API o Telegram), así que el
+-- contenedor manda los bytes y se guardan aquí unas horas: lo justo para
+-- transcribirlos, que el modelo vea la imagen o reenviársela al dueño. En
+-- partes, porque una fila de D1 tiene tope de tamaño.
+CREATE TABLE IF NOT EXISTS media_temporal (
+  id         TEXT NOT NULL,
+  parte      INTEGER NOT NULL,
+  mime       TEXT NOT NULL,
+  datos      BLOB NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (id, parte)
+);
+CREATE INDEX IF NOT EXISTS idx_media_temporal_fecha ON media_temporal(created_at);
+
+-- Qué pedazos hay en el índice de la base de conocimiento (Vectorize) y de qué
+-- documento del panel salió cada uno. Vectorize no deja listar lo que tiene:
+-- sin esta tabla, un reindex solo puede SUMAR, y lo que se borró o se acortó se
+-- queda contestando para siempre. Con ella, el índice es un espejo del panel.
+CREATE TABLE IF NOT EXISTS kb_indice (
+  vector_id  TEXT PRIMARY KEY,
+  doc_id     TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kb_indice_doc ON kb_indice(doc_id);
+
+-- Los seguimientos a clientas que dejaron de contestar: 5 horas, 3 días y 7
+-- días (src/followup/run.ts). `ciclo` es la hora del último mensaje de la
+-- clienta: si vuelve a escribir, empieza un ciclo nuevo. La llave primaria es
+-- el claim — un paso de un ciclo sale una sola vez.
+CREATE TABLE IF NOT EXISTS seguimientos (
+  conversation_id TEXT NOT NULL,
+  ciclo           INTEGER NOT NULL,
+  paso            INTEGER NOT NULL,
+  enviado_en      INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, ciclo, paso)
+);
+CREATE INDEX IF NOT EXISTS idx_seguimientos_fecha ON seguimientos(enviado_en);
+
+-- Las compras que el seguimiento tiene que respetar (src/followup/compras.ts):
+-- quien compró no recibe seguimiento comercial hasta el de recompra. Aquí van
+-- las que marca la dueña (botón «✅ Compró» o /compro) y las que la clienta
+-- dice por escrito («ya compré», «ya pagué»). Las ventas de stock_movements y
+-- los tickets de pago también cuentan, pero se leen de sus propias tablas.
+-- `origen`: duena (la marcó ella) o dijo (lo escribió la clienta).
+CREATE TABLE IF NOT EXISTS compras (
+  id              TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  comprado_en     INTEGER NOT NULL,
+  origen          TEXT NOT NULL,
+  nota            TEXT,
+  actor           TEXT,
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_compras_conv ON compras(conversation_id, comprado_en);
+
+-- Las fotos de la clienta que ya le llegaron a la dueña por Telegram. Con esto
+-- cada aviso sobre una conversación lleva la última foto de la clienta, sin
+-- repetir la misma en el aviso siguiente (src/owner/avisos.ts).
+CREATE TABLE IF NOT EXISTS owner_fotos (
+  conversation_id TEXT NOT NULL,
+  url             TEXT NOT NULL,
+  enviada_en      INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, url)
+);
+
+-- Instagram por sus DOS rutas (Página de Facebook e Instagram Login). La misma
+-- cuenta puede estar suscrita por las dos a la vez, así que el mismo DM puede
+-- llegar dos veces: `meta_seen` guarda el id de mensaje ya procesado para no
+-- contestar doble (lo purga el cron diario a los 7 días).
+CREATE TABLE IF NOT EXISTS meta_seen (
+  mid TEXT PRIMARY KEY,
+  at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_meta_seen_at ON meta_seen(at);
+
+-- Y por cuál de las dos rutas llegó el último mensaje de cada persona: el id de
+-- quien escribe NO es el mismo en las dos, así que hay que responder por donde
+-- entró. Ver src/channels/metaRuta.ts.
+CREATE TABLE IF NOT EXISTS meta_ruta (
+  channel_user_id TEXT PRIMARY KEY,
+  ruta            TEXT NOT NULL,
+  at              INTEGER NOT NULL
+);
+
+-- Difusiones: UN mensaje de la dueña a muchas clientas (las que escribieron
+-- sobre un tema), mandado de a poco por el cron de cada hora para que el
+-- WhatsApp por QR no lo tome por spam. Ver src/difusion/difusion.ts.
+-- estado: borrador (armada, sin ▶️) · activa · pausada · terminada · descartada.
+CREATE TABLE IF NOT EXISTS difusiones (
+  id           TEXT PRIMARY KEY,
+  texto        TEXT NOT NULL,
+  tema         TEXT NOT NULL,
+  por_dia      INTEGER NOT NULL,
+  estado       TEXT NOT NULL,
+  creada_en    INTEGER NOT NULL,
+  empezada_en  INTEGER,
+  terminada_en INTEGER
+);
+
+-- A quién le toca. estado: pendiente · enviando (el claim, antes de salir) ·
+-- enviado · saltado (motivo: dijo que no le interesa, la atendía una persona…)
+-- · error (el canal falló: no se reintenta, mejor una de menos que repetida).
+CREATE TABLE IF NOT EXISTS difusion_envios (
+  difusion_id     TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  estado          TEXT NOT NULL,
+  motivo          TEXT,
+  enviado_en      INTEGER,
+  PRIMARY KEY (difusion_id, conversation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_difusion_envios_estado ON difusion_envios(difusion_id, estado);

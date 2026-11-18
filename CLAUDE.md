@@ -37,15 +37,70 @@ Cloudflare (~gratis, ~$5/mes con tráfico) y el cerebro es su propia llave de IA
 
 - `src/index.ts` — webhooks de canales (Telegram, WhatsApp, Meta…).
 - `src/agent.ts` — el Durable Object que piensa y responde (buffer + tools).
-- `src/llm/provider.ts` — el cerebro (Anthropic / OpenAI / xAI, con llave propia).
+- `src/llm/provider.ts` — el cerebro (Anthropic / OpenAI / xAI / **Meta** Muse Spark, con llave
+  propia). Meta va por su puerta compatible con Anthropic (`api.meta.ai/v1`) con
+  `META_API_KEY` (o `MODEL_API_KEY`), que **no** es el token de Messenger/Instagram. Cada
+  proveedor lleva su base explícita: nunca pongas `ANTHROPIC_BASE_URL` en el Worker.
+- `src/replies/revisor.ts` — lo que la respuesta NO puede decir (pago confirmado, pedido
+  tocado, promesa de entrega, tuteo, montos sin respaldo, `frasesProhibidas`), comprobado
+  antes de enviar: el modelo la rehace una vez y, si sigue, pasa a una persona. Ver la
+  cuarta auditoría de `docs/AUDITORIA_CONOCIMIENTO.md`.
 - `src/admin/` — el panel (`/admin`): Resumen, Conversaciones, Conexiones, Config, KB, Catálogo, Costos.
-- `src/tools/` — searchKb, handoffHuman, pauseBot, captureLead, scheduleAppointment, catalogQuery.
+- `src/tools/` — searchKb, handoffHuman, pauseBot, captureLead, scheduleAppointment, catalogQuery,
+  cotizarEnvio, y `avisarRetiroEnPersona`: **se vende solo online, por delivery** (decisión del
+  7-oct-2026). Si alguien quiere ir a la tienda o a la casa, el bot NO ofrece retiro, NO da
+  dirección y NO transfiere, pausa ni abre ticket: sigue ofreciendo el delivery y avisa en
+  silencio a la dueña por Telegram (un aviso cada 12 h por conversación); recibir a alguien lo
+  decide solo ella, y si escribe en el chat el bot se calla (`src/takeover.ts`).
 - `src/db/catalog.ts` + `src/catalog/validation.ts` — el catálogo (D1, tabla `catalog_items`):
   código, nombre, costo, venta, stock y bodega. El costo **nunca** sale hacia el bot y la
   cantidad exacta de stock tampoco — ver `docs/PLAN_CATALOGO_BABY_CALEB.md`.
-- `member/kb/` — la base de conocimiento versionada (políticas, pagos,
-  uso del producto, cuándo escalar). `pnpm kb:reindex` la vuelca a `scripts/kb-fixtures.json`.
+- La base de conocimiento tiene **dos dueños sin temas en común** (29-sep-2026):
+  el **conocimiento base** de la empresa (tallas, productos, quiénes somos, uso) en
+  `member/conocimiento/*.md` — lo cambia la agencia; tras editar, `pnpm conocimiento` — y
+  el **comportamiento** (pagos, envíos, retiro, cambios, agotados, escalar) en el panel
+  (`/admin/kb`, D1 `kb_docs`), que la dueña cambia también por Telegram. El índice es espejo
+  de los dos (`src/kb/docs.ts`, tabla `kb_indice`). `member/kb-respaldo/` es una COPIA diaria
+  del panel que hace `respaldar-kb.yml`: el bot no la lee — no la edites esperando cambiar al
+  bot. Las pruebas de `test/babycaleb/` leen las dos carpetas.
+- `src/followup/` — el seguimiento: solo a interesadas (el bot consultó catálogo o envío),
+  5 h / 3 días / 7 días, nunca si la dueña escribió último; quien compró (`compras.ts`)
+  descansa 15 días y recibe el de recompra. Todo eso son **ajustes** (`ajustes.ts`) que la
+  dueña cambia por Telegram (`/seguimiento`, `/compro`); **no** va en la base de
+  conocimiento, porque el cron no la lee. Ver `docs/AUDITORIA_CONOCIMIENTO.md`.
+- `src/difusion/` — **la difusión**: un mensaje de la dueña a todas las que escribieron
+  sobre un tema (lee lo que ELLAS escribieron, hasta 90 días), mandado de a poco por el
+  cron de cada hora — unas 40 al día, en el horario del seguimiento — porque por el
+  WhatsApp QR cientos de golpe hacen que bloqueen el número. Sale como mensaje del
+  equipo (no dispara el seguimiento). Se arma y se para desde Telegram (`/difusion`).
 - `src/niches/` — el "niche pack" genérico (Starter). Personaliza tono/columnas del panel.
+- `puente-wa/` — el canal **WhatsApp por código QR**: un Worker aparte
+  (`juancitoads-bot-wa`) con un contenedor que sostiene el WebSocket de Baileys.
+  Se despliega con su propio workflow (`puente-wa.yml`), NO con el del bot: si su
+  imagen no construye, el que no sale es el puente y el bot se sigue publicando.
+  Es un canal **alterno** — no es la API oficial y WhatsApp puede banear el
+  número, así que la Cloud API se queda conectada. Ver `docs/conectar-whatsapp-qr.md`
+  (para el dueño), `docs/plan-whatsapp-qr.md` (el procedimiento) y
+  `docs/bitacora-whatsapp-qr.md` (**lee esto antes de diagnosticar**: qué se
+  rompió, por qué, y cómo se consiguen los logs sin terminal).
+  Las notas de voz y las fotos las descarga el contenedor y viajan en base64;
+  el CRM las guarda unas horas en D1 (`src/media/almacen.ts`).
+  **Un contenedor sano no toma la imagen nueva**: `puente-wa.yml` lo reinicia solo
+  al terminar (sale solo cuando un merge cambia `puente-wa/`). Si ese paso avisa
+  que no pudo, se reinicia desde el panel.
+- Instagram y Messenger: `docs/conectar-instagram-facebook.md` (para el dueño, sin terminal).
+  Si la dueña contesta desde la app de Instagram/Facebook el bot NO se calla todavía
+  (`parseMetaEvents` ignora los echoes).
+- `src/takeover.ts` — cuando una persona contesta (panel, teléfono del WhatsApp
+  por QR o Telegram) el bot se calla en esa conversación. Un solo sitio para las
+  tres puertas; el plazo sale de Config.
+- `src/owner/` — la **consola del dueño por Telegram**: avisos con botones que se
+  pueden responder, comandos (`/pendientes`, `/venta`, `/devolucion`…) y un
+  asistente interno que sabe que habla con el jefe, entiende notas de voz y
+  fotos, y recuerda la conversación (`src/owner/memoria.ts`, tabla `owner_chat`).
+  El vínculo es el secret en Cloudflare o un enlace del panel, sin terminal. Ver
+  `docs/consola-del-dueno.md`. El inventario es una extensión
+  (`src/owner/inventario.ts`); cada movimiento queda en `stock_movements`.
 - `skill/` — asistentes para el usuario.
 
 ## Skills disponibles
@@ -72,20 +127,22 @@ Los iconos de `public/` se regeneran del logo del sitio con
 
 **Antes de escribir cualquier dato del negocio, lea `docs/FUENTES_DE_VERDAD.md`.** Es
 corto y es contrato. En resumen: el precio, la existencia y la cantidad por caja viven
-SOLO en `catalog_items` (D1) y el bot los ve solo con `catalogQuery`; las políticas y
-las formas de pago viven SOLO en `member/kb/` y las ve con `searchKb`; las tarifas de
-envío por zona viven SOLO en `member/zonas-envio.ts` y las ve con `cotizarEnvio`;
+SOLO en `catalog_items` (D1) y el bot los ve solo con `catalogQuery`; las políticas, las
+tarifas de envío y las formas de pago viven SOLO en la base de conocimiento del panel
+(`/admin/kb`) y las ve con `searchKb`;
 el trato y los límites duros viven en `member/config.local.ts`.
 
-Nunca escriba un precio de producto en `member/kb/` ni en `member/config.local.ts`. Lo que
+Nunca escriba un precio de producto en la base de conocimiento ni en `member/config.local.ts`. Lo que
 va al `<business_context>` se inyecta entero en el prompt en cada turno, así que el modelo
 lo lee **antes** de decidir si consulta el catálogo: un precio ahí le gana a D1 en silencio.
 Hay tests en `test/babycaleb/` que fallan si esa regla se rompe. Y como los tests
 vigilan los archivos pero el bot lee D1, **`pnpm auditar`** compara la base en vivo
 contra el documento de la dueña (solo lectura). El dueño de este bot **no usa la
 terminal**: la auditoría también corre desde la pestaña Actions ("Auditar la verdad"),
-y el despliegue entero —pruebas, esquema, Worker y reindexado de la base de
-conocimiento— lo hace `.github/workflows/deploy.yml` con cada merge a `main`.
+y el despliegue entero —pruebas, esquema, Worker, reindexado de la base de
+conocimiento y la auditoría en modo informativo— lo hace
+`.github/workflows/deploy.yml` con cada merge a `main`. Lo que se carga desde el
+panel contra lo que llega por GitHub: `docs/AUDITORIA_CONOCIMIENTO.md`.
 No le indiques comandos de terminal como único camino.
 
 La verdad del negocio es el documento de la dueña (**PREGUNTAS_BABY_CALEB_usted.docx**,

@@ -107,12 +107,28 @@ export async function renderLeads(env: Env): Promise<string> {
     .map((c) => `<span>${esc(c.h)}</span>`)
     .join("");
 
+  // Los públicos para Meta van aparte del export de siempre: aquel sirve para
+  // mirar los leads; estos se suben al cargador de públicos personalizados,
+  // con el teléfono en formato internacional y sin repetidos.
+  const botonPublico = (tipo: string, texto: string, titulo: string) =>
+    `<a href="/admin/leads/publico.csv?tipo=${tipo}" class="ghostbtn" title="${esc(titulo)}"
+        style="display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);color:var(--muted);padding:9px 14px;font-size:12.5px">
+       <i data-lucide="users" width="14" height="14"></i> ${esc(texto)}
+     </a>`;
+
   const body = `
-    <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <a href="/admin/leads/export.csv" class="ghostbtn" style="display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);color:var(--muted);padding:9px 14px;font-size:12.5px;transition:all .12s ease">
         <i data-lucide="download" width="14" height="14"></i> Exportar CSV
       </a>
+      ${botonPublico("compradoras", "Público: compradoras", "Las que tienen compra registrada. Es el mejor origen para un público similar (lookalike).")}
+      ${botonPublico("interesadas", "Público: interesadas", "Escribieron pero no hay compra registrada. Para retargeting.")}
+      ${botonPublico("todas", "Público: todas", "Todas las que dejaron teléfono o correo.")}
     </div>
+    <p class="text-dim text-[11.5px]" style="margin:0 0 16px;text-align:right">
+      Los “Público” salen listos para subir a Meta. Solo incluyen a quien dejó teléfono o correo:
+      sin eso, Meta no puede cruzar a la persona.
+    </p>
     <div class="bg-panel border border-line" style="overflow-x:auto">
       <div class="datagrid" style="min-width:${minWidth}px">
         <div class="datagrid-head" style="display:grid;grid-template-columns:${gridCols};gap:12px;padding:10px 18px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">

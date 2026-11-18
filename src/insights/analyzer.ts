@@ -131,7 +131,7 @@ Criterios:
 - summary: 1-2 frases en español — qué quería el cliente y cómo terminó.
 - missed_kb: si el bot NO supo responder algo concreto del negocio, la pregunta del cliente tal cual; si no, null.
 - sale_opportunity: true SOLO si el cliente mostró intención real de contratar/comprar algo de PAGO y quedó sin cerrar. NO cuentes como oportunidad: registros a eventos gratuitos, saludos, dudas informativas, ni interés vago sin un negocio o necesidad de pago detrás.
-- customer_facts: 0 a 5 datos del CLIENTE útiles para recordarlo en futuras conversaciones (nombre, preferencias, qué compró, qué le molestó). En español, cortos. NUNCA datos sensibles (tarjetas, passwords, direcciones exactas). Lista vacía si no hay nada memorable.
+- customer_facts: 0 a 5 datos del CLIENTE útiles para recordarlo en futuras conversaciones (nombre, preferencias, qué compró, qué le molestó). En español, cortos. NUNCA datos sensibles (tarjetas, passwords, direcciones exactas). NUNCA el precio de un producto ("la caja M cuesta $50"): los precios cambian y el bot los consulta en el catálogo; un pago que el cliente YA hizo sí se puede recordar ("pagó un abono por Yappy"). Lista vacía si no hay nada memorable.
 
 Dato: la conversación ${hasOpenTicket ? "SÍ" : "NO"} tiene ticket abierto.
 

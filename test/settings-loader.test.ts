@@ -36,6 +36,15 @@ describe("resolveAgentConfig", () => {
     expect(cfg.systemPrompt).not.toContain("{{");
   });
 
+  it("custom_instructions se SUMA al prompt generado: las fuentes de verdad siguen ahí", async () => {
+    await repo.set(SETTING_KEYS.customInstructions, "Si preguntan por envíos al interior, salen los martes.");
+    const cfg = await resolveAgentConfig(env as any, ["catalogQuery", "searchKb"]);
+    expect(cfg.systemPrompt).toContain("<instrucciones_del_negocio>");
+    expect(cfg.systemPrompt).toContain("salen los martes");
+    expect(cfg.systemPrompt).toContain("<fuentes_de_verdad>");
+    expect(cfg.systemPrompt).toContain("<business_context>");
+  });
+
   it("system_prompt_override wins over the generated prompt", async () => {
     await repo.set(SETTING_KEYS.systemPromptOverride, "MI PROMPT CUSTOM");
     const cfg = await resolveAgentConfig(env, TOOLS);

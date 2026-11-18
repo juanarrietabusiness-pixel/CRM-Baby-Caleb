@@ -15,9 +15,10 @@ function makeCtx(tier: "free" | "pro", niche?: string): ToolContext {
 }
 
 describe("buildTools", () => {
-  it("registers the 5 free-tier tools (incluye captureLead)", () => {
+  it("registers the 6 free-tier tools (incluye captureLead y el aviso de retiro)", () => {
     const tools = buildTools(makeCtx("free"));
     expect(Object.keys(tools).sort()).toEqual([
+      "avisarRetiroEnPersona",
       "captureLead",
       "handoffHuman",
       "pauseBot",
@@ -33,9 +34,10 @@ describe("buildTools", () => {
     expect(tools.catalogQuery).toBeUndefined();
   });
 
-  it("pro tier has the 5 base tools plus the 3 Pro tools", () => {
+  it("pro tier has the 6 base tools plus the 3 Pro tools", () => {
     const tools = buildTools(makeCtx("pro"));
     expect(Object.keys(tools).sort()).toEqual([
+      "avisarRetiroEnPersona",
       "captureLead",
       "catalogQuery",
       "cotizarEnvio",

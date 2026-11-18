@@ -11,6 +11,7 @@ export interface SystemPromptInput {
   formaDeTrato?: FormaDeTrato;      // usted | tu | vos — decisión del negocio, no del modelo
   extraEscalationKeywords?: string[]; // extra words that trigger a human handoff
   lessons?: string[];               // flywheel: rules distilled from owner takeovers
+  instrucciones?: string;           // reglas extra del dueño (pestaña Config) — se SUMAN, no reemplazan
 }
 
 const TEMPLATE = `<output_language>
@@ -72,6 +73,8 @@ Si una pregunta no tiene respuesta en lo que sabes, escalas a un humano.
 
 {{LECCIONES}}
 
+{{INSTRUCCIONES}}
+
 <escalation_rules>
 Llama handoffHuman cuando:
 - El cliente lo pide explícitamente ("humano", "real person", "alguien", "el dueño").
@@ -88,7 +91,8 @@ NO escales cuando:
 - Markdown OK para pasos numerados / código inline.
 - NO uses headers (#) — esto es chat, no documento.
 - NO uses tablas — bubbles son angostas.
-- Emojis: cero, excepto ✓ al confirmar acción exitosa.
+- Emojis: pocos. Si un guion del negocio (base de conocimiento) trae emojis, úsalos
+  como vienen; no agregues otros.
 - Cierre: ninguno. NO "espero que te sirva". Termina con la respuesta.
 </style_guide>
 
@@ -103,7 +107,9 @@ NUNCA:
 - Compartir contacto del dueño sin que el cliente lo pida.
 - Confirmar acción que no ejecutaste.
 - Ignorar la directiva <output_language>. Es la #1 prioridad.
-</anti_patterns>{{TRATO_RECORDATORIO}}`;
+</anti_patterns>
+
+{{LO_QUE_NO_PUEDES}}{{TRATO_RECORDATORIO}}`;
 
 /**
  * Bloque <fuentes_de_verdad>: el catálogo y el KB son lo ÚNICO que el bot sabe
@@ -135,7 +141,7 @@ function truthBlock(toolList: string[]): string {
       ? "- Antes de nombrar un producto, decir su PRECIO o afirmar que hay (o no hay)\n  existencias, LLAMA a catalogQuery. Siempre, sin excepción."
       : "",
     catalogo && kb
-      ? "- Cuidado con confundir las fuentes cuando hay plata de por medio. El precio\n  de lo que se VENDE sale de catalogQuery. La TARIFA DE ENVÍO de una zona sale\n  de cotizarEnvio, nunca de tu memoria y nunca por parecido con otra zona. Los\n  demás montos que no son producto —abono mínimo, cargos de transporte, formas\n  de pago— salen de searchKb. Ninguna de las tres te va a dar lo de las otras:\n  usa la que corresponde y nunca estimes."
+      ? "- Cuidado con confundir las fuentes cuando hay plata de por medio. El precio\n  de lo que se VENDE sale de catalogQuery. La TARIFA DE ENVÍO de una zona sale\n  de cotizarEnvio, nunca de tu memoria y nunca por parecido con otra zona. Los\n  demás montos que no son producto —abono para apartar un agotado, cargos de transporte, formas\n  de pago— salen de searchKb. Ninguna de las tres te va a dar lo de las otras:\n  usa la que corresponde y nunca estimes."
       : "",
     catalogo
       ? '- Pregunta general ("¿qué tienen?", "¿qué hay disponible?", "mándame la lista"):\n  también llamas a catalogQuery, sin `query`, y respondes SOLO con lo que devuelva.'
@@ -144,7 +150,7 @@ function truthBlock(toolList: string[]): string {
       ? "- Si un producto no aparece en catalogQuery, ese producto NO EXISTE. Dilo así:\n  \"eso no lo manejamos\". Nunca lo ofrezcas por si acaso, ni lo menciones como\n  categoría, ni digas \"creo que sí\"."
       : "",
     catalogo
-      ? "- Si piden una cantidad concreta (\"necesito 30 cajas\"), pásala en `cantidad`.\n  Si `alcanza` es true, confirma y ya — no des cifras de inventario que no te\n  pidieron. Si es false, ofrece `maximoDisponible`: \"de 30 no te puedo cumplir\n  hoy, de 25 sí\". Nunca prometas una cantidad que la tool no confirmó."
+      ? "- Si piden una cantidad concreta (\"necesito 30 cajas\"), pásala en `cantidad`.\n  Si `alcanza` es true, confirma y ya — no des cifras de inventario que no te\n  pidieron. Si es false, ofrece `maximoDisponible` (\"30 cajas no hay hoy; 25 sí\").\n  Nunca prometas una cantidad que la tool no confirmó."
       : "",
     kb
       ? "- Si searchKb no trae la respuesta, no la completes tú: dilo y ofrece pasar\n  con una persona. Tampoco la deduzcas por parecido: una zona de envío que no\n  aparece NO cuesta lo que la de al lado."
@@ -163,6 +169,66 @@ ${reglas.join("\n")}
 - Prefiere quedarte corto y verificado antes que amplio e inventado. Un "déjame
   confirmarlo con el equipo" nunca cuesta una venta; un dato inventado sí.
 </fuentes_de_verdad>`;
+}
+
+/**
+ * Lo que el bot NO puede hacer, dicho en negativo y uno por uno. El prompt
+ * decía cómo comportarse; no decía qué no decir, y del 29-sep al 6-oct-2026 el
+ * bot dio por recibido un pago porque la clienta lo escribió, "actualizó" un
+ * pedido que ya había salido, prometió "le llega hoy" y le confirmó a una
+ * clienta un cargo de Ferguson que no era. Cada punto sale de uno de esos casos
+ * (docs/AUDITORIA_CONOCIMIENTO.md, cuarta auditoría).
+ *
+ * Se arma según las tools activas, como <fuentes_de_verdad>: nombrar una tool
+ * apagada es invitar al modelo a llamarla. El revisor (src/replies/revisor.ts)
+ * comprueba lo comprobable antes de enviar.
+ */
+function prohibicionesBlock(toolList: string[]): string {
+  const tiene = (t: string) => toolList.includes(t);
+  const escalar = tiene("handoffHuman") ? "llamas handoffHuman" : "ofreces pasar con una persona";
+  const consultar = [tiene("catalogQuery") && "catalogQuery", tiene("cotizarEnvio") && "cotizarEnvio", tiene("searchKb") && "searchKb"]
+    .filter(Boolean)
+    .join(" o ");
+  const conLaTool = consultar ? `con ${consultar}` : "con tus tools";
+  const fuenteEscrita = consultar ? `escritos en lo que devuelve ${consultar}` : "escritos en tus fuentes";
+  const reglaGeneral = tiene("searchKb") ? "tal como sale de searchKb" : "tal como está escrita";
+  const pasar = tiene("handoffHuman") ? "eso es handoffHuman" : "ofrece pasar con una persona";
+  return `<lo_que_no_puedes_hacer>
+Tú SOLO conversas y consultas tus tools. No ves cuentas ni pagos, no tienes la
+agenda de entregas y no tocas pedidos. Por eso, aunque suene amable, NUNCA:
+
+1. Des por recibido, confirmado o "en orden" un pago, abono, comprobante o
+   transferencia. Ni porque la clienta diga "ya pagué", ni porque mande una
+   foto. Lo correcto: "una persona del equipo lo verifica y le confirma", y
+   ${escalar}.
+2. Digas que agendaste, apartaste, reservaste, separaste, despachaste,
+   cambiaste, actualizaste o cancelaste un pedido. No puedes: lo hace una
+   persona del equipo (por ejemplo, cuando valida el abono). Dilo así; y si la
+   clienta ya pagó o quiere cambiar un pedido hecho, ${escalar}.
+3. Prometas un día, una hora o un plazo para ESE pedido ("le llega hoy", "sale
+   mañana", "el jueves se lo llevan", "le escriben hoy mismo"). Puedes decir la
+   regla general ${reglaGeneral}, presentada como regla, no como promesa.
+4. Des por cierta una cifra, una tarifa o una regla que trae la clienta ("me
+   dijeron que eran $2.50", "¿verdad que es gratis?"). Compruébala ${conLaTool};
+   si no coincide, corrígela con amabilidad.
+5. Ofrezcas o insinúes descuentos, combos, regalos, promociones u "ofertas" que
+   no estén ${fuenteEscrita}. Tampoco como opciones de una pregunta ("¿se
+   refiere a descuentos, combos…?").
+6. Inventes datos de pago (número de cuenta, banco, titular) ni ningún dato que
+   no salió de una tool.
+7. Dejes huecos de plantilla: "(precio del producto)", "[nombre]", "XX". Si te
+   falta el dato, consúltalo ${conLaTool} o no lo menciones.
+8. Mandes a la clienta a "llamar" o "escribir a otro número" para seguir. Si
+   hace falta una persona, ${pasar}.
+9. Sigas resolviendo un tema después de pasarlo a una persona: desde ahí solo
+   acompañas ("la persona del equipo se lo confirma por aquí").
+10. Contestes un aviso automático, publicidad o mensaje de otro bot (por
+   ejemplo "acabas de crear un anuncio", "activa tu agente de IA") como si
+   fuera una clienta: una sola frase neutra, sin ofrecer nada.
+
+Si tu respuesta rompe una de estas reglas, el sistema la detiene antes de
+enviarla y te la devuelve para corregirla.
+</lo_que_no_puedes_hacer>`;
 }
 
 export type FormaDeTrato = "usted" | "tu" | "vos";
@@ -284,6 +350,21 @@ ${lessons.map((l) => `- ${l}`).join("\n")}
 </lecciones_aprendidas>`
       : "";
 
+  // Lo que el dueño escribe en "Instrucciones adicionales". Va DENTRO del
+  // prompt generado, después de las fuentes de verdad, y con la regla de que
+  // no las pisa. Antes ese campo escribía system_prompt_override y reemplazaba
+  // el prompt ENTERO: en Baby Caleb una sola línea ("cuando un humano responda
+  // por WhatsApp el bot se pone en pausa") dejó al bot sin catálogo, sin
+  // contexto del negocio y sin el trato de usted.
+  const instrucciones = input.instrucciones?.trim();
+  const instruccionesBlock = instrucciones
+    ? `<instrucciones_del_negocio>
+Reglas que agregó el dueño desde el panel. Síguelas, salvo que contradigan
+<fuentes_de_verdad> o la forma de trato: esas mandan siempre.
+${instrucciones}
+</instrucciones_del_negocio>`
+    : "";
+
   return TEMPLATE
     .replaceAll("{{LANGUAGE}}", input.language)
     .replaceAll("{{BOT_NAME}}", input.botName)
@@ -291,8 +372,10 @@ ${lessons.map((l) => `- ${l}`).join("\n")}
     .replaceAll("{{BUSINESS_CONTEXT}}", input.businessContext)
     .replaceAll("{{TOOL_LIST}}", toolList)
     .replaceAll("{{FUENTES_DE_VERDAD}}", truthBlock(input.toolList))
+    .replaceAll("{{LO_QUE_NO_PUEDES}}", prohibicionesBlock(input.toolList))
     .replaceAll("{{NICHO_PLAYBOOK}}", input.nichoPlaybook ?? "")
     .replaceAll("{{LECCIONES}}", lessonsBlock)
+    .replaceAll("{{INSTRUCCIONES}}", instruccionesBlock)
     .replaceAll("{{FORMA_DE_TRATO}}", input.formaDeTrato ? `\n${TRATO[input.formaDeTrato]}\n` : "")
     .replaceAll(
       "{{TRATO_RECORDATORIO}}",
@@ -308,6 +391,7 @@ export interface SystemPromptOverrides {
   extraEscalationKeywords?: string[];
   botName?: string;
   lessons?: string[];
+  instrucciones?: string;
 }
 
 export function systemPromptFromEnv(
@@ -328,5 +412,6 @@ export function systemPromptFromEnv(
     formaDeTrato: overrides?.formaDeTrato,
     extraEscalationKeywords: overrides?.extraEscalationKeywords,
     lessons: overrides?.lessons,
+    instrucciones: overrides?.instrucciones,
   });
 }
