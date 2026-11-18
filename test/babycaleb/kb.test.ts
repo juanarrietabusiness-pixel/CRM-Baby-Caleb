@@ -316,3 +316,57 @@ describe("el trato es de usted", () => {
     expect(conEslogan[0].content).toMatch(/es el eslogan y se\s+cita tal cual/);
   });
 });
+
+/**
+ * UN PRECIO DE ENVÍO ESCRITO EN LA BASE DE CONOCIMIENTO, Y ESTO PASÓ.
+ *
+ * El 17-nov-2026 el respaldo del panel traía esto, escrito por la dueña:
+ *
+ *   «Tarifa actualizada — 12 de Octubre: el delivery a 12 de Octubre es $4 […]
+ *    Si cotizarEnvio devuelve otro valor para esa zona, PREVALECE $4 por ser
+ *    tarifa corregida por el dueño.»
+ *
+ * Mientras tanto `member/zonas-envio.ts` decía $3, que es lo que devolvía
+ * `cotizarEnvio`. O sea: el bot tenía DOS números para la misma zona, y un
+ * documento que le ordenaba ignorar la herramienta. Dos clientas de la misma
+ * calle podían recibir dos tarifas distintas según por dónde pasara la
+ * respuesta.
+ *
+ * Y no lo cazó nada, porque los guardias que había miraban los precios de
+ * PRODUCTO, no los de envío. `docs/FUENTES_DE_VERDAD.md` §3 ya decía que las
+ * tarifas por zona viven solo en `member/zonas-envio.ts`: lo que faltaba era
+ * una máquina que lo comprobara.
+ *
+ * Este guardia NO busca una cifra concreta —eso envejece con el primer cambio
+ * de tarifa— sino la FORMA: el nombre de una zona del tarifario y un importe
+ * en dólares cerca. Si la dueña sube una tarifa, el sitio es
+ * `member/zonas-envio.ts`, no el panel.
+ */
+describe("las tarifas de envío tienen UN solo dueño", () => {
+  it("ninguna zona del tarifario lleva un precio escrito en la base de conocimiento", () => {
+    const culpables: string[] = [];
+
+    for (const zona of ZONAS_CIUDAD_PANAMA) {
+      const nombres = [zona.nombre, ...(zona.alias ?? [])];
+      for (const chunk of chunks) {
+        const texto = chunk.content.replace(/\s+/g, " ");
+        for (const nombre of nombres) {
+          const i = texto.toLowerCase().indexOf(nombre.toLowerCase());
+          if (i === -1) continue;
+          // Una ventana alrededor del nombre: un importe en la misma frase es
+          // lo que convierte una mención en una tarifa.
+          const cerca = texto.slice(Math.max(0, i - 120), i + 160);
+          const importe = /\$\s?\d+(?:[.,]\d{2})?/.exec(cerca);
+          if (importe !== null) {
+            culpables.push(`«${zona.nombre}» con ${importe[0]} en ${chunk.title}: …${cerca.trim()}…`);
+          }
+        }
+      }
+    }
+
+    expect(
+      culpables,
+      `Hay tarifas de envío escritas en la base de conocimiento. El precio por zona vive SOLO en member/zonas-envio.ts (docs/FUENTES_DE_VERDAD.md §3): el bot lo consulta con cotizarEnvio. Un número aquí le gana a la herramienta en silencio.\n\n${culpables.join("\n")}`,
+    ).toEqual([]);
+  });
+});

@@ -23,6 +23,11 @@
  *     retiro ni «excepción»: quien quiera ir en persona sigue siendo atendido, el
  *     bot le ofrece el delivery y avisa en silencio a la dueña
  *     (avisarRetiroEnPersona); nunca transfiere, pausa ni abre ticket por eso.
+ *   · nov-2026, la dueña: el delivery a 12 de Octubre sube de $3.00 a $4.00.
+ *     Lo había escrito en la base de conocimiento del panel, donde el precio
+ *     NO tiene dueño: el bot acabó con dos números para la misma zona y un
+ *     texto que le ordenaba ignorar la herramienta. El precio vive en
+ *     `member/zonas-envio.ts`; el texto del panel tiene que perderlo.
  *   · 29-sep-2026, la agencia con los precios de la dueña: costos de los pants,
  *     la caja de 1,200 wipes Dany Baby sale del catálogo (se vende por caja de
  *     600), los wipes Nateen SÍ se venden (caja de 960) y los rangos de peso de
@@ -100,7 +105,8 @@ export const TALLAS_PANTS: Array<{ talla: string; lbs: string; kg: string }> = [
  * porque el catálogo guarda cosas con existencias, y un envío no tiene stock.
  */
 export const TARIFAS_DELIVERY: Array<[string, string]> = [
-  ["12 de Octubre", "$3"],
+  // Subida por la dueña en nov-2026; el documento de septiembre decía $3.
+  ["12 de Octubre", "$4"],
   ["San Miguelito", "$4"],
   ["Vía España", "$4"],
   ["Albrook Mall", "$4"],
