@@ -57,9 +57,16 @@ new_sqlite_classes = ["PuenteWa"]
 [[containers]]
 class_name = "PuenteWa"
 image = "./contenedor/Dockerfile"
-# `lite` = 1/16 vCPU, 256 MiB, 2 GB disco. Es el tamaño cuyo costo se midió
-# (~$1.50–2.00/mes prendido 24/7).
-instance_type = "lite"
+# `basic` = 1/4 vCPU, 1 GiB, 4 GB disco (~$7/mes prendido 24/7).
+#
+# Era `lite` (1/16 vCPU, 256 MiB, ~$1.70/mes) y se quedó chico. El 24-nov-2026
+# el canal pasó más de doce horas en bucle: el contenedor conectaba con
+# WhatsApp, subía pre-keys y moría (código 137) antes de terminar de procesar
+# lo que se había juntado mientras estaba caído; cada vuelta encontraba más
+# pendiente que la anterior. Con 1/16 de CPU tampoco contestaba el /estado en
+# los 4 s que espera el Worker, y la vigilancia lo daba por caído. Ver
+# docs/bitacora-whatsapp-qr.md, «24-nov-2026».
+instance_type = "basic"
 # UNO. WhatsApp admite una sola conexión por dispositivo vinculado: dos
 # contenedores sobre el mismo número se expulsan entre sí en bucle.
 max_instances = 1

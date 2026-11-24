@@ -314,6 +314,51 @@ del negocio sí llega: eso viene de su chat, no de `status@broadcast`.
 
 ---
 
+## 24-nov-2026 · Doce horas en bucle: el contenedor `lite` se quedó chico
+
+**El síntoma.** «No responde el CRM.» En el teléfono la sesión seguía activa, y
+reiniciar desde el panel no lo arreglaba. Los logs del puente, una y otra vez:
+
+```
+There is no container instance that can be provided to this Durable Object, try again later
+contenedor arriba
+contenedor abajo: código 137 · exit
+```
+
+**La medición** (sin terminal, leyendo `juancitoads-bot-wa-auth`):
+
+- El último mensaje de una clienta que entró fue el 23-nov a las 23:49.
+- Desde la medianoche, la base de la sesión solo recibía **pre-keys**, de a 5,
+  cada uno a cinco minutos, más de doce horas seguidas: el contenedor conectaba
+  con WhatsApp, subía llaves y moría. En operación normal se escriben sesiones,
+  identidades y LIDs, que es tráfico de mensajes de verdad.
+- Ya había pasado en corto y se había curado solo: 20-nov (17–19 h), 22-nov
+  (15–17 h) y 23-nov (14–16 h). Esta vez no se curó.
+- Las pre-keys llegaron a **15.687** (lo sano es ~800): cada vuelta del bucle
+  sube unas cuantas y nadie las borra (ver «Deuda anotada»).
+
+**Por qué, hasta donde se puede saber desde afuera.** `lite` es 1/16 de vCPU y
+256 MiB. Al reconectar, WhatsApp entrega de golpe todo lo que se juntó mientras
+el contenedor estaba caído; procesarlo con 1/16 de CPU deja al proceso sin
+contestar el `/estado` en los ~4 s que espera el Worker, y la vigilancia cuenta
+eso como caído: pide reconectar cada 30 s y, a los cinco latidos, destruye el
+contenedor (eso es el 137, igual que el botón Reiniciar). Cada vuelta encuentra
+más pendiente que la anterior, así que no sale solo. El otro sospechoso del 137
+es quedarse sin memoria con 256 MiB; los logs no distinguen entre los dos.
+«There is no container instance…» es Cloudflare sin un contenedor listo para
+darle mientras el anterior se libera (`max_instances = 1`).
+
+**Cómo se arregló.** `instance_type = "basic"`: 1/4 de vCPU y 1 GiB, cuatro
+veces de cada cosa, por ~$5 más al mes. Cambiar el tamaño además obliga a
+Cloudflare a dar contenedores nuevos (es un *rollout*). Las credenciales viven
+en D1: no hizo falta QR.
+
+**Lo que queda pendiente** (en «Deuda anotada»): la vigilancia no le da tiempo
+a un contenedor que acaba de arrancar, y la política `default` de Containers
+está **deprecada** desde nov-2026.
+
+---
+
 ## Cómo se consiguen los logs sin abrir una terminal
 
 El dueño de este bot no usa la terminal, y el fallo de arriba era invisible
@@ -332,6 +377,15 @@ encontraron la causa:
 ---
 
 ## Deuda anotada
+
+- **La vigilancia no le da tiempo a un contenedor recién arrancado** (24-nov).
+  Cuenta como caído al que no contesta el `/estado` en ~4 s, le pide reconectar
+  cada 30 s y lo destruye a los cinco latidos — aunque esté ocupado procesando
+  lo que se juntó. Debería darle unos minutos de gracia tras cada arranque y no
+  pedirle reconectar mientras conecta.
+- **La política `default` de Containers está deprecada** (doc de Cloudflare,
+  14-nov-2026). Migrar a `durable_object` exige una clase de Durable Object
+  nueva y otra aplicación; la sesión de WhatsApp sobrevive porque vive en D1.
 
 - **Las pre-keys se acumulan.** Se podan a mano con `/api/podar` (conserva
   1000). Deliberadamente no es automático: borrar una llave que WhatsApp
